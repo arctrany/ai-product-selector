@@ -1,0 +1,35 @@
+{
+  "version": "0.0.64",
+  "project": {
+    "name": "ai-product-selector",
+    "type": "java-spring-boot",
+    "constitution": ".specify/memory/constitution.md"
+  },
+  "directories": {
+    "specs": "specs/",
+    "templates": ".specify/templates/",
+    "scripts": ".specify/scripts/bash/",
+    "memory": ".specify/memory/",
+    "commands": ".cursor/commands/"
+  },
+  "workflow": {
+    "default_sequence": ["constitution", "specify", "plan", "tasks", "implement"],
+    "optional_commands": ["clarify", "analyze", "checklist"]
+  },
+  "templates": {
+    "spec": ".specify/templates/spec-template.md",
+    "plan": ".specify/templates/plan-template.md",
+    "tasks": ".specify/templates/tasks-template.md",
+    "checklist": ".specify/templates/checklist-template.md"
+  },
+  "integration": {
+    "agent": "aone-copilot",
+    "mode": "direct",
+    "rules_file": ".aone_copilot/rules/default.md"
+  },
+  "team": {
+    "collaboration_mode": "spec-driven",
+    "conflict_resolution": "specification-first",
+    "review_required": true
+  }
+}

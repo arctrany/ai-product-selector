@@ -1,0 +1,41 @@
+# Spec-Kit Project Configuration
+# This file configures Spec-Kit for the AI Product Selector project
+
+# Project Information
+PROJECT_NAME="ai-product-selector"
+PROJECT_TYPE="java-spring-boot"
+SPEC_KIT_VERSION="0.0.64"
+
+# Directory Paths
+SPECS_DIR="specs"
+TEMPLATES_DIR=".specify/templates"
+SCRIPTS_DIR=".specify/scripts/bash"
+MEMORY_DIR=".specify/memory"
+CONFIG_DIR=".specify/config"
+COMMANDS_DIR=".cursor/commands"
+
+# Workflow Configuration
+DEFAULT_WORKFLOW="constitution,specify,plan,tasks,implement"
+OPTIONAL_COMMANDS="clarify,analyze,checklist"
+
+# Agent Integration
+AGENT_TYPE="aone-copilot"
+INTEGRATION_MODE="direct"
+AGENT_RULES_FILE=".aone_copilot/rules/default.md"
+
+# Team Collaboration
+COLLABORATION_MODE="spec-driven"
+CONFLICT_RESOLUTION="specification-first"
+REVIEW_REQUIRED="true"
+FEATURE_ISOLATION="true"
+
+# Quality Gates
+SPEC_COMPLETENESS_CHECK="true"
+PLAN_FEASIBILITY_REVIEW="true"
+TASK_CLARITY_VALIDATION="true"
+IMPLEMENTATION_SPEC_ALIGNMENT="true"
+
+# Git Integration
+GIT_HOOKS_ENABLED="true"
+SPEC_BRANCH_PREFIX="spec/"
+FEATURE_BRANCH_PREFIX="feature/"
