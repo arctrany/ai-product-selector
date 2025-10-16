@@ -1,0 +1,84 @@
+# 私域知识源配置文件 - 简化版
+
+# 知识源自动检测和使用
+knowledge_sources:
+  # 检测顺序和优先级
+  detection_order:
+    - deep_wiki      # 如果存在 Deep-Wiki 则优先使用
+    - mcp_services   # 如果存在 MCP 知识服务则使用
+    - local_docs     # 本地文档作为备份
+
+  # Deep-Wiki 检测配置
+  deep_wiki:
+    auto_detect: true
+    env_indicator: "DEEP_WIKI_AVAILABLE"  # 环境变量指示是否可用
+    fallback_message: "Deep-Wiki 不可用，使用其他知识源"
+
+  # MCP 服务检测配置
+  mcp_services:
+    auto_detect: true
+    env_indicator: "MCP_KNOWLEDGE_AVAILABLE"  # 环境变量指示是否可用
+    fallback_message: "MCP 知识服务不可用，使用本地文档"
+
+  # 本地文档配置
+  local_docs:
+    always_available: true
+    base_path: ".specify/memory/domain-knowledge/local-docs"
+
+# 使用策略
+usage_strategy:
+  # 自动检测可用的知识源
+  auto_detection: true
+
+  # 检测失败时的提示信息
+  detection_messages:
+    deep_wiki_available: "✅ Deep-Wiki 可用，优先使用内部知识库"
+    mcp_available: "✅ MCP 知识服务可用，使用智能知识检索"
+    local_only: "📁 使用本地文档作为知识源"
+
+  # Agent 集成提示
+  agent_instructions:
+    when_deep_wiki_available: "已检测到 Deep-Wiki 可用，请优先查询内部技术文档和最佳实践"
+    when_mcp_available: "已检测到 MCP 知识服务可用，请使用智能知识检索获取相关信息"
+    when_local_only: "当前仅本地文档可用，请查阅项目内的知识库文档"
+
+# 检索策略配置
+search_strategy:
+  # 检索模式: parallel(并行) | cascade(级联) | hybrid(混合)
+  mode: "cascade"
+  
+  # 级联模式配置
+  cascade:
+    # 如果高优先级源失败，是否继续尝试低优先级源
+    fallback_on_failure: true
+    # 如果高优先级源返回结果少于此阈值，是否补充低优先级源结果
+    min_results_threshold: 3
+    # 最大总结果数
+    max_total_results: 10
+
+  # 并行模式配置
+  parallel:
+    # 是否合并所有源的结果
+    merge_results: true
+    # 结果去重策略
+    dedup_strategy: "content_similarity"
+    # 相似度阈值 (0-1)
+    similarity_threshold: 0.8
+
+# 缓存配置
+cache:
+  enabled: true
+  ttl: 3600  # 缓存时间 (秒)
+  max_size: 1000  # 最大缓存条目数
+  storage: "memory"  # memory | file | redis
+
+# 结果处理配置
+result_processing:
+  # 是否对结果进行相关性排序
+  relevance_scoring: true
+  # 是否包含结果来源信息
+  include_source_info: true
+  # 结果格式: markdown | json | plain
+  output_format: "markdown"
+  # 是否自动提取关键信息
+  auto_extract_key_info: true

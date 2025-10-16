@@ -56,6 +56,14 @@ As the primary AI assistant, you should:
 - **Purpose:** AI-powered product selection tool
 - **Build Tool:** Maven (pom.xml)
 
+### 私域知识优先配置 (Domain-First Knowledge)
+- **多源知识架构:** Deep-Wiki > MCP 服务 > 本地文档
+- **统一检索接口:** 通过配置文件 `.specify/memory/domain-knowledge/knowledge-sources.yml` 管理所有知识源
+- **智能检索策略:** 支持级联、并行、混合检索模式
+- **动态配置:** 支持环境变量配置不同环境的知识源
+- **缓存优化:** 智能缓存提高检索性能
+- **实时更新:** 支持从远程知识源获取最新信息
+
 ### Key Directories
 - `docs/` - Project documentation
 - `.specify/` - Spec-kit artifacts (memory, templates, scripts)
@@ -65,16 +73,22 @@ As the primary AI assistant, you should:
 ## Spec-Kit Workflow Implementation
 
 ### When Users Ask for Features
-1. **Automatically Execute Spec-Kit Workflow:**
-   - Run constitution check (if not exists, create one)
-   - Generate specification using spec-kit templates
-   - Create implementation plan and tasks
-   - Implement the feature with Java/Spring Boot code
+1. **私域知识优先检查:**
+   - 首先查阅 `.specify/memory/domain-knowledge/` 相关文档
+   - 确认技术选型符合内部标准
+   - 参考团队历史经验和最佳实践
 
-2. **Maintain Spec-Driven Discipline:**
+2. **Automatically Execute Spec-Kit Workflow:**
+   - Run constitution check (if not exists, create one)
+   - Generate specification using spec-kit templates (结合私域知识)
+   - Create implementation plan and tasks (优先使用内部组件)
+   - Implement the feature with Java/Spring Boot code (遵循内部规范)
+
+3. **Maintain Spec-Driven Discipline:**
    - Always create/update specifications before coding
    - Store all artifacts in `.specify/memory/`
    - Follow spec-kit's structured approach
+   - 及时更新私域知识库
 
 ### When Users Ask for Code Help
 1. **Check Existing Context:**

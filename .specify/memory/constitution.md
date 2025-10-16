@@ -1,56 +1,50 @@
-# AI Product Selector Constitution
+# [PROJECT_NAME] Constitution
+<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
 
 ## Core Principles
 
-### I. AI-First Architecture
-Every feature leverages AI capabilities as the primary intelligence layer. All product selection logic must be driven by machine learning models and intelligent algorithms. Traditional rule-based approaches are supplementary only.
+### [PRINCIPLE_1_NAME]
+<!-- Example: I. Library-First -->
+[PRINCIPLE_1_DESCRIPTION]
+<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
 
-### II. User-Centric Design (NON-NEGOTIABLE)
-All features must prioritize user experience and provide clear value to end users. Every interface must be intuitive, responsive, and provide meaningful feedback. User testing and feedback loops are mandatory before feature completion.
+### [PRINCIPLE_2_NAME]
+<!-- Example: II. CLI Interface -->
+[PRINCIPLE_2_DESCRIPTION]
+<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
 
-### III. Data-Driven Decisions
-All product recommendations must be based on quantifiable data and metrics. Features must include analytics and performance tracking. Decision logic must be transparent and auditable.
+### [PRINCIPLE_3_NAME]
+<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
+[PRINCIPLE_3_DESCRIPTION]
+<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
 
-### IV. Spring AI Alibaba Integration
-All AI functionality must leverage Spring AI Alibaba framework for consistency and maintainability. Custom AI implementations require architectural review and approval.
+### [PRINCIPLE_4_NAME]
+<!-- Example: IV. Integration Testing -->
+[PRINCIPLE_4_DESCRIPTION]
+<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
 
-### V. Scalability & Performance
-System must handle concurrent users efficiently. All AI operations must have reasonable response times (<3 seconds for recommendations). Caching strategies required for frequently accessed data.
+### [PRINCIPLE_5_NAME]
+<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
+[PRINCIPLE_5_DESCRIPTION]
+<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
 
-## Technical Standards
+## [SECTION_2_NAME]
+<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
 
-### Technology Stack Requirements
-- **Backend**: Spring Boot with Spring AI Alibaba integration mandatory
-- **Database**: Support for both relational (PostgreSQL/MySQL) and vector databases
-- **AI Models**: Alibaba Cloud AI services as primary, with fallback strategies
-- **API Design**: RESTful APIs with OpenAPI 3.0 documentation
-- **Testing**: Unit tests (>80% coverage) and integration tests required
+[SECTION_2_CONTENT]
+<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
 
-### Security & Compliance
-- All user data must be encrypted at rest and in transit
-- AI model inputs/outputs must be logged for audit purposes
-- Rate limiting required for all public APIs
-- User consent required for data collection and AI processing
+## [SECTION_3_NAME]
+<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
 
-## Development Workflow
-
-### Quality Gates
-- All features must pass automated tests before merge
-- Code review required by at least one senior developer
-- Performance benchmarks must be maintained or improved
-- AI model accuracy metrics must be documented and tracked
-
-### Documentation Requirements
-- All AI models must have performance metrics documented
-- API endpoints must have complete OpenAPI documentation
-- User-facing features require user guide updates
+[SECTION_3_CONTENT]
+<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
 
 ## Governance
+<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-This constitution supersedes all other development practices. All code reviews and feature implementations must verify compliance with these principles.
+[GOVERNANCE_RULES]
+<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
 
-**Amendments**: Changes to this constitution require team consensus and documentation of migration impact.
-
-**Enforcement**: Non-compliance issues must be addressed before feature completion.
-
-**Version**: 1.0.0 | **Ratified**: 2025-10-15 | **Last Amended**: 2025-10-15
+**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
+<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->

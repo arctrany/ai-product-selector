@@ -27,6 +27,38 @@
     "mode": "direct",
     "rules_file": ".aone_copilot/rules/default.md"
   },
+  "domain_knowledge": {
+    "sources": [
+      {
+        "type": "local",
+        "name": "local-docs",
+        "path": ".specify/memory/domain-knowledge/",
+        "priority": 3,
+        "enabled": true
+      },
+      {
+        "type": "wiki",
+        "name": "deep-wiki",
+        "endpoint": "${DEEP_WIKI_ENDPOINT}",
+        "auth_token": "${DEEP_WIKI_TOKEN}",
+        "priority": 1,
+        "enabled": true,
+        "search_api": "/api/search",
+        "content_api": "/api/content"
+      },
+      {
+        "type": "mcp",
+        "name": "knowledge-mcp",
+        "service_url": "${KNOWLEDGE_MCP_URL}",
+        "priority": 2,
+        "enabled": true,
+        "tools": ["domain_search", "best_practices", "code_patterns"]
+      }
+    ],
+    "fallback_strategy": "cascade",
+    "cache_ttl": 3600,
+    "search_timeout": 5000
+  },
   "team": {
     "collaboration_mode": "spec-driven",
     "conflict_resolution": "specification-first",
