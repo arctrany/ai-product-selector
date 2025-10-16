@@ -1,0 +1,1261 @@
+xbot.web.Element
+!
+描述：
+对网页元素进行处理，如获取相似网页元素、查找目标元素父/子元素、点击元素
+方法
+parent()
+获取当前元素的父元素
+
+parent(self)
+
+输入参数
+
+无
+
+返回值
+
+WebElement：返回当前元素的父元素
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    web_element = browser.find('百度一下')
+    parent_element = web_element.parent()
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 获取元素名称为 百度一下 的网页元素对象 --> 获取该对象的父元素
+
+children()
+获取当前元素的所有子元素
+
+children(self)
+
+输入参数
+
+无
+
+返回值
+
+List[WebElement]：返回当前元素的所有子元素
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    web_element = browser.find('百度一下')
+    children_elements = web_element.children()
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 获取元素名称为 百度一下 的网页元素对象 ---> 获取该对象的子元素列表
+
+child_at()
+获取指定位置的子元素
+
+child_at(self)
+
+输入参数
+
+index：子元素的位置索引，从0开始计数
+
+返回值
+
+WebElement：返回指定位置的子元素
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    web_element = browser.find('左上角的菜单栏')
+    child_element = web_element.child_at(0)
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 获取元素名称为 左上角的菜单栏 的网页元素对象 --> 获取该对象子元素下的第一个子元素
+
+previous_sibling()
+获取上一个并列的兄弟元素
+
+previous_sibling(self)
+
+输入参数
+
+无
+
+返回值
+
+WebElement：返回上一个并列的兄弟元素
+
+示例1
+
+from xbot import web
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    web_element = browser.find('左上角的菜单栏')
+    child_element = web_element.previous_sibling()
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 获取元素名称为 左上角的菜单栏 的网页元素对象 --> 获取该对象上一个并列的兄弟元素
+
+next_sibling()
+获取下一个并列的兄弟元素
+
+next_sibling(self)
+
+输入参数
+
+无
+
+返回值
+
+WebElement：返回下一个并列的兄弟元素
+
+示例1
+
+from xbot import web
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    web_element = browser.find('左上角的菜单栏')
+    child_element = web_element.next_sibling()
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 获取元素名称为 左上角的菜单栏 的网页元素对象 --> 获取该对象下一个并列的兄弟元素
+
+click()
+单击当前网页元素
+
+click(self, button='left', simulative=True, keys='none', delay_after=1, move_mouse=False, anchor=None)
+
+输入参数
+
+button：要点击的鼠标按键，可传入'left' 或 'right'，默认为 'left'（鼠标左键）
+
+simulative：是否模拟人工点击, 不传入默认为True（模拟人工点击）
+
+move_mouse：是否显示鼠标移动轨迹, 默认为 True，显示鼠标移动轨迹
+
+keys：点击鼠标时的键盘辅助按钮，可用辅助按键有——none、alt、ctrl、shift 和 win，默认为 'none'
+
+delay_after：执行成功后延迟时间，默认延迟 1s
+
+anchor：锚点，鼠标点击元素的位置以及偏移量元组，可为 None，默认值为 None（点击目标中心且无偏移量），参数结构如下：
+
+sudoku_part：鼠标点击的位置, 默认点击中心，
+
+参数内容
+
+解释
+
+'topLeft'
+
+左上角
+
+'topCenter'
+
+上中部
+
+'topRight'
+
+右上角
+
+'middleLeft'
+
+左中部
+
+'middleCenter'
+
+中心
+
+'middleRight'
+
+右中部
+
+'bottomLeft'
+
+左下角
+
+'bottomCenter'
+
+下中部
+
+'bottomRight'
+
+右下角
+
+'random'
+
+随机位置
+
+
+
+offset_x：鼠标位置的水平偏移量
+
+offset_y：鼠标位置的垂直偏移量
+
+返回值
+
+无
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    browser.find('百度一下').click(button='left', move_mouse=True)
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 获取元素名称为 百度一下 的网页元素对象 --> 鼠标模拟人工点击该元素
+
+示例2
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    browser.find('百度一下').click(button='left', move_mouse=True, anchor=('topLeft', 100, 100))
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 获取元素名称为 百度一下 的网页元素对象 ---> 鼠标左键在元素的 左上角水平偏移 10 垂直偏移 10 的位置单击
+
+dblclick()
+双击当前网页元素
+
+dblclick(self, simulative=True, delay_after=1, move_mouse=False, anchor=None)
+
+输入参数
+
+simulative：是否模拟人工点击, 不传入默认为True（模拟人工点击）
+
+move_mouse：是否显示鼠标移动轨迹, 默认为 True，显示鼠标移动轨迹
+
+delay_after：执行成功后延迟时间，默认延迟 1s
+
+anchor：锚点，鼠标点击元素的位置以及偏移量元组，可为 None，默认值为 None（点击目标中心且无偏移量），参数结构如下：
+
+sudoku_part：鼠标双击的位置, 默认双击中心
+
+参数内容
+
+解释
+
+'topLeft'
+
+左上角
+
+'topCenter'
+
+上中部
+
+'topRight'
+
+右上角
+
+'middleLeft'
+
+左中部
+
+'middleCenter'
+
+中心
+
+'middleRight'
+
+右中部
+
+'bottomLeft'
+
+左下角
+
+'bottomCenter'
+
+下中部
+
+'bottomRight'
+
+右下角
+
+'random'
+
+随机位置
+
+offset_x：鼠标位置的水平偏移量
+
+offset_y：鼠标位置的垂直偏移量
+
+返回值
+
+无
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    browser.find('百度一下').dblclick(move_mouse=True, anchor=('topLeft', 100, 100))
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 获取元素名称为 百度一下 的网页元素对象 ---> 鼠标在元素的 左上角水平偏移 10 垂直偏移 10 的位置双击
+
+示例2
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    browser.find('百度一下').dblclick(move_mouse=True)
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 ---> 获取元素名称为 百度一下 的网页元素对象 --> 鼠标左键双击该元素
+
+input()
+填写网页输入框input(self, text: str, simulative=True, append=False, contains_hotkey=False, force_img_ENG=False, send_key_delay=50, focus_timeout=1000, delay_after=1, anchor=None)
+
+输入参数
+
+text：需要填写到win32输入框中的文本内容
+
+simulative：是否模拟人工点击, 不传入默认为True（模拟人工点击）
+
+driver_input：是否使用驱动输入, 该参数只有在非静默模式下失效，默认值为False（不使用）
+
+append：是否追加输入，追加输入会保留输入框中原有内容，不传入默认值为False（非追加写入）
+
+contains_hotkey：输入内容是否包含快捷键，该选项只有在模拟人工输入时起效，默认值为False（不包含快捷键）
+
+send_key_delay：两次按键之间的时间间隔(对影刀浏览器该参数无效)，默认为50ms
+
+delay_after：执行成功后延迟时间，默认延迟 1s
+
+anchor：锚点，鼠标点击元素的位置以及偏移量元组，可为 None，默认值为 None（点击目标中心且无偏移量），参数结构如下：
+
+sudoku_part：鼠标悬停的位置，默认悬停在中心，还可以设置一下位置
+
+参数内容
+
+解释
+
+'topLeft'
+
+悬停左上角
+
+'topCenter'
+
+悬停在上中部
+
+'topRight'
+
+悬停在右上角
+
+'middleLeft'
+
+悬停在左中部
+
+'middleCenter'
+
+悬停在中心
+
+'middleRight'
+
+悬停在右中部
+
+'bottomLeft'
+
+悬停左下角
+
+'bottomCenter'
+
+悬停在下中部
+
+'bottomRight'
+
+悬停在右下角
+
+
+
+offset_x：鼠标位置的水平偏移量
+
+offset_y：鼠标位置的垂直偏移量
+
+focus_timeout：焦点超时时间(获取焦点和输入操作的间隔)，默认1000毫秒
+
+返回值
+
+无
+
+示例1
+
+from xbot import web
+from . import package
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    input_element=browser.find('输入框')
+    input_element.input('影刀')
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 获取元素名称为 输入框 的网页元素对象 --> 将 影刀 填写到元素中
+
+示例2
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    input_element=browser.find('输入框')
+    input_element.input('hello world', anchor=('topLeft', 100, 100))
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 获取元素名称为 输入框 的网页元素对象 --> 鼠标在元素的 左上角水平偏移 10 垂直偏移 10 的位置单击，然后将 影刀 填写到元素中
+
+clipboard_input()
+通过剪切板填写网页输入框(可有效避免输入法问题)
+
+clipboard_input(self, text: str, append=False, delay_after=1, anchor=None,focus_timeout=1000)
+
+输入参数
+
+text：需要填写到win32输入框中的文本内容
+
+simulative：是否模拟人工点击, 不传入默认为True（模拟人工点击）
+
+append：是否追加输入，追加输入会保留输入框中原有内容，不传入默认值为False（非追加写入）
+
+delay_after：执行成功后延迟时间，默认延迟 1s
+
+anchor：锚点，鼠标点击元素的位置以及偏移量元组，可为 None，默认值为 None（点击目标中心且无偏移量），参数结构如下：
+
+sudoku_part：鼠标悬停的位置, 默认悬停在中心，
+
+参数内容
+
+解释
+
+'topLeft'
+
+悬停左上角
+
+'topCenter'
+
+悬停在上中部
+
+'topRight'
+
+悬停在右上角
+
+'middleLeft'
+
+悬停在左中部
+
+'middleCenter'
+
+悬停在中心
+
+'middleRight'
+
+悬停在右中部
+
+'bottomLeft'
+
+悬停左下角
+
+'bottomCenter'
+
+悬停在下中部
+
+'bottomRight'
+
+悬停在右下角
+
+
+
+offset_x：鼠标位置的水平偏移量
+
+offset_y：鼠标位置的垂直偏移量
+
+focus_timeout：焦点超时时间(获取焦点和输入操作的间隔)，默认1000毫秒
+
+返回值
+
+无
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    input_element=browser.find('输入框')
+    input_element.clipboard_input('hello world', append=True)
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 获取元素名称为 输入框 的网页元素对象 --> 将 hello world 以剪切板的形式写入到元素中
+
+示例2
+
+通过Chrome浏览器打开 百度 网页并返回和元素选择器 输入框 匹配的元素对象，并用，然后将 hello world 追加到元素中
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    input_element=browser.find('输入框')
+    input_element.clipboard_input('hello world', append=True, 
+                                           anchor=('topLeft', 100, 100))
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 获取元素名称为 输入框 的网页元素对象 --> 鼠标在元素的 左上角水平偏移 10 垂直偏移 10 的位置单击，然后将 hello world 以剪切板的形式写入到元素中
+
+focus()
+选中(激活)当前元素
+
+focus(self)
+
+输入参数
+
+无
+
+返回值
+
+无
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    browser.find('输入框').focus()
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 选中元素名称为 输入框 的元素对象，并选中该元素
+
+hover()
+鼠标悬停在当前元素
+
+hover(self, simulative=True, delay_after=1)
+
+输入参数
+
+simulative：是否模拟人工悬停, 不传入默认为True（模拟人工悬停）
+
+delay_after：执行成功后延迟时间，默认延迟 1s
+
+返回值
+
+无
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    browser.find('输入框').hover()
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 将鼠标悬停在元素名称为 输入框 的元素对象上
+
+get_text()
+获取当前网页元素的文本内容
+
+get_text(self)
+
+输入参数
+
+无
+
+返回值
+
+str：返回当前网页元素的文本内容
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    value = browser.find('输入框').get_text()
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 获取名称为 输入框 的网页元素的文本内容
+
+get_html()
+获取当前网页元素的html内容
+
+get_html(self)
+
+输入参数
+
+无
+
+返回值
+
+str：返回当前网页元素的html内容
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    html = browser.find("百度一下").get_html()
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 获取名称为 百度一下 的网页元素的html内容
+
+get_value()
+获取当前网页元素的值
+
+get_value(self)
+
+输入参数
+
+无
+
+返回值
+
+str：返回当前网页元素的值
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    value = browser.find('输入框').get_value()
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 获取名称为 输入框 的网页元素的值
+
+set_value()
+设置当前网页元素的值
+
+set_value(self, value: str)
+
+输入参数
+
+value：需要设置到网页元素上的文本值
+
+返回值
+
+无
+
+示例1
+
+from xbot import web
+from . import package
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    browser.find('输入框').set_value('hello world')
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 将名称为 输入框 的网页元素值设置为 hello world
+
+check()
+设置网页复选框
+
+check(self, mode='check', delay_after=1)
+
+输入参数
+
+mode：设置网页复选框的结果，可传入 'check'（选中）、'uncheck'（取消选中）或'toggle'（反选），默认为 check（选中）
+
+返回值
+
+无
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('https://passport.baidu.com/v2/?login', 'chrome')
+    browser.find('用户名登录').click()
+    browser.find('下次自动登录').check('check')
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度登录 网页 --> 找到名称为 用户名登录 的网页复选框元素 --> 设置该复选框元素为选中状态
+
+select()
+按选项内容设置单选网页下拉框元素
+
+select(self, item: str, mode='fuzzy', delay_after=1)
+
+输入参数
+
+item：要设置的网页下拉框元素的某一项的文本内容
+
+mode：查找项的匹配模式，可以选择 'fuzzy'（模糊匹配） 'exact'（精准匹配）或'regex'（正则匹配），默认是模糊匹配
+
+delay_after：执行成功后延迟执行时间, 默认时间为1s
+
+返回值
+
+无
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.taobao.com', 'chrome')
+    browser.find('用户名').select('张三')
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 淘宝 网页 --> 找到名称为 用户名 的网页下拉框元素 --> 使用精准匹配找到内容为 张三 并设置其为当前选中项
+
+select_multiple()
+按选项内容设置单选网页下拉框元素
+
+select_multiple(self, items: typing.List[str], mode='fuzzy', append=False, delay_after=1)
+
+输入参数
+
+items：要勾选的网页下拉框元素的列表
+
+mode：查找项的匹配模式，可以选择 'fuzzy'（模糊匹配） 'exact'（精准匹配）或'regex'（正则匹配），默认是模糊匹配
+
+append：是否追加设置，默认值为False（不追加）
+
+delay_after：执行成功后延迟执行时间, 默认时间为1s
+
+返回值
+
+无
+
+示例1
+
+使用Chrome打开 xxxx 网页，并查找与元素选择器 多选下拉框 匹配的下拉框元素，然后
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.xxx.com', 'chrome')
+    browser.find('多选下拉框').select_multiple(['张三','李四', '王五'])
+复制
+该示例执行逻辑： 通过Chrome浏览器打开某网页 --> 找到名称为 多选下拉框 的网页下拉框元素 --> 使用精准匹配找到内容为 张三，李四，王五 并全部勾选
+
+select_by_index()
+按下标设置单选网页下拉框元素
+
+select_by_index(self, index: int, delay_after=1)
+
+输入参数
+
+index：要设置的单选网页下拉框元素的位置, 位置从0开始
+
+delay_after：执行成功后延迟执行时间, 默认时间为1s
+
+返回值
+
+无
+
+示例1
+
+使用Chrome打开 淘宝登录 页面，并查找与元素选择器 用户名 匹配的下拉框元素，然后设置
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.taobao.com', 'chrome')
+    browser.find('用户名').select_by_index(1)
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 淘宝 网页 --> 找到名称为 用户名 的网页下拉框元素 --> 找到下拉框中下标为 1 的项并勾选
+
+select_multiple_by_index()
+按下标设置多选网页下拉框元素
+
+select_multiple_by_index(self, indexes: typing.List[int], append=False, delay_after=1)
+
+输入参数
+
+indexes：要设置的单选网页下拉框元素的位置列表, 位置从0开始
+
+append：是否追加设置，默认值为False（不追加）
+
+delay_after：执行成功后延迟执行时间, 默认时间为1s
+
+返回值
+
+无
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.xxx.com', 'chrome')
+    browser.find('多选下拉框').select_multiple_by_index([1,3,5])
+复制
+该示例执行逻辑： 通过Chrome浏览器打开某网页 --> 找到名称为 多选下拉框 的网页下拉框元素 --> 设置下拉框选项下标为 1、3、5 的项为选中状态
+
+get_select_options()
+获取网页下拉框的值
+
+get_select_options(self)
+
+输入参数
+
+无
+
+返回值
+
+List[Tuple]：返回下拉框值（选项，选项值，被选中状态）的列表
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.xxx.com', 'chrome')
+    list_value = browser.find('下拉框').get_select_options()
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 xxx 网页 --> 找到名称为 下拉框 的网页下拉框元素并获取下拉框的值
+
+set_attribute()
+设置网页元素属性值
+
+set_attribute(self, name: str, value: str)
+
+输入参数
+
+name：元素属性名称
+
+value：要设置的元素属性值
+
+返回值
+
+无
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    browser.find('百度一下').set_attribute('height', '100')
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 找到名称为 百度一下 的网页元素并设置该元素的 height 为 100
+
+get_attribute()
+获取网页元素属性值
+
+get_attribute(self, name: str)
+
+输入参数
+
+name：元素属性名称
+
+返回值
+
+str：返回网页元素目标属性的属性值
+
+示例1
+
+from xbot import web
+from . import package
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    height = browser.find('百度一下').get_attribute('height')
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 找到名称为 百度一下 的网页元素并获取该元素的 height 属性值
+
+get_all_attributes()
+获取网页元素全部属性值
+
+get_all_attributes(self)
+
+输入参数
+
+无
+
+返回值
+
+List[Tuple]：返回目标网页元素的全部属性名与属性值的组合列表
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    list_tuple = browser.find('百度一下').get_all_attributes()
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 找到名称为 百度一下 的网页元素并获取该元素的全部属性值
+
+get_bounding()
+获取网页元素的边框属性组合
+
+get_bounding(self, to96dpi=True)
+
+输入参数
+
+to96dpi：是否需要将边框属性转换成dpi为96的对应属性值
+
+返回值
+
+Tuple：返回网页元素的边框属性组合，如('x', 'y', 'width', 'height')
+
+示例1
+
+使用Chrome打开 百度 网页，并查找与元素选择器 百度一下 匹配的元素，并获取该元素的边框属性信息
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    list_tuple = browser.find('百度一下').get_bounding()
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 找到名称为 百度一下 的网页元素并获取该元素的边框属性信息
+
+extract_table()
+获取当前元素所属表格的内容列表
+
+extract_table(self)
+
+输入参数
+
+无
+
+返回值
+
+List[Tuple]: 返回数据表格内容
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.xxx.com', 'chrome')
+    list_tuple = browser.find('数据表格').extract_table()
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 找到名称为 数据表格 的数据表格网页元素并获取表格中内容
+
+screenshot()
+对目标元素进行截图, 并将图片进行保存
+
+screenshot(self, folder_path, filename=None)
+
+输入参数
+
+folder_path：元素截图后图片需要保存的路径
+
+filename：截图后图片保存后的名称，可为空，为空时会根据当前时间自动生成文件名称
+
+返回值
+
+无
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    browser.find('百度一下').screenshot('D:\\', filename='123.png')
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 找到名称为 百度一下 的网页元素然后对该元素截图，并将结果命名为 123.png 保存在 D: 下
+
+screenshot_to_clipboard()
+对目标元素进行截图, 并将图片保存至剪切板
+
+screenshot_to_clipboard(self)
+
+输入参数
+
+无
+
+返回值
+
+无
+
+示例1
+
+使用Chrome打开 百度 网页，并查找与元素选择器 百度一下 匹配的元素，然后对该元素截图
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    browser.find('百度一下').screenshot_to_clipboard()
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 找到名称为 百度一下 的网页元素然后对该元素截图，并将结果添加到剪切板中
+
+is_checked()
+判断网页复选框元素是否被选中
+
+is_checked(self)
+
+输入参数
+
+无
+
+返回值
+
+bool：返回元素的选中状态, 选中返回True， 否则返回False
+
+示例1
+
+使用Chrome打开 xxx 网页，并查找与元素选择器 复选框 匹配的元素，
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.xxx.com', 'chrome')
+    is_checked = browser.find('复选框').is_checked()
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 xxx 网页 --> 找到名称为 复选框 的网页元素，判断该元素是否被选中
+
+is_enabled
+判断网页元素是否可用
+
+is_enabled(self)
+
+输入参数
+
+无
+
+返回值
+
+bool：返回元素的可用状态, 可用返回True，否则返回False
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    is_enabled = browser.find('百度一下').is_enabled()
+复制
+is_displayed()
+判断网页元素是否可见
+
+is_displayed(self)
+
+输入参数
+
+无
+
+返回值
+
+bool：返回元素的可见状态, 可见返回True，否则返回False
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    is_displayed = browser.find('百度一下').is_displayed()
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 找到名称为 百度一下 的网页元素，判断该元素是否可见
+
+drag_to()
+拖拽网页元素到指定位置
+
+drag_to(self, simulative=True, behavior='smooth', top=0, left=0, delay_after=1)
+
+输入参数
+
+simulative：是否模拟人工点击, 不传入默认为True（模拟人工点击）
+
+behavior：网页滚动效果，可以设置 'instant'（瞬间滚动） 或 'smooth'（平滑滚动），默认值为 'instant'（瞬间滚动）
+
+top：滚动到指定位置的纵坐标
+
+left：滚动到指定位置的横坐标
+
+delay_after：指令执行成功后延迟执行时间，默认值为1s
+
+返回值
+
+无
+
+示例1
+
+使用Chrome浏览器打开 xxx 网页，并查找与元素选择器 可移动元素 匹配的元素，
+
+from xbot import web
+
+
+def main(args):
+    browser = web.create('www.baidu.com', 'chrome')
+    browser.find('可移动元素').drag_to(simulative=True, behavior='smooth', 
+                                      top=100, left=100)
+复制
+该示例执行逻辑： 通过Chrome浏览器打开 百度 网页 --> 找到名称为 可移动元素 的网页元素，并模拟人工拖拽元素到 top:100，left:100 位置
+
+get_all_select_items()
+获取网页下拉框元素的全部下拉选项
+
+get_all_select_items(self)
+
+输入参数
+
+无
+
+返回值
+
+List[str]：返回网页下拉框全部下拉选项列表
+
+示例1
+
+获取当前网页中 下拉框 元素的全部下拉选项
+
+from xbot import web
+
+
+def main(args):
+    browser = web.get_active()
+    element = browser.find('下拉框')
+    values = element.get_all_select_items()
+复制
+get_selected_item()
+获取网页下拉框当前选中的项
+
+get_selected_item(self)
+
+输入参数
+
+无
+
+返回值
+
+List[str]：返回网页下拉框当前全部选中项列表
+
+示例1
+
+from xbot import web
+
+
+def main(args):
+    browser = web.get_active()
+    element = browser.find('下拉框')
+    values = element.get_selected_item()
+复制
+该示例执行逻辑： 获取当前已打开的网页对象 --> 找到名称为 下拉框 的网页元素 --> 获取该元素当前所有选中项
+
+upload()
+自动完成点击上传按钮、在文件选择对话框中输入待上传文件等系列操作
+
+upload(self, file_names, clipboard_input=True, focus_timeout=1000, dialog_timeout=20)
+
+输入参数
+
+file_names：上传文件列表，比如[r"C:\test.txt",r"C:\text1.txt"]
+
+clipboard_input：文件选择是否用剪切板输入，默认为True（使用剪切板）
+
+focus_timeout：焦点超时时间(获取焦点和输入操作的间隔)，默认1000毫秒
+
+dialog_timeout：点击上传按钮后，等待文件选择框的最大时间,单位（秒）
+
+返回值
+
+无
+
+示例1
+
+import xbot
+from xbot import print, sleep
+from . import package
+
+
+def main(args):
+    web_object = xbot.web.create("https://www.w3schools.com/tags/tryit.asp?filename=tryhtml5_input_type_file","chrome")
+    web_object.find("上传按钮").upload([r'D:\logo.gif'])
+复制
+该示例执行逻辑： 用谷歌浏览器打开 www.w3schools.com 网页 --> 找到名称为 上传按钮 的网页元素 --> 上传D盘中的 logo.gif 文件
+
+download()
+自动完成点击下载按钮、在文件保存对话框中输入保存文件信息等系列操作
+
+download(self, file_folder, file_name, wait_complete=True, wait_complete_timeout=300, clipboard_input=True, focus_timeout=1000, dialog_timeout=20)
+
+输入参数
+
+file_folder：保存下载文件的文件夹
+
+file_name：自定义保存的文件名，若为空，用下载资源默认文件名
+
+wait_complete：是否等待下载完成，默认为True（等待下载完成）
+
+wait_complete_timeout：等待下载超时时间，单位(秒)，默认为300秒
+
+clipboard_input：文件选择是否用剪切板输入，默认为True（使用剪切板）
+
+focus_timeout：焦点超时时间(获取焦点和输入操作的间隔)，默认1000毫秒
+
+dialog_timeout：点击上传按钮后，等待文件选择框的最大时间,单位（秒）
+
+返回值
+
+str：返回下载文件所在的位置
+
+示例1
+
+import xbot
+from xbot import print, sleep
+from .import package
+
+
+def main(args):
+    web_object = web.create("www.baidu.com", "chrome")
+    web_object.find("百度输入框").input("百度网盘{enter}", contains_hotkey=True)
+    download_file_name = web_object.find("立即下载").download("D:\\", "BaiduNetdisk.exe", wait_complete=True,wait_complete_timeout=300)
+    print(download_file_name)
+复制
+该示例执行逻辑： 用谷歌浏览器打开 百度 网页 --> 找到名称为 百度输入框 的网页元素并输入 百度网盘，按下回车键 --> 找到名称为 立即下载 的网页元素并下载到本地保存 --> 打印输出文件下载位置
+
+
+
+extract_table()
+获取批量数据抓取整个表格的内容列表
+
+示例1 抓取单页
+
+from xbot import web
+def main(args):
+    browser = xbot.web.get_active() 
+    rows = browser.extract_table('数据列表')  #rows是二维表格, 如: [['a', 'b'], ['c', 'd']]
+复制
+
+
+示例2 抓取多页
+
+from xbot import web
+def main(args):
+    table = []  # table的最终结果是二维表格, 如: [['a', 'b'], ['c', 'd']]
+    browser = xbot.web.get_active()
+    for i in range(1):
+        rows = browser.extract_table('数据列表')
+        table.extend(rows)  # 追加一页数据
+        if i == 1 - 1:  # 最后一页无需点击下一页
+            break
+        browser.find('按钮').click()  # 点击下一页
+        xbot.sleep(2)  # 等待异步数据加载完成(非必须)
+复制
+该示例执行逻辑： 获取当前已打开的网页对象 --> 找到名称为 整表数据表格 的网页元素 --> 进行整表的批量数据抓取

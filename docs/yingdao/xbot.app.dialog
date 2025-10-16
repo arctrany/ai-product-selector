@@ -1,0 +1,376 @@
+xbot.app.dialog
+!
+描述：
+调取各类对话框，实现与影刀机器人的交互。如消息对话框、自定义对话框
+show_alert()
+打开消息对话框
+
+show_alert(message, title='提示')
+
+参数
+
+message：需要在消息对话框中展示的内容
+
+title：消息对话框标题，若不填，默认为提示
+
+返回值
+
+无
+
+示例1
+
+from xbot import app
+def main(args):
+    app.dialog.show_alert('hello world', '提示')
+复制
+效果图：
+
+
+该示例执行逻辑： 调开消息对话框，对话框标题设置为“提示”，对话框内容为“hello world”
+
+show_confirm()
+打开确认对话框
+
+show_confirm(message, title='请确认')
+
+参数
+
+message：需要在确认对话框中展示的内容
+
+title：确认对话框标题，默认标题内容为“请确认”
+
+返回值
+
+bool：返回确认对话框选择结果，选择确认返回True，否则返回False
+
+示例1
+
+from xbot import app
+def main(args):
+    is_confirm = app.dialog.show_confirm('hello world')
+    print(is_confirm)
+复制
+效果展示：
+
+
+该示例执行逻辑： 调开确认对话框，对话框内容为“hello world” --> 打印输出与对话框交互的结果
+
+
+
+show_custom_dialog()
+打开自定义对话框
+
+show_custom_dialog(settings)
+
+输入参数
+
+settings ：自定义对话框配置json串, json主要包含对话框标题和自定义控件配置, json结构如下:
+
+{
+            "dialog_title": "标题",
+            "default_btn": "确定",
+            "use_wait_timeout":True,
+            "timeout":10,
+            "settings":
+            {
+                "editors":[{"type":"CheckBox"},{"label":"复选框"},...]
+            }
+        }
+复制
+dialog_title：对话框标题，可为空
+
+default_btn、use_wait_timeout：当对话框出现时间超时，指定点击默认点击的按钮
+
+timeout：启用超时自动点击超时时间。若设置为0，则表示“不等待”；若设置成-1，则表示“一直等待”
+
+editors：给自定义对话框设置具体的控件，参数结构为“列表+字典”。一个字典代表一个自定义控件。目前支持的自定义控件类型有如下:
+
+参数名
+
+自定义控件
+
+TextBox
+
+输入框
+
+Number
+
+数字框
+
+Password
+
+密码框
+
+TextArea
+
+文本域（多行文本 ）
+
+Label
+
+文本标签
+
+CheckBox
+
+复选框
+
+Select
+
+下拉框
+
+MultiSelect
+
+多选下拉框
+
+Date
+
+日期控件
+
+File
+
+文件选择器
+
+List
+
+列表
+
+MultiList
+
+多选列表
+
+DataGrid
+
+数据表格
+
+其中，每个自定义控件对应的字典中可以传入一下参数：
+
+参数
+
+解释
+
+type
+
+自定义控件类型
+
+label
+
+自定义控件标题
+
+nullText
+
+空白提示信息，当控件没有默认值时显示提示信息, 主要用于 输入框, 密码框, 文本域 等输入类控件，可为空
+
+value
+
+程序运行时控件中的默认值，可为空
+
+除上面控件字典中必须存在的四个参数外，一些特殊的自定义控件还存在其独特的参数，下面一一列出：
+
+下拉框控件中的特殊参数有:
+
+参数
+
+解释
+
+kind
+
+文件选择器的种类。可选择的有OpenFile（选择文件）、SaveFile（保存文件）、SelectFolder（保存文件夹）
+
+返回值
+
+object_dict：返回自定义对话框处理结果，类型为字典类型
+
+示例1
+
+from xbot import app
+
+
+def main(args):
+    value = app.dialog.show_custom_dialog({"dialog_title": "hello", 
+                                           "default": "确定",
+                                           "use_wait_timeout":True,
+                                           "timeout": 10,
+                                           "settings": 
+                                           {
+                                               "editors": [
+                                                {
+                                                    "type": "TextBox", 
+                                                    "label": "输入框", 
+                                                    "nullText": None, 
+                                                    "value": "hello world"
+                                                }]
+                                            }
+                                          })
+    print(value)
+复制
+该示例执行逻辑： 打开自定义对话框展示“输入框”，等待用户操作，如果超过10s用户还未操作则按确定默认处理 --> 打印自定义对话框返回的处理结果
+
+示例2
+
+from xbot import app
+def main(args):
+    value = app.dialog.show_custom_dialog({"dialog_title":"hello",
+                                        "settings":{
+                                            "editors":[
+                                                {
+                                                    "type":"CheckBox",
+                                                    "label":"复选框",
+                                                    "value":True
+                                                }
+                                            ]
+                                        }
+                                       })
+    print(value)
+复制
+该示例执行逻辑： 打开自定义对话框展示“复选框” ，并默认勾选上复选框--> 打印自定义对话框返回的处理结果
+
+示例3
+
+from xbot import app
+def main(args):
+    value = xbot.app.dialog.show_custom_dialog({"dialog_title":"hello",
+                                        "settings":{
+                                            "editors":[
+                                                {
+                                                    "type":"Select",
+                                                    "label":"下拉选择框",
+                                                    "value":"2",
+                                                    "options":[
+                                                        {
+                                                            "display":"选项1",
+                                                            "value":"1"
+                                                        },
+                                                        {
+                                                            "display":"选项2",
+                                                            "value":"2"
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                       })
+复制
+该示例执行逻辑： 打开自定义对话框展示下拉框，并默认选中 选项2 的项 --> 打印自定义对话框返回的处理结果
+
+示例4
+
+from xbot import app
+def main(args):
+    value = app.dialog.show_custom_dialog({"dialog_title":"hello",
+                                        "settings":{
+                                            "editors":[
+                                                {
+                                                    "type":"Password",
+                                                    "label":"密码框",
+                                                    "nullText":None,
+                                                    "value":"123"
+                                                },
+                                                {
+                                                    "type":"TextArea",
+                                                    "label":"文本域",
+                                                    "nullText":"hello world",
+                                                    "value":None                                                    
+                                                },
+                                                {
+                                                    "type":"Date",
+                                                    "label":"时间",
+                                                    "value":"2020/04/18",
+                                                },
+                                                {
+                                                    "type":"File",
+                                                    "label":"文件选择器",
+                                                    "nullText":"请选择文件",
+                                                    "kind":"OpenFile"
+                                                }
+                                            ]
+                                        }
+                                       })
+    print(value)
+复制
+该示例执行逻辑： 打开自定义对话框展示密码框，文本域输入框 ，时间选择框，文件选择框 --> 打印自定义对话框返回的处理结果
+
+show_message_box()
+打开消息对话框
+
+show_message_box(title, message, button='ok',  * , timeout=-1, default_button=None)
+
+参数
+
+title：消息对话框标题
+
+message：消息对话框要展示的信息
+
+dialog_result：消息对话框中的按钮。共有'ok'（确定）、'okcancel（确定/取消）、'yesno'（是/否）、'yesnocancel'（是/否/取消）四类组合方式
+
+time_out：对话框等待点击超时时间，若超过该时间对话框仍没点击则按默认按钮进行自动点击。若不填该参数，则默认一直等待。当timeout为0时，则对话框不等待
+
+default_result：超时时默认点击的按钮, 仅在超时时间大于0时起效
+
+返回值
+
+str：返回消息对话框交互结果，如：ok 或 cancel 等
+
+示例1
+
+from xbot import app
+def main(args):
+    button_result = app.dialog.show_message_box('提示','您开启了消息对话框','okcancel', timeout=10, 
+                                  default_button='cancel')
+    print(button_result)
+复制
+该示例执行逻辑： 打开消息对话框，将标题设置为“ 提示 ”，展示内容为“ 您开启了消息对话框 ”，对话框交互按钮设置为“确定/取消”-，10s后若没有进行任何交互则默认点击取消 --> 打印消息对话框返回的处理结果
+
+
+
+show_workbook_dialog()
+打开数据表格对话框
+
+show_workbook_dialog(title, message)
+
+参数
+
+title：数据表格对话框标题。数据表格对话框启动后，左上角的内容即为title所指定的值
+
+message：数据表格对话框提示信息
+
+返回值
+
+str：返回数据表格对话框处理结果，如：ok 或 cancel 等
+
+示例1
+
+from xbot import app
+def main(args):
+    result = app.dialog.show_workbook_dialog('数据表格', '请在数据表格中放入数据')
+    print(result)
+复制
+结果图：
+
+
+该示例执行逻辑： 打开标题为 “数据表格” 提示信息为 “请在数据表格中放入数据” 的数据表格对话框 --> 打印数据表格对话框返回的处理结果
+
+show_notifycation()
+打开消息通知框
+
+show_notifycation(message, placement='rightbottom' , level='info', timeout=3)
+
+参数
+
+message：消息通知框的通知内容
+
+placement：通知消息在屏幕上的显示位置，可以在屏幕顶部（top）、屏幕底部（bottom）和屏幕右下角（rightbottom）显示。若不填，则默认在屏幕右下角显示
+
+level：通知消息的消息级别，默认为信息级别（info），除 信息 外还可以设置 警告（warning）和 错误（error）
+
+timeout：通知消息框显示时长。若不填，则默认显示3秒
+
+返回值
+
+无
+
+示例1
+
+from xbot import app
+def main(args):
+    app.dialog.show_notifycation('hello',placement='top',level='info')
+复制
+该示例执行逻辑： 在屏幕上方展示通知消息框，内容为 hello，通知类型为 信息级别，持续时间为3s
