@@ -3,7 +3,7 @@
 
 # Project Information
 PROJECT_NAME="ai-product-selector"
-PROJECT_TYPE="java-spring-boot"
+PROJECT_TYPE="python"
 SPEC_KIT_VERSION="0.0.64"
 
 # Directory Paths
