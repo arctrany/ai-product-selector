@@ -9,29 +9,30 @@ from typing import Optional, Dict, Any
 import threading
 import time
 
-from engine import BrowserService
-from user_interface import UserInterface
+from playweight.engine import BrowserService
+from playweight.scenes.web.seerfar_interface import WebUserInterface as UserInterface
+
 
 class Runner:
     """通用执行器类 - 协调各个模块的工作流程"""
-    
+
     def __init__(self):
         """初始化执行器"""
         self.browser_service = BrowserService()
         self.user_interface = UserInterface()
         self.current_scenario = None
-        
+
         # 暂停控制
         self._paused = False
         self._pause_lock = threading.Lock()
         self._pause_event = threading.Event()
         self._pause_event.set()  # 初始状态为运行
-        
+
         print("🎯 通用执行器初始化完成")
         print("📦 模块状态:")
         print("   ✅ 浏览器服务模块 - 已加载")
         print("   ✅ 用户交互层模块 - 已加载")
-    
+
     def set_scenario(self, scenario):
         """
         设置当前执行场景
@@ -41,7 +42,7 @@ class Runner:
         """
         self.current_scenario = scenario
         print(f"✅ 场景已设置: {scenario.__class__.__name__}")
-    
+
     def pause(self):
         """暂停执行"""
         with self._pause_lock:
@@ -53,7 +54,7 @@ class Runner:
             else:
                 print("⚠️ 执行已经处于暂停状态")
                 return False
-    
+
     def resume(self):
         """恢复执行"""
         with self._pause_lock:
@@ -65,22 +66,22 @@ class Runner:
             else:
                 print("⚠️ 执行未处于暂停状态")
                 return False
-    
+
     def is_paused(self) -> bool:
         """检查是否处于暂停状态"""
         return self._paused
-    
+
     def wait_if_paused(self):
         """如果处于暂停状态则等待"""
         self._pause_event.wait()
-    
+
     def toggle_pause(self):
         """切换暂停/恢复状态"""
         if self._paused:
             return self.resume()
         else:
             return self.pause()
-    
+
     async def initialize_system(self) -> bool:
         """
         初始化系统环境
@@ -89,24 +90,27 @@ class Runner:
             bool: 初始化是否成功
         """
         print("\n🔧 开始初始化系统环境...")
-        
+
         # 检查暂停状态
         self.wait_if_paused()
-        
+
         # 初始化浏览器服务
         if not await self.browser_service.init_browser():
             print("❌ 浏览器服务初始化失败")
             return False
-        
+
         # 获取页面对象并设置到当前场景
         page = await self.browser_service.get_page()
         if not page:
             print("❌ 无法获取页面对象")
             return False
-        
+
+        # 关键修复：存储页面对象到实例属性
+        self.page = page
+
         if self.current_scenario:
             self.current_scenario.set_page(page)
-        
+
         print("✅ 系统环境初始化完成")
         return True
 
@@ -118,19 +122,25 @@ class Runner:
             bool: 设置是否成功
         """
         print("\n👤 设置用户交互界面...")
-        
+
         # 检查暂停状态
         self.wait_if_paused()
-        
-        # 显示欢迎信息
-        self.user_interface.show_welcome_message()
-        
+
+        # Web环境不需要显示欢迎信息
+
         # 应用配置到当前场景
         if self.current_scenario:
             config = self.user_interface.get_config()
             if hasattr(self.current_scenario, 'request_delay'):
                 self.current_scenario.request_delay = config.get('request_delay', 2.0)
-        
+
+            # 关键修复：设置页面对象给场景
+            if hasattr(self.current_scenario, 'set_page') and hasattr(self, 'page') and self.page:
+                self.current_scenario.set_page(self.page)
+                print("✅ 页面对象已设置给自动化场景")
+            else:
+                print("⚠️ 无法设置页面对象 - 页面对象不存在")
+
         print("✅ 用户交互界面设置完成")
         return True
 
@@ -145,14 +155,14 @@ class Runner:
             bool: 执行是否成功
         """
         print("\n🤖 开始执行场景...")
-        
+
         if not self.current_scenario:
             print("❌ 未设置执行场景")
             return False
-        
+
         # 检查暂停状态
         self.wait_if_paused()
-        
+
         try:
             # 调用场景的执行方法
             if hasattr(self.current_scenario, 'execute'):
@@ -160,14 +170,14 @@ class Runner:
             else:
                 print("❌ 场景未实现execute方法")
                 return False
-            
+
             if not results:
                 print("❌ 场景执行失败")
                 return False
-            
+
             print("✅ 场景执行完成")
             return True
-            
+
         except Exception as e:
             print(f"❌ 场景执行异常: {str(e)}")
             return False
@@ -180,28 +190,28 @@ class Runner:
             bool: 保存是否成功
         """
         print("\n💾 保存和显示结果...")
-        
+
         # 检查暂停状态
         self.wait_if_paused()
-        
+
         # 显示统计信息
         self.user_interface.display_statistics()
-        
+
         # 保存结果到Excel
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_file = f"results_{timestamp}.xlsx"
-        
+
         if not self.user_interface.save_results_to_excel(output_file):
             print("❌ 结果保存失败")
             return False
-        
+
         print("✅ 结果保存和显示完成")
         return True
 
     async def cleanup_system(self):
         """清理系统资源 - 保持浏览器连接"""
         print("\n🧹 清理系统资源...")
-        
+
         # 注意：根据用户要求，不关闭浏览器连接，方便后续调试和操作
         print("💡 保持浏览器连接，方便调试和后续操作")
         print("✅ 系统资源清理完成（浏览器保持连接）")
@@ -218,39 +228,39 @@ class Runner:
         """
         success = False
         start_time = datetime.now()
-        
+
         try:
             print("🚀 开始运行完整工作流程")
             print(f"⏰ 开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
             print("=" * 60)
-            
+
             # 步骤1: 初始化系统环境
             if not await self.initialize_system():
                 return False
-            
+
             # 步骤2: 设置用户交互界面
             if not self.setup_user_interface():
                 return False
-            
+
             # 步骤3: 执行场景
             if not await self.execute_scenario(**kwargs):
                 return False
-            
+
             # 步骤4: 保存并显示结果
             if not self.save_and_display_results():
                 return False
-            
+
             success = True
-            
+
         except Exception as e:
             print(f"❌ 工作流程执行异常: {str(e)}")
             success = False
-            
+
         finally:
             # 显示完成信息
             end_time = datetime.now()
             duration = end_time - start_time
-            
+
             print("\n" + "=" * 60)
             print("📊 工作流程完成统计:")
             print(f"   开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -258,11 +268,11 @@ class Runner:
             print(f"   总耗时: {duration.total_seconds():.1f} 秒")
             print(f"   执行结果: {'✅ 成功' if success else '❌ 失败'}")
             print("=" * 60)
-            
+
             # 根据用户要求，无论成功还是失败都保持浏览器连接
             print("💡 保持浏览器连接，方便调试和后续操作")
             self.user_interface.show_completion_message(success)
-        
+
         return success
 
     async def run_integration_test(self) -> bool:
@@ -280,7 +290,7 @@ class Runner:
         print("   4. 暂停/恢复功能测试")
         print("   5. 模块协同工作测试")
         print("=" * 60)
-        
+
         test_results = {
             'module_loading': False,
             'browser_service': False,
@@ -288,7 +298,7 @@ class Runner:
             'pause_resume': False,
             'integration': False
         }
-        
+
         try:
             # 测试1: 模块加载测试
             print("\n🔍 测试1: 模块加载测试")
@@ -298,13 +308,13 @@ class Runner:
             else:
                 print("❌ 模块加载失败")
                 return False
-            
+
             # 测试2: 浏览器服务测试
             print("\n🔍 测试2: 浏览器服务测试")
             if await self.browser_service.init_browser():
                 print("✅ 浏览器服务初始化成功")
                 test_results['browser_service'] = True
-                
+
                 # 测试页面获取
                 page = await self.browser_service.get_page()
                 if page:
@@ -315,15 +325,15 @@ class Runner:
             else:
                 print("❌ 浏览器服务初始化失败")
                 return False
-            
+
             # 测试3: 用户交互层测试
             print("\n🔍 测试3: 用户交互层测试")
-            
+
             # 测试配置功能
             original_delay = self.user_interface.get_config('request_delay')
             self.user_interface.set_config('request_delay', 1.0)
             new_delay = self.user_interface.get_config('request_delay')
-            
+
             if new_delay == 1.0:
                 print("✅ 配置管理功能正常")
                 test_results['user_interface'] = True
@@ -332,22 +342,22 @@ class Runner:
             else:
                 print("❌ 配置管理功能异常")
                 return False
-            
+
             # 测试4: 暂停/恢复功能测试
             print("\n🔍 测试4: 暂停/恢复功能测试")
-            
+
             # 测试暂停
             if self.pause():
                 print("✅ 暂停功能正常")
-                
+
                 # 测试状态检查
                 if self.is_paused():
                     print("✅ 暂停状态检查正常")
-                    
+
                     # 测试恢复
                     if self.resume():
                         print("✅ 恢复功能正常")
-                        
+
                         # 测试切换功能
                         self.toggle_pause()  # 暂停
                         if self.is_paused():
@@ -370,39 +380,40 @@ class Runner:
             else:
                 print("❌ 暂停功能异常")
                 return False
-            
+
             # 测试5: 模块协同工作测试
             print("\n🔍 测试5: 模块协同工作测试")
-            
+
             # 测试配置传递
             self.user_interface.set_config('request_delay', 1.5)
             config = self.user_interface.get_config()
-            
+
             if config.get('request_delay') == 1.5:
                 print("✅ 模块间配置传递正常")
                 test_results['integration'] = True
             else:
                 print("❌ 模块间配置传递异常")
                 return False
-            
+
             # 所有测试通过
             print("\n🎉 所有集成测试通过！")
-            
+
             # 显示测试结果摘要
             print("\n📊 测试结果摘要:")
             for test_name, result in test_results.items():
                 status = "✅ 通过" if result else "❌ 失败"
                 print(f"   {test_name}: {status}")
-            
+
             return True
-            
+
         except Exception as e:
             print(f"❌ 集成测试异常: {str(e)}")
             return False
-        
+
         finally:
             # 保持浏览器连接，不进行清理
             print("💡 测试完成，保持浏览器连接以便后续使用")
+
 
 def create_pause_control_thread(runner: Runner):
     """
@@ -411,6 +422,7 @@ def create_pause_control_thread(runner: Runner):
     Args:
         runner: 执行器实例
     """
+
     def control_loop():
         print("💡 暂停控制已启动，输入 'p' 暂停，'r' 恢复，'q' 退出控制")
         while True:
@@ -427,7 +439,7 @@ def create_pause_control_thread(runner: Runner):
                     runner.toggle_pause()
             except (EOFError, KeyboardInterrupt):
                 break
-    
+
     control_thread = threading.Thread(target=control_loop, daemon=True)
     control_thread.start()
     return control_thread

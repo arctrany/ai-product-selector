@@ -7,6 +7,9 @@ import asyncio
 import re
 from typing import Dict, Any, List, Optional
 from playwright.async_api import Page, ElementHandle
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from logger_config import get_logger
 
 

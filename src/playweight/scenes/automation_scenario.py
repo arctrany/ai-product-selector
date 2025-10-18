@@ -21,7 +21,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine import DOMAnalyzer
+from ..engine import DOMAnalyzer
 from logger_config import get_logger
 from engine.browser_common import UniversalPaginator
 

@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能选品 - 控制台</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+        
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        
+        .console-container {
+            padding: 30px;
+        }
+        
+        .control-panel {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .task-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #28a745;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .control-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .progress-section {
+            margin-bottom: 30px;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .progress-text {
+            text-align: center;
+            color: #6c757d;
+            font-size: 14px;
+        }
+        
+        .console-output {
+            background: #1e1e1e;
+            color: #ffffff;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #333;
+        }
+        
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+        
+        .log-info {
+            color: #17a2b8;
+        }
+        
+        .log-success {
+            color: #28a745;
+        }
+        
+        .log-warning {
+            color: #ffc107;
+        }
+        
+        .log-error {
+            color: #dc3545;
+        }
+        
+        .log-timestamp {
+            color: #6c757d;
+            font-size: 12px;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 20px;
+            background: #6c757d;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+        
+        .back-link:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🖥️ 智能选品控制台</h1>
+            <p>实时监控任务执行状态和日志输出</p>
+        </div>
+        
+        <div class="console-container">
+            <div class="control-panel">
+                <div class="task-status">
+                    <div class="status-indicator" id="statusIndicator"></div>
+                    <span id="statusText">准备就绪</span>
+                </div>
+                
+                <div class="control-buttons">
+                    <button class="btn btn-primary" id="startBtn" onclick="startTask()">开始任务</button>
+                    <button class="btn btn-secondary" id="pauseBtn" onclick="pauseTask()" disabled>暂停</button>
+                    <button class="btn btn-danger" id="stopBtn" onclick="stopTask()" disabled>停止</button>
+                    <button class="btn btn-secondary" onclick="clearConsole()">清空日志</button>
+                </div>
+            </div>
+            
+            <div class="progress-section">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text" id="progressText">等待开始...</div>
+            </div>
+            
+            <div class="console-output" id="consoleOutput">
+                <div class="log-entry log-info">
+                    <span class="log-timestamp">[2025-10-18 20:53:00]</span> 
+                    智能选品控制台已启动
+                </div>
+                <div class="log-entry log-success">
+                    <span class="log-timestamp">[2025-10-18 20:53:00]</span> 
+                    ✅ 用户目录结构已创建: ~/.hw/uploads
+                </div>
+                <div class="log-entry log-info">
+                    <span class="log-timestamp">[2025-10-18 20:53:00]</span> 
+                    等待用户启动任务...
+                </div>
+            </div>
+            
+            <a href="/app" class="back-link">← 返回表单页面</a>
+        </div>
+    </div>
+    
+    <script>
+        let taskRunning = false;
+        let currentProgress = 0;
+        let currentTaskId = null;
+
+        function startTask() {
+            if (taskRunning) return;
+            
+            taskRunning = true;
+            updateButtonStates();
+            updateStatus('运行中', '#28a745');
+            
+            fetch('/api/task/start', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    currentTaskId = data.task_id; // 保存任务ID
+                    addLogEntry('success', `任务启动成功 (ID: ${currentTaskId})`);
+                    pollTaskStatus();
+                } else {
+                    addLogEntry('error', '任务启动失败: ' + data.error);
+                    taskRunning = false;
+                    updateButtonStates();
+                    updateStatus('错误', '#dc3545');
+                }
+            })
+            .catch(error => {
+                addLogEntry('error', '网络错误: ' + error.message);
+                taskRunning = false;
+                updateButtonStates();
+                updateStatus('错误', '#dc3545');
+            });
+        }
+        
+        function pauseTask() {
+            // 暂停功能实现
+            addLogEntry('warning', '任务已暂停');
+        }
+        
+        function stopTask() {
+            if (!taskRunning) return;
+
+            // 调用后端API停止任务
+            if (!currentTaskId) {
+                addLogEntry('error', '没有正在运行的任务');
+                return;
+            }
+
+            fetch(`/api/task/${currentTaskId}/stop`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    taskRunning = false;
+                    updateButtonStates();
+                    updateStatus('已停止', '#6c757d');
+                    addLogEntry('warning', '🛑 任务已停止');
+                } else {
+                    addLogEntry('error', '停止任务失败: ' + data.error);
+                }
+            })
+            .catch(error => {
+                addLogEntry('error', '停止任务网络错误: ' + error.message);
+                // 即使网络错误也更新前端状态
+                taskRunning = false;
+                updateButtonStates();
+                updateStatus('已停止', '#6c757d');
+            });
+        }
+        
+        function clearConsole() {
+            document.getElementById('consoleOutput').innerHTML = '';
+            addLogEntry('info', '控制台已清空');
+        }
+        
+        function updateButtonStates() {
+            document.getElementById('startBtn').disabled = taskRunning;
+            document.getElementById('pauseBtn').disabled = !taskRunning;
+            document.getElementById('stopBtn').disabled = !taskRunning;
+        }
+        
+        function updateStatus(text, color) {
+            document.getElementById('statusText').textContent = text;
+            document.getElementById('statusIndicator').style.background = color;
+        }
+        
+        function updateProgress(percent, text) {
+            document.getElementById('progressFill').style.width = percent + '%';
+            document.getElementById('progressText').textContent = text || `进度: ${percent}%`;
+        }
+        
+        function addLogEntry(type, message) {
+            const console = document.getElementById('consoleOutput');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span> ${message}`;
+            console.appendChild(entry);
+            console.scrollTop = console.scrollHeight;
+        }
+        
+        function pollTaskStatus() {
+            if (!taskRunning) return;
+            
+            fetch('/api/console/state')
+            .then(response => response.json())
+            .then(data => {
+                // 更新进度和状态
+                if (data.progress !== undefined) {
+                    updateProgress(data.progress, data.status);
+                }
+                
+                // 添加新的日志条目
+                if (data.messages && data.messages.length > 0) {
+                    data.messages.forEach(msg => {
+                        addLogEntry(msg.type || 'info', msg.message);
+                    });
+                }
+                
+                // 检查任务是否完成
+                if (data.completed) {
+                    taskRunning = false;
+                    currentTaskId = null; // 清除任务ID
+                    updateButtonStates();
+                    updateStatus('已完成', '#28a745');
+                    addLogEntry('success', '🎉 任务执行完成！');
+                } else if (taskRunning) {
+                    // 继续轮询
+                    setTimeout(pollTaskStatus, 1000);
+                }
+            })
+            .catch(error => {
+                addLogEntry('error', '状态轮询失败: ' + error.message);
+            });
+        }
+        
+        // 页面加载时的初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            addLogEntry('info', '控制台界面已加载');
+            updateButtonStates();
+        });
+    </script>
+</body>
+</html>

@@ -7,7 +7,7 @@ import re
 import time
 from typing import Callable, Optional, Any, List
 from playwright.async_api import Page
-from logger_config import get_logger
+from playweight.logger_config import get_logger
 
 
 class UniversalPaginator:
