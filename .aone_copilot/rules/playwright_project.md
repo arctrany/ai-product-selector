@@ -5,7 +5,7 @@ This project uses **playwright** for browser automation development.
 
 ## 要求
 ### 需求澄清
-1. 对于拿不准的需求，可以利用提问，用不超过2论的对话，要求用户 clarifying 需求,避免需求模糊和歧义
+1. 对于拿不准的需求，可以利用提问，用不超过2论的对话，要求用户 clarify 需求,避免需求模糊和歧义
 
 ### 实施
 1. 遵循python项目的最佳实践，目录规范、编码规范

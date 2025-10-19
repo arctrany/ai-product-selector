@@ -357,24 +357,37 @@
             if (savedSettings) {
                 try {
                     const settings = JSON.parse(savedSettings);
+                    console.log('正在恢复保存的设置:', settings);
 
-                    // 恢复数值字段
+                    // 恢复所有字段
                     Object.keys(settings).forEach(key => {
+                        if (key === 'remember_settings') return; // 跳过记住选项本身
+
                         const element = document.getElementById(key);
-                        if (element && (element.type === 'number' || element.tagName === 'SELECT')) {
-                            element.value = settings[key];
+                        if (element) {
+                            if (element.type === 'number' || element.tagName === 'SELECT') {
+                                element.value = settings[key];
+                                console.log(`已恢复 ${key}: ${settings[key]}`);
+                            }
+                        } else {
+                            console.warn(`未找到元素: ${key}`);
                         }
                     });
 
                     // 恢复记住选择状态
                     if (settings.remember_settings) {
                         rememberCheckbox.checked = true;
+                        console.log('已恢复记住选择状态');
                     }
 
-                    console.log('已恢复保存的表单设置');
+                    console.log('✅ 表单设置恢复完成');
                 } catch (e) {
                     console.error('恢复表单设置失败:', e);
+                    // 清除损坏的设置
+                    localStorage.removeItem('seerfar_form_settings');
                 }
+            } else {
+                console.log('未找到保存的设置');
             }
         });
 
