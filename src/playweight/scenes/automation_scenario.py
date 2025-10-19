@@ -95,6 +95,54 @@ def _print_store_products_details(products: List[Dict[str, Any]], store_index: i
     print(f"{'='*80}")
 
 
+def _display_product_statistics(products: List[Dict[str, Any]]):
+    """
+    显示商品字段统计信息
+
+    Args:
+        products: 商品列表
+    """
+    if not products:
+        return
+
+    print("\n📈 商品字段统计:")
+
+    # 统计各字段的填充情况
+    field_stats = {}
+    field_names = {
+        'product_link_url': '产品链接',
+        'product_id': '产品ID',
+        'category': '类目',
+        'price': '售价',
+        'sales_volume': '销量',
+        'sales_amount': '销售额',
+        'profit_margin': '毛利率',
+        'exposure': '曝光量',
+        'product_views': '产品卡浏览量',
+        'add_to_cart_rate': '加购率',
+        'conversion_rate': '订单转化率',
+        'ad_cost_share': '广告费用份额',
+        'return_cancel_rate': '退货取消率',
+        'rating': '评分',
+        'shop_name': '店铺',
+        'seller_type': '卖家类型',
+        'delivery_method': '配送方式',
+        'weight': '重量',
+        'listing_time': '上架时间'
+    }
+
+    total_count = len(products)
+
+    for field_key, field_name in field_names.items():
+        filled_count = sum(1 for product in products if product.get(field_key, '').strip())
+        percentage = (filled_count / total_count) * 100 if total_count > 0 else 0
+        field_stats[field_name] = f"{filled_count}/{total_count} ({percentage:.1f}%)"
+
+    # 打印统计结果
+    for field_name, stats in field_stats.items():
+        print(f"   {field_name}: {stats}")
+
+
 class AutomationScenario:
     """
     自动化场景执行器 - Seerfar店铺数据爬取场景
@@ -635,7 +683,7 @@ class AutomationScenario:
 
             # 显示商品字段统计
             if all_products:
-                self._display_product_statistics(all_products)
+                _display_product_statistics(all_products)
 
             return all_products
 
@@ -674,7 +722,7 @@ class AutomationScenario:
                 # 识别SKU
                 if text_info.get('is_potential_sku') and not product_info.get('sku'):
                     product_info['sku'] = text
-                    self.logger.debug(f"识别到SKU: {text}")
+                    self.logger.debug(f"识别到产品: {text}")
                 
                 # 识别商品描述
                 if len(text) > 10 and not product_info.get('product_description'):
@@ -1027,53 +1075,6 @@ class AutomationScenario:
 
         except Exception as e:
             self.logger.error(f"❌ 提取产品信息失败: {str(e)}")
-
-    def _display_product_statistics(self, products: List[Dict[str, Any]]):
-        """
-        显示商品字段统计信息
-
-        Args:
-            products: 商品列表
-        """
-        if not products:
-            return
-
-        print("\n📈 商品字段统计:")
-
-        # 统计各字段的填充情况
-        field_stats = {}
-        field_names = {
-            'product_link_url': '产品链接',
-            'product_id': '产品ID',
-            'category': '类目',
-            'price': '售价',
-            'sales_volume': '销量',
-            'sales_amount': '销售额',
-            'profit_margin': '毛利率',
-            'exposure': '曝光量',
-            'product_views': '产品卡浏览量',
-            'add_to_cart_rate': '加购率',
-            'conversion_rate': '订单转化率',
-            'ad_cost_share': '广告费用份额',
-            'return_cancel_rate': '退货取消率',
-            'rating': '评分',
-            'shop_name': '店铺',
-            'seller_type': '卖家类型',
-            'delivery_method': '配送方式',
-            'weight': '重量',
-            'listing_time': '上架时间'
-        }
-
-        total_count = len(products)
-
-        for field_key, field_name in field_names.items():
-            filled_count = sum(1 for product in products if product.get(field_key, '').strip())
-            percentage = (filled_count / total_count) * 100 if total_count > 0 else 0
-            field_stats[field_name] = f"{filled_count}/{total_count} ({percentage:.1f}%)"
-
-        # 打印统计结果
-        for field_name, stats in field_stats.items():
-            print(f"   {field_name}: {stats}")
 
     def _print_product_links(self, products: List[Dict[str, Any]], store_name: str = ""):
         """

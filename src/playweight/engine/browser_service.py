@@ -48,7 +48,8 @@ class BrowserService:
                  browser_type: BrowserType = BrowserType.EDGE,
                  debug_port: int = 9222,
                  extensions: Optional[List[str]] = None,
-                 config_file: Optional[str] = None):
+                 config_file: Optional[str] = None,
+                 headless: bool = False):
         """
         初始化浏览器服务
 
@@ -62,12 +63,14 @@ class BrowserService:
         self.debug_port = debug_port
         self.extensions = extensions or []
         self.config_file = config_file
+        self.headless = headless
         self.playwright = None
         self.browser = None
         self.context = None
         self.page = None
         self.current_browser_executable = None
         self.current_user_data_dir = None
+        self._pw_loop: Optional[asyncio.AbstractEventLoop] = None
 
         # 加载配置
         self.config = self._load_config()
@@ -95,7 +98,8 @@ class BrowserService:
             else:
                 return os.path.expanduser("~/.config/google-chrome")
 
-    def _find_executable_and_data_dir(self, executable_paths: List[str], data_dir_paths: List[str], browser_name: str) -> Tuple[Optional[str], Optional[str]]:
+    def _find_executable_and_data_dir(self, executable_paths: List[str], data_dir_paths: List[str],
+                                      browser_name: str) -> Tuple[Optional[str], Optional[str]]:
         """通用的可执行文件和数据目录查找方法"""
         # 查找可执行文件
         executable_path = None
@@ -234,8 +238,6 @@ class BrowserService:
 
         return self._find_executable_and_data_dir(edge_paths, user_data_dirs, "Edge")
 
-
-
     def get_chrome_paths(self) -> Tuple[Optional[str], Optional[str]]:
         """
         获取Chrome可执行文件路径和用户数据目录 - 跨平台支持
@@ -297,8 +299,6 @@ class BrowserService:
             ]
 
         return self._find_executable_and_data_dir(chrome_paths, user_data_dirs, "Chrome")
-
-
 
     def get_browser_paths(self) -> Tuple[Optional[str], Optional[str], BrowserType]:
         """
@@ -559,62 +559,62 @@ class BrowserService:
                 "--load-extension-keep-alive",
                 "--disable-extensions-file-access-check",
                 # 后台运行优化参数 - 强制防止前台激活
-                "--window-position=-2000,-2000",   # 窗口位置设置到屏幕外（更强力）
-                "--window-size=800,600",           # 设置较小的窗口大小
-                "--disable-popup-blocking",        # 禁用弹窗阻止
-                "--disable-background-mode",       # 禁用后台模式
-                "--disable-background-networking", # 禁用后台网络
-                "--disable-notifications",         # 禁用通知
-                "--disable-desktop-notifications", # 禁用桌面通知
-                "--no-startup-window",            # 启动时不显示窗口
+                "--window-position=-2000,-2000",  # 窗口位置设置到屏幕外（更强力）
+                "--window-size=800,600",  # 设置较小的窗口大小
+                "--disable-popup-blocking",  # 禁用弹窗阻止
+                "--disable-background-mode",  # 禁用后台模式
+                "--disable-background-networking",  # 禁用后台网络
+                "--disable-notifications",  # 禁用通知
+                "--disable-desktop-notifications",  # 禁用桌面通知
+                "--no-startup-window",  # 启动时不显示窗口
                 # 强制后台运行参数 - 防止自动化操作时跳到前台
                 "--disable-features=VizDisplayCompositor",  # 禁用显示合成器
-                "--disable-gpu",                   # 禁用GPU加速（防止窗口激活）
-                "--disable-software-rasterizer",   # 禁用软件光栅化
-                "--disable-ipc-flooding-protection", # 禁用IPC洪水保护
-                "--disable-hang-monitor",          # 禁用挂起监视器
-                "--disable-prompt-on-repost",      # 禁用重新提交提示
-                "--disable-client-side-phishing-detection", # 禁用钓鱼检测
-                "--disable-component-extensions-with-background-pages", # 禁用后台页面扩展
-                "--disable-sync",                  # 禁用同步
-                "--disable-translate",             # 禁用翻译
-                "--disable-add-to-shelf",          # 禁用添加到书架
-                "--autoplay-policy=no-user-gesture-required", # 自动播放策略
-                "--no-sandbox",                    # 禁用沙盒（减少系统调用）
-                "--disable-web-security",          # 禁用Web安全（减少弹窗）
+                "--disable-gpu",  # 禁用GPU加速（防止窗口激活）
+                "--disable-software-rasterizer",  # 禁用软件光栅化
+                "--disable-ipc-flooding-protection",  # 禁用IPC洪水保护
+                "--disable-hang-monitor",  # 禁用挂起监视器
+                "--disable-prompt-on-repost",  # 禁用重新提交提示
+                "--disable-client-side-phishing-detection",  # 禁用钓鱼检测
+                "--disable-component-extensions-with-background-pages",  # 禁用后台页面扩展
+                "--disable-sync",  # 禁用同步
+                "--disable-translate",  # 禁用翻译
+                "--disable-add-to-shelf",  # 禁用添加到书架
+                "--autoplay-policy=no-user-gesture-required",  # 自动播放策略
+                "--no-sandbox",  # 禁用沙盒（减少系统调用）
+                "--disable-web-security",  # 禁用Web安全（减少弹窗）
                 "--disable-features=TranslateUI",  # 禁用翻译UI
                 "--disable-features=MediaRouter",  # 禁用媒体路由器
-                "--disable-blink-features=AutomationControlled", # 隐藏自动化控制标识
+                "--disable-blink-features=AutomationControlled",  # 隐藏自动化控制标识
                 # 超强力后台运行参数 - 彻底防止窗口激活和前台跳转
                 "--disable-features=kBackgroundMode",  # 彻底禁用后台模式
-                "--disable-field-trial-config",    # 禁用字段试验配置
-                "--disable-background-sync",       # 禁用后台同步
-                "--disable-background-fetch",      # 禁用后台获取
-                "--disable-background-task-scheduler", # 禁用后台任务调度器
-                "--disable-background-tracing",    # 禁用后台跟踪
+                "--disable-field-trial-config",  # 禁用字段试验配置
+                "--disable-background-sync",  # 禁用后台同步
+                "--disable-background-fetch",  # 禁用后台获取
+                "--disable-background-task-scheduler",  # 禁用后台任务调度器
+                "--disable-background-tracing",  # 禁用后台跟踪
                 # macOS特定的窗口管理参数
-                "--disable-features=kMacSystemMediaPermissionInfoUi", # 禁用macOS系统媒体权限UI
-                "--disable-features=kMacViewsNativeAppWindows",       # 禁用macOS原生应用窗口
-                "--disable-features=kMacSystemShareMenu",             # 禁用macOS系统分享菜单
-                "--disable-features=kMacFullSizeContentView",         # 禁用macOS全尺寸内容视图
-                "--disable-features=kMacTouchBar",                    # 禁用macOS触控栏
-                "--disable-features=kMacSystemNotificationPermissionInfoUi", # 禁用macOS系统通知权限UI
+                "--disable-features=kMacSystemMediaPermissionInfoUi",  # 禁用macOS系统媒体权限UI
+                "--disable-features=kMacViewsNativeAppWindows",  # 禁用macOS原生应用窗口
+                "--disable-features=kMacSystemShareMenu",  # 禁用macOS系统分享菜单
+                "--disable-features=kMacFullSizeContentView",  # 禁用macOS全尺寸内容视图
+                "--disable-features=kMacTouchBar",  # 禁用macOS触控栏
+                "--disable-features=kMacSystemNotificationPermissionInfoUi",  # 禁用macOS系统通知权限UI
                 # 窗口焦点和激活控制
-                "--disable-focus-manager",         # 禁用焦点管理器
-                "--disable-window-activation",     # 禁用窗口激活
-                "--disable-auto-reload",           # 禁用自动重载
-                "--disable-session-crashed-bubble", # 禁用会话崩溃气泡
-                "--disable-infobars",              # 禁用信息栏
+                "--disable-focus-manager",  # 禁用焦点管理器
+                "--disable-window-activation",  # 禁用窗口激活
+                "--disable-auto-reload",  # 禁用自动重载
+                "--disable-session-crashed-bubble",  # 禁用会话崩溃气泡
+                "--disable-infobars",  # 禁用信息栏
                 "--disable-save-password-bubble",  # 禁用保存密码气泡
-                "--disable-translate-new-ux",      # 禁用翻译新UX
-                "--disable-features=TabHoverCards", # 禁用标签悬停卡片
-                "--disable-features=TabGroups",     # 禁用标签组
-                "--disable-features=GlobalMediaControls", # 禁用全局媒体控制
+                "--disable-translate-new-ux",  # 禁用翻译新UX
+                "--disable-features=TabHoverCards",  # 禁用标签悬停卡片
+                "--disable-features=TabGroups",  # 禁用标签组
+                "--disable-features=GlobalMediaControls",  # 禁用全局媒体控制
                 # 彻底隐藏和最小化窗口
-                "--start-minimized",               # 启动时最小化
-                "--silent-launch",                 # 静默启动
-                "--disable-logging",               # 禁用日志记录
-                "--log-level=3",                   # 设置最高日志级别（只显示致命错误）
+                "--start-minimized",  # 启动时最小化
+                "--silent-launch",  # 静默启动
+                "--disable-logging",  # 禁用日志记录
+                "--log-level=3",  # 设置最高日志级别（只显示致命错误）
                 "about:blank"
             ]
 
@@ -622,6 +622,13 @@ class BrowserService:
             if extension_args:
                 browser_args.extend(extension_args)
                 print(f"🔌 启用自定义扩展支持")
+
+            # 添加headless参数
+            if self.headless:
+                browser_args.append("--headless=new")
+                print(f"👻 启用无头模式运行")
+            else:
+                print(f"🖥️ 启用有头模式运行")
 
             # 不禁用扩展系统，以确保用户插件正常工作
             print(f"🔌 保持扩展系统启用，确保您的插件正常工作")
@@ -720,6 +727,14 @@ class BrowserService:
             # 设置页面超时
             self.page.set_default_timeout(30000)  # 30秒
 
+            # 保存Playwright的原始事件循环
+            self._pw_loop = asyncio.get_running_loop()
+            print("✅ 已保存Playwright原始事件循环")
+
+            # 绑定上下文事件，自动更新页面引用
+            self._bind_context_events()
+            print("✅ 已绑定上下文事件监听")
+
             return True
 
         except Exception as e:
@@ -794,3 +809,226 @@ class BrowserService:
             bool: 是否已初始化
         """
         return all([self.playwright, self.browser, self.context, self.page])
+
+    def attach_page(self, page: Page):
+        """
+        主动绑定当前使用的页面
+
+        Args:
+            page: 要绑定的页面对象
+        """
+        self.page = page
+        try:
+            # 保持引用活跃，并监听弹窗事件
+            page.on("domcontentloaded", lambda _: None)
+            page.on("popup", lambda new_page: self.attach_page(new_page))
+            print(f"✅ 已绑定页面: {page.url if hasattr(page, 'url') else 'unknown'}")
+        except Exception as e:
+            print(f"⚠️ 绑定页面事件时出现警告: {e}")
+
+    def _bind_context_events(self):
+        """
+        绑定所有上下文的页面事件，自动更新页面引用
+        """
+        if not self.browser:
+            return
+
+        try:
+            for ctx in self.browser.contexts:
+                try:
+                    # 当有新页面创建时，自动更新引用
+                    ctx.on("page", lambda p: self._on_new_page(p))
+                    print(f"✅ 已绑定上下文事件监听")
+                except Exception as e:
+                    print(f"⚠️ 绑定上下文事件时出现警告: {e}")
+        except Exception as e:
+            print(f"⚠️ 绑定上下文事件失败: {e}")
+
+    def _on_new_page(self, page: Page):
+        """
+        新页面创建时的回调函数
+
+        Args:
+            page: 新创建的页面
+        """
+        try:
+            print(f"🆕 检测到新页面: {page.url if hasattr(page, 'url') else 'about:blank'}")
+            self.attach_page(page)
+        except Exception as e:
+            print(f"⚠️ 处理新页面时出现警告: {e}")
+
+    def _pick_active_page(self) -> Optional[Page]:
+        """
+        选择最可能是活动页面的引用，确保页面未被关闭
+
+        Returns:
+            Optional[Page]: 最活跃的页面，如果没有则返回None
+        """
+        def is_page_valid(page) -> bool:
+            """检查页面是否有效且未被关闭"""
+            try:
+                if not page:
+                    return False
+                # 尝试访问页面属性来检查是否已关闭
+                _ = page.url
+                return True
+            except Exception:
+                return False
+
+        try:
+            # 首先检查当前页面是否有效且不是空白页
+            if (self.page and
+                is_page_valid(self.page) and
+                hasattr(self.page, "url") and
+                self.page.url and
+                self.page.url != "about:blank"):
+                print(f"📄 使用当前页面: {self.page.url}")
+                return self.page
+
+            # 从所有上下文里挑最后一个非空白且有效的页面
+            if self.browser:
+                for ctx in reversed(self.browser.contexts):
+                    try:
+                        pages = ctx.pages
+                        for p in reversed(pages):
+                            try:
+                                if (is_page_valid(p) and
+                                    p.url and
+                                    p.url != "about:blank"):
+                                    print(f"📄 选择活跃页面: {p.url}")
+                                    # 更新当前页面引用
+                                    self.page = p
+                                    return p
+                            except Exception:
+                                continue
+                    except Exception:
+                        continue
+
+            # 如果所有页面都无效，尝试创建新页面
+            if self.browser and self.browser.contexts:
+                try:
+                    ctx = self.browser.contexts[0]
+                    if ctx:
+                        print("📄 所有页面已关闭，尝试创建新页面")
+                        # 注意：这里不能直接创建页面，因为我们在同步方法中
+                        # 只能返回None，让调用方处理
+                        return None
+                except Exception as e:
+                    print(f"⚠️ 尝试创建新页面失败: {e}")
+
+            # 兜底返回None，表示没有可用页面
+            print(f"📄 没有可用的页面")
+            return None
+
+        except Exception as e:
+            print(f"⚠️ 选择活跃页面时出现警告: {e}")
+            return None
+
+    async def _run_on_pw_loop(self, coro):
+        """
+        在Playwright的原始事件循环中执行协程
+
+        Args:
+            coro: 要执行的协程
+
+        Returns:
+            协程的执行结果
+        """
+        # 如果当前没有运行的 loop（同步环境）或 loop 不同，就投递
+        try:
+            current = asyncio.get_running_loop()
+        except RuntimeError:
+            current = None
+
+        if self._pw_loop is None:
+            raise RuntimeError("Playwright loop not initialized")
+
+        if current is self._pw_loop:
+            return await coro
+
+        # 投递到原始 Playwright loop
+        cfut = asyncio.run_coroutine_threadsafe(coro, self._pw_loop)
+        return await asyncio.wrap_future(cfut)
+
+    async def take_screenshot(self, full_page: bool = False) -> Optional[bytes]:
+        """
+        截取当前页面的截图 - 正确处理事件循环
+
+        Args:
+            full_page: 是否截取整个页面，默认为False（仅可视区域）
+
+        Returns:
+            Optional[bytes]: 截图的字节数据，失败时返回None
+        """
+        try:
+            if not self.page:
+                print("❌ 页面未初始化，无法截图")
+                return None
+
+            print("📷 正在截取页面截图...")
+            screenshot_bytes = await self._run_on_pw_loop(
+                self.page.screenshot(full_page=full_page, type='png')
+            )
+            print("✅ 截图成功")
+            return screenshot_bytes
+
+        except Exception as e:
+            print(f"❌ 截图失败: {str(e)}")
+            return None
+
+    def take_screenshot_sync(self, full_page: bool = False) -> Optional[bytes]:
+        """
+        同步方式截取当前页面的截图 - 用于非async环境/别的线程
+        使用智能页面选择，确保截图总是对当前活动页
+
+        Args:
+            full_page: 是否截取整个页面，默认为False（仅可视区域）
+
+        Returns:
+            Optional[bytes]: 截图的字节数据，失败时返回None
+        """
+        if not self._pw_loop or not self.browser:
+            print("❌ 截图失败：浏览器未初始化或事件循环未设置")
+            return None
+
+        # 刷新引用，选择最活跃的页面
+        target = self._pick_active_page()
+        if not target:
+            print("❌ 没有可用页面进行截图 - 所有页面可能已被关闭")
+            return None
+
+        try:
+            cfut = asyncio.run_coroutine_threadsafe(
+                target.screenshot(full_page=full_page, type='png'),
+                self._pw_loop
+            )
+            result = cfut.result(timeout=10)
+            if result:
+                print("✅ 截图成功")
+            return result
+        except Exception as e:
+            # 如果是页面已关闭的错误，尝试重新选择页面
+            if "closed" in str(e).lower() or "target" in str(e).lower():
+                print(f"⚠️ 页面已关闭，尝试重新选择页面: {e}")
+                # 清除当前页面引用，强制重新选择
+                self.page = None
+                target = self._pick_active_page()
+                if target:
+                    try:
+                        cfut = asyncio.run_coroutine_threadsafe(
+                            target.screenshot(full_page=full_page, type='png'),
+                            self._pw_loop
+                        )
+                        result = cfut.result(timeout=10)
+                        if result:
+                            print("✅ 重新截图成功")
+                        return result
+                    except Exception as retry_e:
+                        print(f"❌ 重试截图失败: {retry_e}")
+                        return None
+                else:
+                    print("❌ 重新选择页面失败，没有可用页面")
+                    return None
+            else:
+                print(f"❌ 截图失败: {e}")
+                return None

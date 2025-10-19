@@ -10,7 +10,7 @@ import threading
 import uuid
 from datetime import datetime
 from typing import Optional, Dict, Any
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask import Flask, render_template, request, jsonify, redirect, url_for, Response
 from werkzeug.utils import secure_filename
 
 from web.web_console import web_console
@@ -28,6 +28,7 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB
 current_task_thread = None
 current_form_data = None
 task_stop_flag = False  # 添加停止标志
+current_runner = None  # 添加当前Runner实例的引用
 
 
 def allowed_file(filename):
@@ -86,6 +87,10 @@ async def run_automation_task(task_id: str, form_data: Dict[str, Any]):
         # 初始化浏览器环境
         web_console.update_progress(task_id, 20, "初始化浏览器环境...")
         runner = Runner()
+
+        # 保存Runner实例的全局引用，用于截图API
+        global current_runner
+        current_runner = runner
 
         if not await runner.initialize_system():
             error_msg = "浏览器环境初始化失败"
@@ -159,25 +164,27 @@ async def run_automation_task(task_id: str, form_data: Dict[str, Any]):
                 if hasattr(automation_scenario, 'set_stop_callback'):
                     automation_scenario.set_stop_callback(lambda: task_stop_flag or web_console.should_stop())
 
-                # 执行爬取，但分批处理以便检查停止信号
+                # 执行爬取，逐个店铺处理以便及时响应停止信号
                 results = []
-                batch_size = 5  # 每批处理5个店铺
 
-                for i in range(0, len(stores_data), batch_size):
-                    # 检查停止信号
+                for i, store in enumerate(stores_data):
+                    # 检查停止信号 - 每个店铺处理前都检查
                     if task_stop_flag or web_console.should_stop():
                         web_console.warning("⚠️ 任务在执行过程中被用户停止")
                         break
 
-                    # 处理当前批次
-                    batch_stores = stores_data[i:i + batch_size]
-                    web_console.update_progress(task_id, 40 + (i / len(stores_data)) * 40,
-                                              f"正在处理第 {i+1}-{min(i+batch_size, len(stores_data))} 个店铺...")
+                    # 更新进度
+                    progress = 40 + (i / len(stores_data)) * 40
+                    web_console.update_progress(task_id, progress, f"正在处理第 {i+1}/{len(stores_data)} 个店铺...")
 
-                    # 调用原始的爬取方法处理这一批
-                    batch_results = await automation_scenario.crawl_all_stores(batch_stores, limit=None)
-                    if batch_results:
-                        results.extend(batch_results)
+                    # 逐个处理店铺，这样可以更及时地响应停止信号
+                    try:
+                        store_results = await automation_scenario.crawl_all_stores([store], limit=None)
+                        if store_results:
+                            results.extend(store_results)
+                    except Exception as e:
+                        web_console.warning(f"店铺 {i+1} 处理失败: {str(e)}")
+                        continue
 
                     # 短暂延迟，给停止信号检查机会
                     await asyncio.sleep(0.1)
@@ -251,6 +258,9 @@ async def run_automation_task(task_id: str, form_data: Dict[str, Any]):
         except Exception as e:
             web_console.warning(f"浏览器清理时出现警告: {str(e)}")
 
+        # 清理全局Runner引用
+        current_runner = None
+
         web_console.update_progress(task_id, 100, "任务完成")
         web_console.success("🎉 智能选品自动化任务执行完成！")
 
@@ -270,6 +280,9 @@ async def run_automation_task(task_id: str, form_data: Dict[str, Any]):
         import traceback
         web_console.error(f"错误堆栈: {traceback.format_exc()}")
         web_console.set_task_error(task_id, error_msg)
+
+        # 出错时也要清理全局Runner引用
+        current_runner = None
 
 
 @app.route('/')
@@ -460,6 +473,53 @@ def clear_console():
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/browser/screenshot', methods=['GET'])
+def get_browser_screenshot():
+    """获取浏览器截图API - 实现类似视频的体验"""
+    try:
+        global current_runner
+
+        # 详细的状态检查和错误报告
+        if not current_runner:
+            web_console.warning("截图请求失败: 没有活跃的浏览器会话")
+            return jsonify({'error': 'No active browser session', 'detail': 'Task not started or browser not initialized'}), 404
+
+        if not hasattr(current_runner, 'browser_service') or not current_runner.browser_service:
+            web_console.warning("截图请求失败: 浏览器服务不可用")
+            return jsonify({'error': 'Browser service not available', 'detail': 'BrowserService not created'}), 404
+
+        if not current_runner.browser_service.is_initialized():
+            web_console.warning("截图请求失败: 浏览器未初始化")
+            return jsonify({'error': 'Browser not initialized', 'detail': 'Browser initialization incomplete'}), 404
+
+        # 使用BrowserService的同步截图方法，避免事件循环冲突
+        web_console.info("📷 正在获取浏览器截图...")
+        screenshot_bytes = current_runner.browser_service.take_screenshot_sync(full_page=False)
+
+        if screenshot_bytes:
+            web_console.info("✅ 截图获取成功")
+            return Response(
+                screenshot_bytes,
+                mimetype='image/png',
+                headers={
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0',
+                    'Content-Length': str(len(screenshot_bytes))
+                }
+            )
+        else:
+            web_console.error("截图获取失败: 返回数据为空")
+            return jsonify({'error': 'Screenshot failed - no data returned', 'detail': 'Browser may be busy or page not loaded'}), 500
+
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        error_msg = f"截图API异常: {str(e)}"
+        web_console.error(error_msg)
+        web_console.error(f"错误详情: {error_details}")
+        return jsonify({'error': f'Screenshot error: {str(e)}', 'detail': 'Internal server error'}), 500
 
 
 def run_web_server(host='127.0.0.1', port=7788, debug=False):

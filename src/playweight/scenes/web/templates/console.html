@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>智能选品 - 控制台</title>
+    <title>任务控制台</title>
     <style>
         * {
             margin: 0;
@@ -140,6 +140,108 @@
             font-size: 14px;
         }
         
+        .main-content {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .console-section {
+            display: flex;
+            flex-direction: column;
+            order: 2;
+        }
+
+        .browser-preview {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid #dee2e6;
+            order: 1;
+        }
+
+        .preview-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .preview-title {
+            font-weight: 600;
+            color: #495057;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .preview-controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        .preview-btn {
+            padding: 4px 8px;
+            border: 1px solid #dee2e6;
+            background: white;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .preview-btn:hover {
+            background: #e9ecef;
+        }
+
+        .preview-btn.active {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+
+        .screenshot-container {
+            background: #ffffff;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .screenshot-placeholder {
+            color: #6c757d;
+            text-align: center;
+            font-size: 14px;
+        }
+
+        .screenshot-image {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 4px;
+            transition: opacity 0.3s ease-in-out;
+        }
+
+        .screenshot-image.updating {
+            opacity: 0.7;
+        }
+
+        .screenshot-overlay {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
         .console-output {
             background: #1e1e1e;
             color: #ffffff;
@@ -148,9 +250,26 @@
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
             font-size: 14px;
             line-height: 1.5;
-            height: 400px;
+            height: 300px;
             overflow-y: auto;
             border: 1px solid #333;
+            flex: 1;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+
+        @media (max-width: 1024px) {
+            .main-content {
+                flex-direction: column;
+            }
+
+            .browser-preview {
+                order: 1;
+            }
+
+            .console-section {
+                order: 2;
+            }
         }
         
         .log-entry {
@@ -199,17 +318,17 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🖥️ 智能选品控制台</h1>
+            <h1>🖥️ ren控制台</h1>
             <p>实时监控任务执行状态和日志输出</p>
         </div>
-        
+
         <div class="console-container">
             <div class="control-panel">
                 <div class="task-status">
                     <div class="status-indicator" id="statusIndicator"></div>
                     <span id="statusText">准备就绪</span>
                 </div>
-                
+
                 <div class="control-buttons">
                     <button class="btn btn-primary" id="startBtn" onclick="startTask()">开始任务</button>
                     <button class="btn btn-secondary" id="pauseBtn" onclick="pauseTask()" disabled>暂停</button>
@@ -217,37 +336,74 @@
                     <button class="btn btn-secondary" onclick="clearConsole()">清空日志</button>
                 </div>
             </div>
-            
+
             <div class="progress-section">
                 <div class="progress-bar">
                     <div class="progress-fill" id="progressFill"></div>
                 </div>
                 <div class="progress-text" id="progressText">等待开始...</div>
             </div>
-            
-            <div class="console-output" id="consoleOutput">
+
+            <div class="main-content">
+                <div class="console-section">
+                    <div class="console-output" id="consoleOutput"></div>
+                </div>
+
+                <div class="browser-preview">
+                    <div class="preview-header">
+                        <div class="preview-title">
+                            🎬 浏览器预览
+                        </div>
+                        <div class="preview-controls">
+                            <button class="preview-btn active" id="screenshotBtn" onclick="toggleScreenshot()">截图</button>
+                            <button class="preview-btn" id="videoBtn" onclick="toggleVideo()">录像</button>
+                            <button class="preview-btn" id="traceBtn" onclick="toggleTrace()">追踪</button>
+                        </div>
+                    </div>
+
+                    <div class="screenshot-container" id="screenshotContainer">
+                        <div class="screenshot-placeholder" id="screenshotPlaceholder">
+                            <div>📷</div>
+                            <div>等待浏览器启动...</div>
+                            <div style="font-size: 12px; margin-top: 8px; opacity: 0.7;">
+                                任务开始后将显示实时截图
+                            </div>
+                        </div>
+                        <img class="screenshot-image" id="screenshotImage" style="display: none;" />
+                        <div class="screenshot-overlay" id="screenshotOverlay" style="display: none;">
+                            实时预览
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: none;" id="consoleOutputOld">
                 <div class="log-entry log-info">
-                    <span class="log-timestamp">[2025-10-18 20:53:00]</span> 
+                    <span class="log-timestamp">[2025-10-18 20:53:00]</span>
                     智能选品控制台已启动
                 </div>
                 <div class="log-entry log-success">
-                    <span class="log-timestamp">[2025-10-18 20:53:00]</span> 
+                    <span class="log-timestamp">[2025-10-18 20:53:00]</span>
                     ✅ 用户目录结构已创建: ~/.hw/uploads
                 </div>
                 <div class="log-entry log-info">
-                    <span class="log-timestamp">[2025-10-18 20:53:00]</span> 
+                    <span class="log-timestamp">[2025-10-18 20:53:00]</span>
                     等待用户启动任务...
                 </div>
             </div>
-            
+
             <a href="/app" class="back-link">← 返回表单页面</a>
         </div>
     </div>
-    
+
     <script>
         let taskRunning = false;
         let currentProgress = 0;
         let currentTaskId = null;
+        let screenshotEnabled = true;
+        let videoEnabled = false;
+        let traceEnabled = false;
+        let screenshotInterval = null;
 
         function startTask() {
             if (taskRunning) return;
@@ -267,6 +423,9 @@
                 if (data.success) {
                     currentTaskId = data.task_id; // 保存任务ID
                     addLogEntry('success', `任务启动成功 (ID: ${currentTaskId})`);
+                    if (screenshotEnabled) {
+                        startScreenshotPolling();
+                    }
                     pollTaskStatus();
                 } else {
                     addLogEntry('error', '任务启动失败: ' + data.error);
@@ -307,6 +466,8 @@
             .then(data => {
                 if (data.success) {
                     taskRunning = false;
+                    stopScreenshotPolling();
+                    resetScreenshotDisplay();
                     updateButtonStates();
                     updateStatus('已停止', '#6c757d');
                     addLogEntry('warning', '🛑 任务已停止');
@@ -344,41 +505,88 @@
             document.getElementById('progressText').textContent = text || `进度: ${percent}%`;
         }
         
+        // 控制台消息限制配置
+        const MAX_CONSOLE_MESSAGES = 500; // 最大消息数量
+        const CLEANUP_THRESHOLD = 600; // 触发清理的阈值
+
         function addLogEntry(type, message) {
             const console = document.getElementById('consoleOutput');
             const timestamp = new Date().toLocaleTimeString();
             const entry = document.createElement('div');
             entry.className = `log-entry log-${type}`;
             entry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span> ${message}`;
+
+            // 添加新消息
             console.appendChild(entry);
+
+            // 检查消息数量，如果超过阈值则清理旧消息
+            const allEntries = console.querySelectorAll('.log-entry');
+            if (allEntries.length > CLEANUP_THRESHOLD) {
+                // 删除最旧的消息，保留最新的MAX_CONSOLE_MESSAGES条
+                const entriesToRemove = allEntries.length - MAX_CONSOLE_MESSAGES;
+                for (let i = 0; i < entriesToRemove; i++) {
+                    if (allEntries[i]) {
+                        allEntries[i].remove();
+                    }
+                }
+
+                // 添加清理提示（可选）
+                if (entriesToRemove > 0) {
+                    const cleanupEntry = document.createElement('div');
+                    cleanupEntry.className = 'log-entry log-info';
+                    cleanupEntry.style.opacity = '0.6';
+                    cleanupEntry.style.fontStyle = 'italic';
+                    cleanupEntry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span> 📝 已清理 ${entriesToRemove} 条旧日志消息 (保持控制台性能)`;
+                    console.insertBefore(cleanupEntry, console.firstChild);
+                }
+            }
+
+            // 自动滚动到底部
             console.scrollTop = console.scrollHeight;
         }
         
+        let lastMessageCount = 0; // 跟踪已处理的消息数量
+        let processedMessages = new Set(); // 跟踪已处理的消息ID
+
         function pollTaskStatus() {
             if (!taskRunning) return;
-            
+
             fetch('/api/console/state')
             .then(response => response.json())
             .then(data => {
                 // 更新进度和状态
-                if (data.progress !== undefined) {
-                    updateProgress(data.progress, data.status);
+                if (data.current_task && data.current_task.progress !== undefined) {
+                    updateProgress(data.current_task.progress, data.current_task.status || '运行中');
                 }
-                
-                // 添加新的日志条目
+
+                // 只添加新的日志条目，避免重复
                 if (data.messages && data.messages.length > 0) {
-                    data.messages.forEach(msg => {
-                        addLogEntry(msg.type || 'info', msg.message);
+                    // 只处理新增的消息
+                    const newMessages = data.messages.slice(lastMessageCount);
+                    newMessages.forEach((msg, index) => {
+                        // 创建消息唯一ID
+                        const msgId = `${msg.timestamp || Date.now()}_${lastMessageCount + index}_${msg.message.substring(0, 20)}`;
+
+                        // 只添加未处理过的消息
+                        if (!processedMessages.has(msgId)) {
+                            addLogEntry(msg.level || 'info', msg.message);
+                            processedMessages.add(msgId);
+                        }
                     });
+                    lastMessageCount = data.messages.length;
                 }
-                
+
                 // 检查任务是否完成
-                if (data.completed) {
+                if (data.current_task && (data.current_task.status === 'completed' || data.current_task.status === 'stopped')) {
                     taskRunning = false;
                     currentTaskId = null; // 清除任务ID
+                    stopScreenshotPolling();
+                    resetScreenshotDisplay();
                     updateButtonStates();
                     updateStatus('已完成', '#28a745');
-                    addLogEntry('success', '🎉 任务执行完成！');
+                    if (data.current_task.status === 'completed') {
+                        addLogEntry('success', '🎉 任务执行完成！');
+                    }
                 } else if (taskRunning) {
                     // 继续轮询
                     setTimeout(pollTaskStatus, 1000);
@@ -386,13 +594,217 @@
             })
             .catch(error => {
                 addLogEntry('error', '状态轮询失败: ' + error.message);
+                if (taskRunning) {
+                    setTimeout(pollTaskStatus, 2000); // 错误时延长轮询间隔
+                }
             });
         }
         
+        function toggleScreenshot() {
+            screenshotEnabled = !screenshotEnabled;
+            updatePreviewButtons();
+            if (screenshotEnabled && taskRunning) {
+                startScreenshotPolling();
+            } else {
+                stopScreenshotPolling();
+            }
+            addLogEntry('info', `截图预览已${screenshotEnabled ? '启用' : '禁用'}`);
+        }
+
+        function toggleVideo() {
+            videoEnabled = !videoEnabled;
+            updatePreviewButtons();
+            addLogEntry('info', `视频录制已${videoEnabled ? '启用' : '禁用'}`);
+        }
+
+        function toggleTrace() {
+            traceEnabled = !traceEnabled;
+            updatePreviewButtons();
+            addLogEntry('info', `追踪录制已${traceEnabled ? '启用' : '禁用'}`);
+        }
+
+        function updatePreviewButtons() {
+            document.getElementById('screenshotBtn').classList.toggle('active', screenshotEnabled);
+            document.getElementById('videoBtn').classList.toggle('active', videoEnabled);
+            document.getElementById('traceBtn').classList.toggle('active', traceEnabled);
+        }
+
+        let screenshotErrorCount = 0;
+        const MAX_SCREENSHOT_ERRORS = 5;
+        let currentScreenshotRequest = null; // 跟踪当前请求
+        let screenshotSequence = 0; // 截图序列号，用于时序控制
+        let currentImageUrl = null; // 当前图片URL，用于清理
+
+        function startScreenshotPolling() {
+            if (screenshotInterval) return;
+
+            addLogEntry('info', '🎬 开始浏览器截图预览');
+            screenshotErrorCount = 0;
+            screenshotSequence = 0;
+
+            screenshotInterval = setInterval(() => {
+                if (!taskRunning || !screenshotEnabled) {
+                    stopScreenshotPolling();
+                    return;
+                }
+
+                // 如果上一个请求还在进行中，跳过这次请求避免竞态条件
+                if (currentScreenshotRequest) {
+                    return;
+                }
+
+                // 生成请求序列号，用于时序控制
+                const requestSequence = ++screenshotSequence;
+                const timestamp = new Date().getTime();
+
+                currentScreenshotRequest = fetch(`/api/browser/screenshot?t=${timestamp}`, {
+                    cache: 'no-cache',
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
+                    }
+                })
+                .then(response => {
+                    if (response.ok) {
+                        screenshotErrorCount = 0; // 重置错误计数
+                        return response.blob();
+                    }
+
+                    // 处理不同的HTTP错误状态
+                    if (response.status === 404) {
+                        throw new Error('Browser session not found');
+                    } else if (response.status === 500) {
+                        return response.json().then(data => {
+                            throw new Error(data.error || 'Screenshot failed');
+                        });
+                    }
+                    throw new Error(`HTTP ${response.status}`);
+                })
+                .then(blob => {
+                    // 检查请求是否已过期（防止乱序显示）
+                    if (requestSequence < screenshotSequence) {
+                        // 这是一个过期的请求，丢弃结果
+                        return;
+                    }
+
+                    const url = URL.createObjectURL(blob);
+                    const img = document.getElementById('screenshotImage');
+                    const placeholder = document.getElementById('screenshotPlaceholder');
+                    const overlay = document.getElementById('screenshotOverlay');
+
+                    // 清理上一个图片URL
+                    if (currentImageUrl) {
+                        URL.revokeObjectURL(currentImageUrl);
+                    }
+                    currentImageUrl = url;
+
+                    // 预加载图片，确保加载完成后再显示
+                    const tempImg = new Image();
+                    tempImg.onload = () => {
+                        // 再次检查请求是否已过期
+                        if (requestSequence < screenshotSequence) {
+                            URL.revokeObjectURL(url);
+                            return;
+                        }
+
+                        // 设置淡入效果
+                        img.style.opacity = '0';
+                        img.style.transition = 'opacity 0.2s ease-in-out';
+                        img.src = url;
+                        img.style.display = 'block';
+                        placeholder.style.display = 'none';
+                        overlay.style.display = 'block';
+                        overlay.textContent = `实时预览 ● 录制中 (${new Date().toLocaleTimeString()})`;
+
+                        // 图片加载完成后开始淡入动画
+                        requestAnimationFrame(() => {
+                            img.style.opacity = '1';
+                        });
+                    };
+
+                    tempImg.onerror = () => {
+                        // 图片加载失败，清理URL
+                        URL.revokeObjectURL(url);
+                        if (currentImageUrl === url) {
+                            currentImageUrl = null;
+                        }
+                    };
+
+                    tempImg.src = url;
+                })
+                .catch(error => {
+                    screenshotErrorCount++;
+
+                    // 只在前几次错误时显示日志，避免刷屏
+                    if (screenshotErrorCount <= 3) {
+                        addLogEntry('warning', `截图获取失败: ${error.message}`);
+                    } else if (screenshotErrorCount === MAX_SCREENSHOT_ERRORS) {
+                        addLogEntry('error', '截图功能连续失败，可能浏览器未正确初始化');
+                        // 更新占位符显示错误状态
+                        const placeholder = document.getElementById('screenshotPlaceholder');
+                        const img = document.getElementById('screenshotImage');
+                        const overlay = document.getElementById('screenshotOverlay');
+
+                        img.style.display = 'none';
+                        placeholder.style.display = 'block';
+                        overlay.style.display = 'none';
+                        placeholder.innerHTML = `
+                            <div>⚠️</div>
+                            <div>截图功能暂时不可用</div>
+                            <div style="font-size: 12px; margin-top: 8px; opacity: 0.7;">
+                                浏览器可能未正确初始化
+                            </div>
+                        `;
+                    }
+                })
+                .finally(() => {
+                    // 请求完成，清除当前请求标记
+                    currentScreenshotRequest = null;
+                });
+            }, 500); // 每0.5秒尝试更新一次截图
+        }
+
+        function stopScreenshotPolling() {
+            if (screenshotInterval) {
+                clearInterval(screenshotInterval);
+                screenshotInterval = null;
+            }
+
+            // 清理时序控制变量
+            currentScreenshotRequest = null;
+            screenshotSequence = 0;
+
+            // 清理当前图片URL
+            if (currentImageUrl) {
+                URL.revokeObjectURL(currentImageUrl);
+                currentImageUrl = null;
+            }
+        }
+
+        function resetScreenshotDisplay() {
+            const img = document.getElementById('screenshotImage');
+            const placeholder = document.getElementById('screenshotPlaceholder');
+            const overlay = document.getElementById('screenshotOverlay');
+
+            img.style.display = 'none';
+            placeholder.style.display = 'block';
+            overlay.style.display = 'none';
+
+            placeholder.innerHTML = `
+                <div>📷</div>
+                <div>等待浏览器启动...</div>
+                <div style="font-size: 12px; margin-top: 8px; opacity: 0.7;">
+                    任务开始后将显示实时截图
+                </div>
+            `;
+        }
+
         // 页面加载时的初始化
         document.addEventListener('DOMContentLoaded', function() {
             addLogEntry('info', '控制台界面已加载');
             updateButtonStates();
+            updatePreviewButtons();
         });
     </script>
 </body>

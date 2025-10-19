@@ -8,9 +8,33 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 import threading
 import time
+import json
+import os
 
 from playweight.engine import BrowserService
 from playweight.scenes.web.seerfar_interface import WebUserInterface as UserInterface
+
+
+def _load_config() -> Dict[str, Any]:
+    """
+    加载配置文件
+
+    Returns:
+        Dict[str, Any]: 配置字典
+    """
+    config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            print(f"✅ 配置文件加载成功: {config_path}")
+            return config
+        else:
+            print(f"⚠️ 配置文件不存在: {config_path}，使用默认配置")
+            return {}
+    except Exception as e:
+        print(f"❌ 配置文件加载失败: {e}，使用默认配置")
+        return {}
 
 
 class Runner:
@@ -18,7 +42,14 @@ class Runner:
 
     def __init__(self):
         """初始化执行器"""
-        self.browser_service = BrowserService()
+        # 加载配置文件
+        config = _load_config()
+
+        # 从配置中获取headless设置，默认为False（有头模式）
+        headless = config.get("browser", {}).get("headless", False)
+        debug_port = config.get("browser", {}).get("debug_port", 9222)
+
+        self.browser_service = BrowserService(debug_port=debug_port, headless=headless)
         self.user_interface = UserInterface()
         self.current_scenario = None
 
@@ -32,6 +63,7 @@ class Runner:
         print("📦 模块状态:")
         print("   ✅ 浏览器服务模块 - 已加载")
         print("   ✅ 用户交互层模块 - 已加载")
+        print(f"   🔧 浏览器模式: {'无头模式' if headless else '有头模式'}")
 
     def set_scenario(self, scenario):
         """
