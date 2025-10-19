@@ -58,12 +58,18 @@ ai-product-selector2/
 
 ## 架构优化
 
-### 1. 跨平台路径配置
+### 1. Console逻辑分离（最新完成）
+- **目标**：将seerfar_web.py中console相关逻辑分离到web_console_api.py
+- **成果**：实现完全的架构解耦，场景路由与业务API分离
+- **技术**：依赖注入模式，使用register_task_executor()注册执行器
+- **验证**：API功能正常，数据流畅通，浏览器自动化程序正常执行
+
+### 2. 跨平台路径配置
 - **新增**：`src/playweight/utils/path_config.py`
 - **功能**：实现PathConfig类，支持Windows/macOS/Linux标准目录结构
 - **应用**：替换硬编码路径，提升跨平台兼容性
 
-### 2. 配置架构重构
+### 3. 配置架构重构
 - **优化**：将业务配置从系统级配置分离到用户界面
 - **修改**：清理 `config.json` 中不合理的业务配置
 - **新增**：用户界面支持"每店铺最大商品数"和"输出格式"配置
