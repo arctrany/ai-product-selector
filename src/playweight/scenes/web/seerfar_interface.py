@@ -9,6 +9,23 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
 
+# 导入OZON计算器
+try:
+    from ..ozon_calculator import OzonCalculator, ProductInfo
+except ImportError:
+    # 如果导入失败，定义一个占位符类
+    class OzonCalculator:
+        def __init__(self, excel_path: str = None):
+            self.excel_path = excel_path
+            print(f"警告：OzonCalculator模块未找到，使用占位符实现")
+
+        def get_channel_summary(self):
+            return {"占位符": 0}
+
+    class ProductInfo:
+        def __init__(self, **kwargs):
+            pass
+
 @dataclass
 class FormField:
     """表单字段数据类"""
@@ -226,6 +243,24 @@ class WebUserInterface:
                         processed_data[field.variable_name] = int(value)
                 else:
                     processed_data[field.variable_name] = value
+
+        # 初始化OZON计算器（如果提供了计算器文件）
+        calculator_file = processed_data.get('margin_calculator')
+        if calculator_file and os.path.exists(calculator_file):
+            try:
+                ozon_calculator = OzonCalculator(calculator_file)
+                processed_data['ozon_calculator_instance'] = ozon_calculator
+
+                # 获取渠道摘要信息，用于验证Excel文件是否正确加载
+                channel_summary = ozon_calculator.get_channel_summary()
+                processed_data['calculator_channels'] = channel_summary
+
+                print(f"成功初始化OZON计算器，加载了 {len(channel_summary)} 个物流渠道")
+
+            except Exception as e:
+                print(f"初始化OZON计算器失败: {e}")
+                # 不抛出异常，允许其他功能继续工作
+                processed_data['calculator_error'] = str(e)
 
         # 保存用户设置（如果选择记住）
         if self.remember_settings:
