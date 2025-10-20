@@ -10,7 +10,7 @@
         "debug_port": 9222,
         "request_delay": 2.0,
         "page_timeout": 30000,
-        "headless": true
+        "headless": false
     },
     "automation": {
         "max_retries": 3,
