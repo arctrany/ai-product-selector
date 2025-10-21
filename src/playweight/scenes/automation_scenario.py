@@ -742,9 +742,33 @@ class AutomationScenario:
                         target_url = url_match.group(1)
                         self.logger.debug(f"发现window.open链接: {target_url}")
                         
-                        # 实际打开链接（如果需要）
+                        # 实际打开链接并提取商品详情数据
                         if self.dom_analyzer:
-                            await self.dom_analyzer.open_product_link(target_url, f" (商品 {row_index})")
+                            link_result = await self.dom_analyzer.open_product_link(target_url, f" (商品 {row_index})")
+
+                            # 处理商品详情提取结果
+                            if link_result and link_result.get('success'):
+                                product_details = link_result.get('product_details', {})
+                                if product_details.get('success'):
+                                    # 将提取的商品详情数据合并到product_info中
+                                    dianpeng_data = product_details.get('dianpeng_data', {})
+                                    seefar_data = product_details.get('seefar_data', {})
+
+                                    # 合并电鹏区域数据
+                                    for key, value in dianpeng_data.items():
+                                        if value and value.strip():
+                                            product_info[f'dianpeng_{key}'] = value.strip()
+
+                                    # 合并seefar区域数据
+                                    for key, value in seefar_data.items():
+                                        if value and value.strip():
+                                            product_info[f'seefar_{key}'] = value.strip()
+
+                                    self.logger.info(f"✅ 商品详情提取成功，电鹏区域: {len(dianpeng_data)} 个字段，seefar区域: {len(seefar_data)} 个字段")
+                                else:
+                                    self.logger.warning(f"⚠️ 商品详情提取失败: {product_details.get('error_message', '未知错误')}")
+                            else:
+                                self.logger.warning(f"⚠️ 打开商品链接失败: {link_result.get('error', '未知错误') if link_result else '无返回结果'}")
                         
                         if not product_info.get('product_link_url'):
                             product_info['product_link_url'] = target_url

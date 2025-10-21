@@ -334,48 +334,80 @@ class DOMAnalyzer:
             return []
 
     async def open_product_link(self, target_url: str, context_info: str = ""):
-        """实际打开产品链接"""
+        """实际打开产品链接并提取商品详情数据"""
         try:
             print(f"      🌐 正在打开产品链接{context_info}: {target_url}")
-            
+
             # 在新标签页中打开链接
             context = self.page.context
             new_page = await context.new_page()
-            
+
             try:
                 # 打开目标链接
                 await new_page.goto(target_url, wait_until='networkidle', timeout=15000)
-                
+
                 # 获取页面标题
                 page_title = await new_page.title()
                 print(f"      ✅ 成功打开产品页面: {page_title}")
                 print(f"      🔗 产品链接: {target_url}")
-                
+
                 # 等待一小段时间确保页面完全加载
                 await asyncio.sleep(1)
-                
+
+                # 提取商品详情数据
+                product_details = {}
+                try:
+                    # 导入商品详情提取器
+                    sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scenes'))
+                    from ozon_item_detail import extract_product_details_from_page
+
+                    print(f"      🔍 开始提取商品详情数据...")
+                    product_details = await extract_product_details_from_page(new_page, target_url, self.debug_mode)
+
+                    if product_details.get('success'):
+                        dianpeng_count = len(product_details.get('dianpeng_data', {}))
+                        seefar_count = len(product_details.get('seefar_data', {}))
+                        total_count = dianpeng_count + seefar_count
+                        print(f"      ✅ 商品详情提取成功，共提取 {total_count} 个字段")
+                        print(f"         电鹏区域: {dianpeng_count} 个字段")
+                        print(f"         seefar区域: {seefar_count} 个字段")
+                    else:
+                        print(f"      ⚠️ 商品详情提取失败: {product_details.get('error_message', '未知错误')}")
+
+                except Exception as extract_error:
+                    print(f"      ⚠️ 商品详情提取过程失败: {str(extract_error)}")
+                    product_details = {
+                        'success': False,
+                        'error_message': f"提取过程失败: {str(extract_error)}",
+                        'dianpeng_data': {},
+                        'seefar_data': {}
+                    }
+
                 return {
                     'success': True,
                     'title': page_title,
-                    'url': target_url
+                    'url': target_url,
+                    'product_details': product_details
                 }
-                
+
             except Exception as e:
                 print(f"      ⚠️ 打开产品链接失败: {str(e)}")
                 return {
                     'success': False,
                     'error': str(e),
-                    'url': target_url
+                    'url': target_url,
+                    'product_details': {}
                 }
             finally:
                 # 关闭新标签页
                 await new_page.close()
                 print(f"      🔄 已关闭产品页面，返回商品列表")
-                
+
         except Exception as e:
             print(f"      ❌ 打开产品链接过程失败: {str(e)}")
             return {
                 'success': False,
                 'error': str(e),
-                'url': target_url
+                'url': target_url,
+                'product_details': {}
             }
