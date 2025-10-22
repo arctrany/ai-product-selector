@@ -1,0 +1,12 @@
+# Prefect 工作流引擎
+prefect==2.14.0
+
+# 数据处理
+pandas==2.1.0
+numpy==1.24.3
+
+# 可选:数据库支持
+sqlalchemy==2.0.23
+
+# 开发工具
+python-dotenv==1.0.0
