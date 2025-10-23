@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ flow_name }} - 流程控制台</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; background: #f5f5f5; }
+        .header { background: #007bff; color: white; padding: 15px 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .header h1 { margin: 0; font-size: 24px; }
+        .header .breadcrumb { margin-top: 5px; opacity: 0.9; font-size: 14px; }
+        .header .breadcrumb a { color: #cce5ff; text-decoration: none; }
+        .header .breadcrumb a:hover { text-decoration: underline; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .flow-info { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .flow-info h2 { margin-top: 0; color: #333; }
+        .flow-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .meta-item { background: #f8f9fa; padding: 10px; border-radius: 4px; }
+        .meta-item .label { font-weight: bold; color: #666; font-size: 12px; text-transform: uppercase; }
+        .meta-item .value { font-size: 16px; color: #333; margin-top: 2px; }
+        .section { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .section h3 { margin-top: 0; color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
+        .btn { background: #007bff; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; margin-right: 10px; margin-bottom: 10px; }
+        .btn:hover { background: #0056b3; }
+        .btn-secondary { background: #6c757d; }
+        .btn-success { background: #28a745; }
+        .btn-warning { background: #ffc107; color: #212529; }
+        .btn-danger { background: #dc3545; }
+        .status { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+        .status-running { background: #d4edda; color: #155724; }
+        .status-idle { background: #cce5ff; color: #004085; }
+        .status-error { background: #f8d7da; color: #721c24; }
+        .logs {
+            background: #1a1a1a;
+            color: #e0e0e0;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #333;
+            line-height: 1.4;
+        }
+        .log-entry { margin: 2px 0; }
+        .log-info { color: #4CAF50; }
+        .log-warning { color: #FF9800; }
+        .log-error { color: #F44336; }
+        .log-success { color: #8BC34A; }
+        .log-debug { color: #9E9E9E; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, textarea, select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        textarea { height: 100px; font-family: monospace; }
+        .path-info { background: #e9ecef; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; margin-bottom: 15px; }
+        .file-list { list-style: none; padding: 0; }
+        .file-list li { padding: 8px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .file-list li:hover { background: #f8f9fa; }
+        .file-icon { margin-right: 8px; }
+        .tabs { display: flex; border-bottom: 1px solid #dee2e6; margin-bottom: 20px; }
+        .tab { padding: 10px 20px; cursor: pointer; border-bottom: 2px solid transparent; }
+        .tab.active { border-bottom-color: #007bff; background: #f8f9fa; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔄 {{ flow_name }} - 流程控制台</h1>
+        <div class="breadcrumb">
+            <a href="/">首页</a> / 
+            <a href="/apps">应用</a> / 
+            <span>{{ app_name }}</span> / 
+            <span>{{ flow_name }}</span>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- 流程信息 -->
+        <div class="flow-info">
+            <h2>流程信息</h2>
+            <div class="flow-meta">
+                <div class="meta-item">
+                    <div class="label">应用名称 (app_name)</div>
+                    <div class="value">{{ app_name }}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="label">应用ID (app_id)</div>
+                    <div class="value">{{ app_id }}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="label">流程ID (flow_id)</div>
+                    <div class="value">{{ flow_id }}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="label">流程标题 (title)</div>
+                    <div class="value">{{ flow_title }}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="label">流程名称</div>
+                    <div class="value">{{ flow_name }}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="label">状态</div>
+                    <div class="value"><span class="status status-idle">空闲</span></div>
+                </div>
+                <div class="meta-item">
+                    <div class="label">流程路径</div>
+                    <div class="value">{{ flow_context.flow_path }}</div>
+                </div>
+            </div>
+            
+            <div class="path-info">
+                <strong>路径信息:</strong><br>
+                Templates: {{ flow_context.templates_path }}<br>
+                Scripts: {{ flow_context.scripts_path }}
+            </div>
+        </div>
+
+        <!-- 标签页 -->
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('logs')">📋 执行日志</div>
+            <div class="tab" onclick="switchTab('overview')">📊 概览</div>
+            <div class="tab" onclick="switchTab('templates')">📄 模板</div>
+            <div class="tab" onclick="switchTab('scripts')">📜 脚本</div>
+        </div>
+
+        <!-- 日志标签页 (现在是第一位) -->
+        <div id="logs" class="tab-content active">
+            <div class="section">
+                <h3>🚀 工作流控制</h3>
+                <button class="btn btn-success" onclick="startWorkflow()">开始任务</button>
+                <button class="btn btn-warning" onclick="pauseFlow()">暂停流程</button>
+                <button class="btn btn-danger" onclick="stopFlow()">停止流程</button>
+                <button class="btn btn-secondary" onclick="refreshStatus()">刷新状态</button>
+            </div>
+
+            <div class="section">
+                <h3>📝 表单提交数据</h3>
+                <div id="form-data-container">
+                    <div class="form-group">
+                        <label>提交的表单数据</label>
+                        <div class="logs" id="form-data-display">
+                            <p style="color: #9E9E9E;">暂无表单数据</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <script>
+                // 页面加载时检查并显示表单数据
+                document.addEventListener('DOMContentLoaded', function() {
+                    // 从URL参数中获取表单数据
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const formData = urlParams.get('form_data');
+                    const formValues = urlParams.get('form_values');
+
+                    console.log('Form data flag:', formData);
+                    console.log('Form values:', formValues);
+
+                    if (formData === 'submitted' && formValues) {
+                        try {
+                            // 解码并显示表单数据
+                            console.log('Raw encoded data:', formValues);
+
+                            // 先进行URL解码
+                            const formDataJson = decodeURIComponent(formValues);
+                            console.log('Decoded JSON string:', formDataJson);
+
+                            // 然后解析JSON
+                            const parsedFormData = JSON.parse(formDataJson);
+                            console.log('Parsed form data:', parsedFormData);
+
+                            let html = '<div style="background: #2a2a2a; color: #e0e0e0; padding: 15px; border-radius: 4px; font-family: monospace;">';
+                            html += '<strong style="color: #4CAF50;">📝 提交的表单数据:</strong><br><br>';
+
+                            Object.entries(parsedFormData).forEach(([key, value]) => {
+                                const formattedValue = typeof value === 'object' ?
+                                    JSON.stringify(value, null, 2) : String(value);
+                                html += `<div style="margin: 8px 0; padding: 5px; background: #333; border-radius: 3px;">`;
+                                html += `<span style="color: #FF9800; font-weight: bold;">${key}:</span> `;
+                                html += `<span style="color: #e0e0e0;">${formattedValue}</span>`;
+                                html += `</div>`;
+                            });
+
+                            html += '</div>';
+                            document.getElementById('form-data-display').innerHTML = html;
+                        } catch (e) {
+                            console.error('Failed to parse form data:', e);
+                            console.error('Error details:', e.message);
+
+                            // 显示更详细的错误信息
+                            let errorHtml = '<div style="background: #2a2a2a; color: #F44336; padding: 15px; border-radius: 4px; font-family: monospace;">';
+                            errorHtml += '<strong>表单数据解析失败</strong><br><br>';
+                            errorHtml += `错误信息: ${e.message}<br>`;
+                            errorHtml += `原始数据: ${formValues}<br>`;
+                            errorHtml += '</div>';
+
+                            document.getElementById('form-data-display').innerHTML = errorHtml;
+                        }
+                    }
+                });
+            </script>
+
+            <div class="section">
+                <h3>执行日志</h3>
+                <div class="form-group">
+                    <button class="btn btn-secondary" onclick="loadLogs()">刷新日志</button>
+                    <button class="btn btn-secondary" onclick="clearLogs()">清空日志</button>
+                </div>
+                <div id="logs-container" class="logs">
+                    <p>暂无日志记录</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 概览标签页 -->
+        <div id="overview" class="tab-content">
+            <div class="section">
+                <h3>流程控制</h3>
+                <button class="btn btn-success" onclick="startFlow()">启动流程</button>
+                <button class="btn btn-warning" onclick="pauseFlow()">暂停流程</button>
+                <button class="btn btn-danger" onclick="stopFlow()">停止流程</button>
+                <button class="btn btn-secondary" onclick="refreshStatus()">刷新状态</button>
+            </div>
+
+            <div class="section">
+                <h3>输入参数</h3>
+                <div class="form-group">
+                    <label>输入数据 (JSON格式):</label>
+                    <textarea id="flow-input" placeholder='{"key": "value"}'></textarea>
+                </div>
+                <button class="btn" onclick="triggerFlow()">触发执行</button>
+            </div>
+
+            <div class="section">
+                <h3>执行状态</h3>
+                <div id="status-info">
+                    <p>当前状态: <span class="status status-idle">空闲</span></p>
+                    <p>最后执行: 无</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 模板标签页 -->
+        <div id="templates" class="tab-content">
+            <div class="section">
+                <h3>模板文件</h3>
+                <div id="templates-list">
+                    <p>加载中...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 脚本标签页 -->
+        <div id="scripts" class="tab-content">
+            <div class="section">
+                <h3>脚本文件</h3>
+                <div id="scripts-list">
+                    <p>加载中...</p>
+                </div>
+            </div>
+        </div>
+
+
+    </div>
+
+    <script>
+        // 流程上下文
+        const flowContext = {{ flow_context | tojson }};
+        const appName = "{{ app_name }}";
+        const flowName = "{{ flow_name }}";
+
+        // 标签页切换
+        function switchTab(tabName) {
+            // 隐藏所有标签页内容
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            // 显示选中的标签页
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+
+            // 加载对应内容
+            if (tabName === 'templates') {
+                loadTemplates();
+            } else if (tabName === 'scripts') {
+                loadScripts();
+            } else if (tabName === 'logs') {
+                loadLogs();
+            }
+        }
+
+        // 启动工作流 (新的主要启动函数)
+        function startWorkflow() {
+            console.log('启动工作流:', flowName);
+            addLog('info', '正在启动工作流...');
+
+            // 构建正确的API端点
+            const flowId = "{{ flow_id }}";
+            const apiUrl = `/api/flows/${flowId}/start`;
+
+            addLog('debug', `调用API: ${apiUrl}`);
+
+            // 调用后端API启动工作流
+            fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    input_data: {}
+                })
+            })
+            .then(async response => {
+                addLog('debug', `API响应状态: ${response.status}`);
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    // 处理HTTP错误状态
+                    const errorMsg = data.detail || data.message || `HTTP ${response.status} 错误`;
+                    throw new Error(errorMsg);
+                }
+
+                return data;
+            })
+            .then(data => {
+                console.log('API响应数据:', data);
+
+                if (data.thread_id) {
+                    addLog('success', `✅ 工作流启动成功！Thread ID: ${data.thread_id}`);
+                    updateStatus('running', '工作流运行中...');
+
+                    // 显示启动详情
+                    addLog('info', `📋 流程ID: ${data.flow_id}`);
+                    addLog('info', `📋 版本: ${data.version}`);
+                    addLog('info', `📋 状态: ${data.status}`);
+
+                    // 格式化显示输入数据
+                    if (data.inputs && Object.keys(data.inputs).length > 0) {
+                        addLog('info', '📝 输入数据:');
+                        displayInputData(data.inputs);
+                    }
+
+                    // 如果有表单数据，显示表单数据
+                    const urlParams = new URLSearchParams(window.location.search);
+                    if (urlParams.get('form_data') === 'submitted') {
+                        displayFormData(data.inputs || {});
+                    }
+
+                    // 开始轮询日志
+                    startLogPolling(data.thread_id);
+                } else {
+                    const errorMsg = data.detail || data.message || '未知错误';
+                    addLog('error', `❌ 启动失败: ${errorMsg}`);
+                    console.error('启动失败详情:', data);
+                }
+            })
+            .catch(error => {
+                console.error('启动工作流失败:', error);
+                addLog('error', `❌ 启动失败: ${error.message}`);
+
+                // 显示更详细的错误信息
+                if (error.message.includes('404')) {
+                    addLog('warning', '💡 提示: 请检查流程ID是否正确，或流程是否已发布');
+                } else if (error.message.includes('500')) {
+                    addLog('warning', '💡 提示: 服务器内部错误，请检查工作流定义或联系管理员');
+                } else if (error.message.includes('400')) {
+                    addLog('warning', '💡 提示: 请求参数错误，请检查输入数据格式');
+                }
+            });
+        }
+
+        // 显示输入数据（格式化到日志中）
+        function displayInputData(inputData) {
+            Object.entries(inputData).forEach(([key, value]) => {
+                let displayValue;
+                if (typeof value === 'object') {
+                    displayValue = JSON.stringify(value, null, 2);
+                } else {
+                    displayValue = String(value);
+                }
+                addLog('info', `   ${key}: ${displayValue}`);
+            });
+        }
+
+        // 显示表单数据
+        function displayFormData(formData) {
+            const container = document.getElementById('form-data-display');
+            if (container && Object.keys(formData).length > 0) {
+                // 格式化显示表单数据
+                addLog('info', '📝 提交的表单数据:');
+
+                Object.entries(formData).forEach(([key, value]) => {
+                    let displayValue;
+                    if (typeof value === 'object') {
+                        displayValue = JSON.stringify(value, null, 2);
+                    } else {
+                        displayValue = String(value);
+                    }
+                    addLog('info', `   ${key}: ${displayValue}`);
+                });
+
+                // 同时在表单数据容器中显示
+                let html = '<div style="background: #2a2a2a; color: #e0e0e0; padding: 15px; border-radius: 4px; margin-bottom: 10px; font-family: monospace;">';
+                html += '<strong style="color: #4CAF50;">📝 提交的表单数据:</strong><br><br>';
+
+                Object.entries(formData).forEach(([key, value]) => {
+                    const formattedValue = typeof value === 'object' ?
+                        JSON.stringify(value, null, 2) : String(value);
+                    html += `<div style="margin: 8px 0; padding: 5px; background: #333; border-radius: 3px;">`;
+                    html += `<span style="color: #FF9800; font-weight: bold;">${key}:</span> `;
+                    html += `<span style="color: #e0e0e0;">${formattedValue}</span>`;
+                    html += `</div>`;
+                });
+
+                html += '</div>';
+                container.innerHTML = html;
+            }
+        }
+
+        // 开始日志轮询
+        function startLogPolling(threadId) {
+            // 这里可以实现日志轮询逻辑
+            console.log('开始轮询日志，Thread ID:', threadId);
+
+            // 模拟日志更新
+            setTimeout(() => {
+                addLog('info', '工作流节点开始执行...');
+            }, 1000);
+
+            setTimeout(() => {
+                addLog('info', '处理表单数据中...');
+            }, 2000);
+
+            setTimeout(() => {
+                addLog('success', '工作流执行完成');
+                updateStatus('idle', '执行完成');
+            }, 4000);
+        }
+
+        // 启动流程 (保持向后兼容)
+        function startFlow() {
+            startWorkflow();
+        }
+
+        // 暂停流程
+        function pauseFlow() {
+            console.log('暂停流程:', flowName);
+            updateStatus('idle', '流程已暂停');
+        }
+
+        // 停止流程
+        function stopFlow() {
+            console.log('停止流程:', flowName);
+            updateStatus('idle', '流程已停止');
+        }
+
+        // 触发流程执行
+        function triggerFlow() {
+            const input = document.getElementById('flow-input').value.trim();
+            let inputData = {};
+            
+            if (input) {
+                try {
+                    inputData = JSON.parse(input);
+                } catch (e) {
+                    alert('输入数据格式错误，请输入有效的JSON格式');
+                    return;
+                }
+            }
+
+            console.log('触发流程执行:', flowName, inputData);
+            updateStatus('running', '流程执行中...');
+            
+            // 模拟执行过程
+            setTimeout(() => {
+                updateStatus('idle', '执行完成');
+                addLog('info', `流程 ${flowName} 执行完成`);
+            }, 2000);
+        }
+
+        // 更新状态
+        function updateStatus(status, message) {
+            const statusInfo = document.getElementById('status-info');
+            const statusClass = `status-${status}`;
+            const now = new Date().toLocaleString();
+            
+            statusInfo.innerHTML = `
+                <p>当前状态: <span class="status ${statusClass}">${getStatusText(status)}</span></p>
+                <p>最后执行: ${now}</p>
+                <p>消息: ${message}</p>
+            `;
+        }
+
+        // 获取状态文本
+        function getStatusText(status) {
+            const statusMap = {
+                'idle': '空闲',
+                'running': '运行中',
+                'error': '错误'
+            };
+            return statusMap[status] || status;
+        }
+
+        // 刷新状态
+        function refreshStatus() {
+            console.log('刷新状态');
+            updateStatus('idle', '状态已刷新');
+        }
+
+        // 加载模板文件
+        function loadTemplates() {
+            const container = document.getElementById('templates-list');
+            container.innerHTML = `
+                <ul class="file-list">
+                    <li>
+                        <span><span class="file-icon">📄</span>template1.html</span>
+                        <button class="btn btn-secondary" onclick="viewFile('templates', 'template1.html')">查看</button>
+                    </li>
+                    <li>
+                        <span><span class="file-icon">📄</span>template2.html</span>
+                        <button class="btn btn-secondary" onclick="viewFile('templates', 'template2.html')">查看</button>
+                    </li>
+                </ul>
+            `;
+        }
+
+        // 加载脚本文件
+        function loadScripts() {
+            const container = document.getElementById('scripts-list');
+            container.innerHTML = `
+                <ul class="file-list">
+                    <li>
+                        <span><span class="file-icon">📜</span>script1.py</span>
+                        <button class="btn btn-secondary" onclick="viewFile('scripts', 'script1.py')">查看</button>
+                    </li>
+                    <li>
+                        <span><span class="file-icon">📜</span>script2.sh</span>
+                        <button class="btn btn-secondary" onclick="viewFile('scripts', 'script2.sh')">查看</button>
+                    </li>
+                </ul>
+            `;
+        }
+
+        // 查看文件
+        function viewFile(type, filename) {
+            console.log('查看文件:', type, filename);
+            alert(`查看文件: ${type}/${filename}`);
+        }
+
+        // 加载日志
+        function loadLogs() {
+            const container = document.getElementById('logs-container');
+            const logs = [
+                { time: '2025-10-22 17:18:00', level: 'INFO', message: `流程 ${flowName} 初始化完成` },
+                { time: '2025-10-22 17:18:01', level: 'INFO', message: '等待触发执行...' }
+            ];
+
+            let html = '';
+            logs.forEach(log => {
+                const logClass = `log-${log.level.toLowerCase()}`;
+                html += `<div class="log-entry ${logClass}">[${log.time}] [${log.level}] ${log.message}</div>`;
+            });
+
+            container.innerHTML = html || '<p style="color: #9E9E9E;">暂无日志记录</p>';
+        }
+
+        // 添加日志
+        function addLog(level, message) {
+            const container = document.getElementById('logs-container');
+            const now = new Date().toLocaleString();
+
+            // 创建带颜色的日志条目
+            const logClass = `log-${level.toLowerCase()}`;
+            const logEntry = `<div class="log-entry ${logClass}">[${now}] [${level.toUpperCase()}] ${message}</div>`;
+
+            if (container.innerHTML.includes('暂无日志记录')) {
+                container.innerHTML = logEntry;
+            } else {
+                container.innerHTML += logEntry;
+            }
+
+            // 自动滚动到底部
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // 清空日志
+        function clearLogs() {
+            document.getElementById('logs-container').innerHTML = '<p style="color: #9E9E9E;">暂无日志记录</p>';
+        }
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('流程控制台初始化完成:', flowContext);
+            addLog('info', `流程控制台已加载: ${appName}/${flowName}`);
+        });
+    </script>
+</body>
+</html>

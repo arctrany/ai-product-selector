@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Workflow Engine Console</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .header { border-bottom: 1px solid #eee; padding-bottom: 20px; margin-bottom: 20px; }
+        .section { margin-bottom: 30px; }
+        .btn { background: #007bff; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; }
+        .btn:hover { background: #0056b3; }
+        .btn-secondary { background: #6c757d; }
+        .btn-success { background: #28a745; }
+        .btn-warning { background: #ffc107; color: #212529; }
+        .btn-danger { background: #dc3545; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f8f9fa; font-weight: bold; }
+        .status { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+        .status-running { background: #d4edda; color: #155724; }
+        .status-completed { background: #cce5ff; color: #004085; }
+        .status-paused { background: #fff3cd; color: #856404; }
+        .status-failed { background: #f8d7da; color: #721c24; }
+        .logs { background: #f8f9fa; padding: 15px; border-radius: 4px; font-family: monospace; font-size: 12px; max-height: 400px; overflow-y: auto; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, textarea, select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        textarea { height: 100px; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔄 Workflow Engine Console</h1>
+            <p>轻量级本地工作流引擎管理控制台</p>
+        </div>
+        
+        <div class="section">
+            <h2>📊 系统状态</h2>
+            <p><strong>状态:</strong> <span class="status status-running">运行中</span></p>
+            <p><strong>数据库:</strong> {{ database_path }}</p>
+            <p><strong>日志目录:</strong> {{ logging_directory }}/</p>
+        </div>
+        
+        <div class="section">
+            <h2>🚀 快速操作</h2>
+            <a href="/api/docs" class="btn" target="_blank">API 文档</a>
+            <a href="#" class="btn btn-secondary" onclick="loadRuns()">刷新运行列表</a>
+            <a href="#" class="btn btn-success" onclick="showCreateFlow()">创建工作流</a>
+        </div>
+        
+        <div class="section">
+            <h2>📋 工作流运行列表</h2>
+            <div id="runs-container">
+                <p>加载中...</p>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>📝 日志查看</h2>
+            <div class="form-group">
+                <label>Thread ID:</label>
+                <input type="text" id="log-thread-id" placeholder="输入 thread_id 查看日志">
+                <button class="btn" onclick="loadLogs()">查看日志</button>
+            </div>
+            <div id="logs-container" class="logs" style="display: none;">
+                <p>请输入 Thread ID 查看日志</p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Load workflow runs
+        async function loadRuns() {
+            try {
+                const response = await fetch('/runs');
+                const data = await response.json();
+                
+                const container = document.getElementById('runs-container');
+                if (data.runs.length === 0) {
+                    container.innerHTML = '<p>暂无工作流运行记录</p>';
+                    return;
+                }
+                
+                let html = '<table><thead><tr><th>Thread ID</th><th>状态</th><th>开始时间</th><th>最后更新</th><th>操作</th></tr></thead><tbody>';
+                
+                data.runs.forEach(run => {
+                    const statusClass = `status-${run.status}`;
+                    html += `
+                        <tr>
+                            <td><code>${run.thread_id}</code></td>
+                            <td><span class="status ${statusClass}">${run.status}</span></td>
+                            <td>${run.started_at || '-'}</td>
+                            <td>${run.last_event_at || '-'}</td>
+                            <td>
+                                <button class="btn btn-secondary" onclick="loadLogs('${run.thread_id}')">日志</button>
+                                ${run.status === 'running' ? `<button class="btn btn-warning" onclick="pauseWorkflow('${run.thread_id}')">暂停</button>` : ''}
+                                ${run.status === 'paused' ? `<button class="btn btn-success" onclick="resumeWorkflow('${run.thread_id}')">恢复</button>` : ''}
+                            </td>
+                        </tr>
+                    `;
+                });
+                
+                html += '</tbody></table>';
+                container.innerHTML = html;
+                
+            } catch (error) {
+                console.error('Failed to load runs:', error);
+                document.getElementById('runs-container').innerHTML = '<p>加载失败: ' + error.message + '</p>';
+            }
+        }
+        
+        // Load workflow logs
+        async function loadLogs(threadId) {
+            const inputThreadId = threadId || document.getElementById('log-thread-id').value;
+            if (!inputThreadId) {
+                alert('请输入 Thread ID');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/runs/${inputThreadId}/logs`);
+                const data = await response.json();
+                
+                const container = document.getElementById('logs-container');
+                container.style.display = 'block';
+                
+                if (data.logs.length === 0) {
+                    container.innerHTML = '<p>暂无日志记录</p>';
+                    return;
+                }
+                
+                let html = '';
+                data.logs.forEach(log => {
+                    html += `<div>[${log.ts}] [${log.level}] ${log.message}</div>`;
+                });
+                
+                container.innerHTML = html;
+                container.scrollTop = container.scrollHeight;
+                
+            } catch (error) {
+                console.error('Failed to load logs:', error);
+                document.getElementById('logs-container').innerHTML = '<p>加载日志失败: ' + error.message + '</p>';
+            }
+        }
+        
+        // Pause workflow
+        async function pauseWorkflow(threadId) {
+            try {
+                const response = await fetch(`/runs/${threadId}/pause`, { method: 'POST' });
+                const data = await response.json();
+                alert('暂停请求已发送');
+                loadRuns();
+            } catch (error) {
+                alert('暂停失败: ' + error.message);
+            }
+        }
+        
+        // Resume workflow
+        async function resumeWorkflow(threadId) {
+            try {
+                const response = await fetch(`/runs/${threadId}/resume`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+                alert('工作流已恢复');
+                loadRuns();
+            } catch (error) {
+                alert('恢复失败: ' + error.message);
+            }
+        }
+        
+        // Show create flow dialog
+        function showCreateFlow() {
+            alert('创建工作流功能请使用 API 接口\\n\\n示例:\\nPOST /flows\\n\\n详见 API 文档: /docs');
+        }
+        
+        // Auto-load runs on page load
+        document.addEventListener('DOMContentLoaded', loadRuns);
+        
+        // Auto-refresh runs every 30 seconds
+        setInterval(loadRuns, 30000);
+    </script>
+</body>
+</html>

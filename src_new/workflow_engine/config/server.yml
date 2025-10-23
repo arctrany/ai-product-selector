@@ -1,0 +1,39 @@
+# Workflow Engine Server Configuration
+
+# Server settings
+server:
+  host: "0.0.0.0"
+  port: 8889
+  title: "Workflow Engine API"
+  description: "轻量级本地工作流引擎 API"
+  version: "1.0.0"
+
+# Application settings
+apps:
+  # Applications directory path (relative to project root)
+  directory: "src_new/apps"
+  # Auto-reload apps on changes
+  auto_reload: true
+
+# Database settings
+database:
+  # Database file path (relative to user home)
+  path: "~/.ren/workflow.db"
+
+# Logging settings
+logging:
+  level: "INFO"
+  # Log directory (relative to user home)
+  directory: "~/.ren/runs"
+
+# Templates settings
+templates:
+  # Templates directory (relative to workflow_engine package)
+  directory: "templates"
+
+# Development settings
+development:
+  # Enable debug mode
+  debug: false
+  # Enable auto-reload
+  reload: false
