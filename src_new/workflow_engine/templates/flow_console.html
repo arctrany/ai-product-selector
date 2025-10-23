@@ -81,32 +81,24 @@
             <h2>流程信息</h2>
             <div class="flow-meta">
                 <div class="meta-item">
-                    <div class="label">应用名称 (app_name)</div>
-                    <div class="value">{{ app_name }}</div>
+                    <div class="label">应用名称</div>
+                    <div class="value">{{ app_config.name }}</div>
                 </div>
                 <div class="meta-item">
-                    <div class="label">应用ID (app_id)</div>
+                    <div class="label">应用ID</div>
                     <div class="value">{{ app_id }}</div>
                 </div>
                 <div class="meta-item">
-                    <div class="label">流程ID (flow_id)</div>
+                    <div class="label">流程ID</div>
                     <div class="value">{{ flow_id }}</div>
                 </div>
                 <div class="meta-item">
-                    <div class="label">流程标题 (title)</div>
-                    <div class="value">{{ flow_title }}</div>
-                </div>
-                <div class="meta-item">
                     <div class="label">流程名称</div>
-                    <div class="value">{{ flow_name }}</div>
+                    <div class="value">{{ flow_title }}</div>
                 </div>
                 <div class="meta-item">
                     <div class="label">状态</div>
                     <div class="value"><span class="status status-idle">空闲</span></div>
-                </div>
-                <div class="meta-item">
-                    <div class="label">流程路径</div>
-                    <div class="value">{{ flow_context.flow_path }}</div>
                 </div>
             </div>
             

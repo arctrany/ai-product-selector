@@ -81,30 +81,6 @@ def create_flow2_workflow():
     # 构建工作流定义
     return builder.build()
 
-def get_workflow_metadata():
-    """获取工作流元数据"""
-    return {
-        "name": "flow2",
-        "version": "1.0.0",
-        "description": "示例工作流：数据处理 + 分支判断 + 通知/错误处理",
-        "author": "workflow_engine",
-        "tags": ["demo", "process", "branch", "notification"],
-        "nodes": {
-            "process_node": {
-                "type": "code",
-                "description": "批量数据处理节点"
-            },
-            "check_result_node": {
-                "type": "branch", 
-                "description": "检查处理结果是否成功"
-            },
-            "notify_node": {
-                "type": "code",
-                "description": "发送成功通知"
-            },
-            "error_node": {
-                "type": "code",
-                "description": "错误处理和重试"
-            }
-        }
-    }
+# get_workflow_metadata 函数已移除
+# 现在系统会自动从 WorkflowDefinition 提取元数据，避免重复定义
+# 基本信息从 app.json 获取，节点信息从工作流定义中自动提取

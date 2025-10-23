@@ -182,12 +182,74 @@ class AppManager:
 
             # Also import the nodes module to ensure decorators are executed
             # This registers the node functions in the function registry
-            nodes_module_path = module_path.replace('.workflow_definition', '.nodes')
-            try:
-                importlib.import_module(nodes_module_path)
-                logger.info(f"Imported nodes module: {nodes_module_path}")
-            except ImportError as e:
-                logger.warning(f"Could not import nodes module {nodes_module_path}: {e}")
+
+            # Generate possible nodes module paths
+            possible_nodes_paths = [
+                # Direct replacement: apps.sample_app.flow1.imp.workflow_definition -> apps.sample_app.flow1.imp.nodes
+                module_path.replace('.workflow_definition', '.nodes'),
+                # Remove workflow_definition and add nodes: apps.sample_app.flow1.imp.workflow_definition -> apps.sample_app.flow1.imp.nodes
+                f"{module_path.rsplit('.', 1)[0]}.nodes",
+                # Try without imp: apps.sample_app.flow1.imp.workflow_definition -> apps.sample_app.flow1.nodes
+                f"{'.'.join(module_path.split('.')[:-2])}.nodes",
+                # Try with different structure: apps.sample_app.flow1.imp.workflow_definition -> apps.sample_app.flow1.nodes
+                module_path.replace('.imp.workflow_definition', '.nodes'),
+            ]
+
+            nodes_imported = False
+            for nodes_module_path in possible_nodes_paths:
+                try:
+                    logger.info(f"🔍 Trying to import nodes module: {nodes_module_path}")
+                    nodes_module = importlib.import_module(nodes_module_path)
+                    logger.info(f"✅ Successfully imported nodes module: {nodes_module_path}")
+
+                    # Force reload to ensure decorators are executed
+                    importlib.reload(nodes_module)
+                    logger.info(f"✅ Reloaded nodes module to ensure function registration")
+
+                    nodes_imported = True
+                    break
+
+                except ImportError as e:
+                    logger.debug(f"Could not import nodes module {nodes_module_path}: {e}")
+                    continue
+                except Exception as e:
+                    logger.warning(f"Unexpected error importing nodes module {nodes_module_path}: {e}")
+                    continue
+
+            if not nodes_imported:
+                logger.error(f"❌ Failed to import any nodes module for {app_id}.{flow_id}")
+                logger.error(f"Tried paths: {possible_nodes_paths}")
+
+                # As a last resort, try to find nodes.py files in the app directory
+                try:
+                    import os
+                    from pathlib import Path
+
+                    # Get the app directory path
+                    app_parts = module_path.split('.')
+                    if len(app_parts) >= 3:  # apps.sample_app.flow1...
+                        app_dir = Path("src_new") / "apps" / app_parts[1] / app_parts[2] / "imp"
+                        nodes_file = app_dir / "nodes.py"
+
+                        if nodes_file.exists():
+                            logger.info(f"🔍 Found nodes.py file at: {nodes_file}")
+                            # Try to construct the correct import path
+                            correct_path = f"apps.{app_parts[1]}.{app_parts[2]}.imp.nodes"
+                            try:
+                                nodes_module = importlib.import_module(correct_path)
+                                importlib.reload(nodes_module)
+                                logger.info(f"✅ Successfully imported nodes using constructed path: {correct_path}")
+                                nodes_imported = True
+                            except Exception as e:
+                                logger.error(f"Failed to import with constructed path {correct_path}: {e}")
+                        else:
+                            logger.warning(f"nodes.py file not found at expected location: {nodes_file}")
+                except Exception as e:
+                    logger.error(f"Error in fallback nodes import logic: {e}")
+
+                if not nodes_imported:
+                    logger.error(f"❌ All attempts to import nodes module failed for {app_id}.{flow_id}")
+                    # Don't raise an exception here, let the workflow continue and fail later if functions are missing
 
             workflow_function = getattr(module, function_name)
 
@@ -202,26 +264,91 @@ class AppManager:
             raise
 
     def load_workflow_metadata(self, app_id: str, flow_id: str) -> Optional[Dict]:
-        """Load workflow metadata for a specific flow."""
-        metadata_function = self.get_flow_metadata_function(app_id, flow_id)
-        if not metadata_function:
-            return None
+        """Load workflow metadata for a specific flow.
 
+        优化：直接从 WorkflowDefinition 自动提取元数据，避免重复定义。
+        基本信息从 app.json 获取，节点信息从工作流定义中提取。
+        """
         try:
-            # Parse module and function name
-            module_path, function_name = metadata_function.split(':')
+            # 从 app.json 获取基本信息
+            app_config = self.get_app(app_id)
+            if not app_config:
+                logger.warning(f"App not found: {app_id}")
+                return None
 
-            # Dynamic import
-            import importlib
-            module = importlib.import_module(module_path)
-            metadata_function = getattr(module, function_name)
+            # 获取工作流基本信息
+            flow_config = None
+            if hasattr(app_config, 'flows') and app_config.flows and flow_id in app_config.flows:
+                flow_config = app_config.flows[flow_id]
 
-            # Execute metadata function
-            metadata = metadata_function()
+            if not flow_config:
+                logger.warning(f"Flow config not found: {app_id}.{flow_id}")
+                return None
 
-            logger.info(f"Loaded workflow metadata for {app_id}.{flow_id}")
+            # 加载工作流定义以提取节点信息
+            workflow_definition = self.load_workflow_definition(app_id, flow_id)
+            if not workflow_definition:
+                logger.warning(f"Could not load workflow definition for {app_id}.{flow_id}")
+                return None
+
+            # 自动从 WorkflowDefinition 提取节点元数据
+            nodes_metadata = {}
+            for node in workflow_definition.nodes:
+                node_info = {
+                    "type": node.type.value,
+                    "id": node.id
+                }
+
+                # 根据节点类型提取详细信息
+                if node.type.value == "python" and node.data:
+                    node_info.update({
+                        "function_ref": node.data.code_ref,
+                        "parameters": node.data.args
+                    })
+                elif node.type.value == "condition" and node.data:
+                    node_info.update({
+                        "condition": node.data.expr
+                    })
+
+                nodes_metadata[node.id] = node_info
+
+            # 构建完整的元数据（基本信息来自 app.json，节点信息自动提取）
+            metadata = {
+                "nodes": nodes_metadata,
+                "technical_info": {
+                    "total_nodes": len(workflow_definition.nodes),
+                    "total_edges": len(workflow_definition.edges),
+                    "node_types": list(set(node.type.value for node in workflow_definition.nodes)),
+                    "auto_generated": True,
+                    "source": "extracted_from_workflow_definition"
+                }
+            }
+
+            logger.info(f"Auto-generated workflow metadata for {app_id}.{flow_id} with {len(nodes_metadata)} nodes")
             return metadata
 
         except Exception as e:
-            logger.warning(f"Failed to load workflow metadata for {app_id}.{flow_id}: {e}")
+            logger.warning(f"Failed to auto-generate workflow metadata for {app_id}.{flow_id}: {e}")
+
+            # 降级：尝试使用传统的 metadata_function 方式
+            metadata_function = self.get_flow_metadata_function(app_id, flow_id)
+            if metadata_function:
+                try:
+                    # Parse module and function name
+                    module_path, function_name = metadata_function.split(':')
+
+                    # Dynamic import
+                    import importlib
+                    module = importlib.import_module(module_path)
+                    metadata_function_obj = getattr(module, function_name)
+
+                    # Execute metadata function
+                    metadata = metadata_function_obj()
+
+                    logger.info(f"Loaded workflow metadata using legacy method for {app_id}.{flow_id}")
+                    return metadata
+
+                except Exception as legacy_e:
+                    logger.warning(f"Legacy metadata loading also failed for {app_id}.{flow_id}: {legacy_e}")
+
             return None

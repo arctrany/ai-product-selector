@@ -1,8 +1,15 @@
 # Workflow Engine Server Configuration
 
+# Project settings
+project:
+  # Project root directory (auto-detected if not specified)
+  root: ""
+  # Source directory relative to project root
+  source_dir: "src_new"
+
 # Server settings
 server:
-  host: "0.0.0.0"
+  host: "127.0.0.1"
   port: 8889
   title: "Workflow Engine API"
   description: "轻量级本地工作流引擎 API"
@@ -36,4 +43,4 @@ development:
   # Enable debug mode
   debug: false
   # Enable auto-reload
-  reload: false
+  reload: true

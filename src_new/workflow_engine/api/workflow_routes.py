@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from .dependencies import engine_dependency, config_dependency
+from .dependencies import engine_dependency, config_dependency, workflow_control_dependency
 from .exceptions import WorkflowNotFoundException, ValidationException
 from ..core.engine import WorkflowEngine
+from ..sdk.control import WorkflowControl
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -35,24 +36,24 @@ def create_workflow_router() -> APIRouter:
     @router.post("/start", response_model=WorkflowResponse)
     async def start_workflow(
         request: StartWorkflowRequest,
-        engine: WorkflowEngine = Depends(engine_dependency)
+        control: WorkflowControl = Depends(workflow_control_dependency)
     ):
         """Start workflow execution."""
         try:
-            thread_id = engine.start_workflow(
+            thread_id = control.start_workflow(
                 flow_version_id=request.flow_version_id,
                 input_data=request.input_data,
                 thread_id=request.thread_id
             )
-            
+
             logger.info(f"Started workflow: {thread_id}")
-            
+
             return WorkflowResponse(
                 thread_id=thread_id,
                 status="started",
                 message="Workflow execution started"
             )
-        
+
         except Exception as e:
             logger.error(f"Failed to start workflow: {e}")
             raise ValidationException(f"Failed to start workflow: {str(e)}")
@@ -60,16 +61,16 @@ def create_workflow_router() -> APIRouter:
     @router.get("/{thread_id}")
     async def get_workflow_status(
         thread_id: str,
-        engine: WorkflowEngine = Depends(engine_dependency)
+        control: WorkflowControl = Depends(workflow_control_dependency)
     ):
         """Get workflow execution status."""
         try:
-            status = engine.get_workflow_status(thread_id)
+            status = control.get_workflow_status(thread_id)
             if not status:
                 raise WorkflowNotFoundException(thread_id)
-            
+
             return status
-        
+
         except WorkflowNotFoundException:
             raise
         except Exception as e:
@@ -79,22 +80,22 @@ def create_workflow_router() -> APIRouter:
     @router.post("/{thread_id}/pause", response_model=WorkflowResponse)
     async def pause_workflow(
         thread_id: str,
-        engine: WorkflowEngine = Depends(engine_dependency)
+        control: WorkflowControl = Depends(workflow_control_dependency)
     ):
         """Pause workflow execution."""
         try:
-            success = engine.pause_workflow(thread_id)
+            success = control.pause_workflow(thread_id)
             if not success:
                 raise WorkflowNotFoundException(thread_id)
-            
+
             logger.info(f"Paused workflow: {thread_id}")
-            
+
             return WorkflowResponse(
                 thread_id=thread_id,
                 status="pause_requested",
                 message="Pause request sent"
             )
-        
+
         except WorkflowNotFoundException:
             raise
         except Exception as e:
@@ -105,22 +106,22 @@ def create_workflow_router() -> APIRouter:
     async def resume_workflow(
         thread_id: str,
         request: ResumeWorkflowRequest,
-        engine: WorkflowEngine = Depends(engine_dependency)
+        control: WorkflowControl = Depends(workflow_control_dependency)
     ):
         """Resume paused workflow."""
         try:
-            success = engine.resume_workflow(thread_id, request.updates)
+            success = control.resume_workflow(thread_id, request.updates)
             if not success:
                 raise WorkflowNotFoundException(thread_id, "Workflow not found or cannot be resumed")
-            
+
             logger.info(f"Resumed workflow: {thread_id}")
-            
+
             return WorkflowResponse(
                 thread_id=thread_id,
                 status="resumed",
                 message="Workflow resumed"
             )
-        
+
         except WorkflowNotFoundException:
             raise
         except Exception as e:
@@ -130,13 +131,13 @@ def create_workflow_router() -> APIRouter:
     @router.get("")
     async def list_workflows(
         limit: int = 100,
-        engine: WorkflowEngine = Depends(engine_dependency)
+        control: WorkflowControl = Depends(workflow_control_dependency)
     ):
         """List recent workflow runs."""
         try:
-            runs = engine.list_workflows(limit)
+            runs = control.list_workflows(limit)
             return {"runs": runs, "total": len(runs), "limit": limit}
-        
+
         except Exception as e:
             logger.error(f"Failed to list workflows: {e}")
             raise ValidationException(f"Failed to list workflows: {str(e)}")
@@ -151,10 +152,10 @@ def create_workflow_router() -> APIRouter:
         try:
             log_dir = config.get_logging_directory_path() / thread_id
             log_file = log_dir / "logs.jsonl"
-            
+
             if not log_file.exists():
                 return {"logs": [], "total": 0, "thread_id": thread_id}
-            
+
             logs = []
             with open(log_file, "r", encoding="utf-8") as f:
                 lines = f.readlines()
@@ -162,9 +163,9 @@ def create_workflow_router() -> APIRouter:
                 for line in lines[-limit:]:
                     if line.strip():
                         logs.append(json.loads(line.strip()))
-            
+
             return {"logs": logs, "total": len(logs), "thread_id": thread_id}
-        
+
         except Exception as e:
             logger.error(f"Failed to read logs for {thread_id}: {e}")
             raise ValidationException(f"Failed to read logs: {str(e)}")
@@ -178,16 +179,16 @@ def create_workflow_router() -> APIRouter:
         try:
             log_dir = config.get_logging_directory_path() / thread_id
             log_file = log_dir / "logs.jsonl"
-            
+
             if not log_file.exists():
                 raise WorkflowNotFoundException(thread_id, "Log file not found")
-            
+
             return FileResponse(
                 path=str(log_file),
                 filename=f"workflow-{thread_id}-logs.jsonl",
                 media_type="application/json"
             )
-        
+
         except WorkflowNotFoundException:
             raise
         except Exception as e:
@@ -197,13 +198,11 @@ def create_workflow_router() -> APIRouter:
     @router.delete("/{thread_id}")
     async def cancel_workflow(
         thread_id: str,
-        engine: WorkflowEngine = Depends(engine_dependency)
+        control: WorkflowControl = Depends(workflow_control_dependency)
     ):
         """Cancel workflow execution."""
         try:
-            # This would need to be implemented in WorkflowEngine
-            # For now, try to pause it
-            success = engine.pause_workflow(thread_id)
+            success = control.cancel_workflow(thread_id, "Cancelled via API")
             if not success:
                 raise WorkflowNotFoundException(thread_id)
             

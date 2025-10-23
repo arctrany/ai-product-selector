@@ -1,6 +1,9 @@
 """Flow1 工作流定义 - 使用编码方式定义工作流结构"""
 
-from workflow_engine.sdk import WorkflowBuilder
+from workflow_engine.sdk import WorkflowBuilder, setup_environment
+
+# 设置工作流引擎环境（自动配置Python路径）
+setup_environment()
 # 节点实现通过注册函数机制加载，无需直接导入
 
 
@@ -74,26 +77,6 @@ def create_flow1_workflow():
     return builder.build()
 
 
-def get_workflow_metadata():
-    """获取工作流元数据"""
-    return {
-        "name": "flow1",
-        "version": "1.0.0",
-        "description": "示例工作流：循环节点 + 分支节点 + 延时节点",
-        "author": "workflow_engine",
-        "tags": ["demo", "loop", "branch", "delay"],
-        "nodes": {
-            "loop_node": {
-                "type": "code",
-                "description": "循环10次，每间隔2秒打印当前时间"
-            },
-            "branch_node": {
-                "type": "branch", 
-                "description": "检查循环是否完成"
-            },
-            "delay_node": {
-                "type": "code",
-                "description": "休眠10秒后打印done"
-            }
-        }
-    }
+# get_workflow_metadata 函数已移除
+# 现在系统会自动从 WorkflowDefinition 提取元数据，避免重复定义
+# 基本信息从 app.json 获取，节点信息从工作流定义中自动提取

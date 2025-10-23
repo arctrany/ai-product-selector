@@ -18,9 +18,60 @@ from ..config import get_config
 
 logger = get_logger(__name__)
 
+def _bootstrap_workflows(engine, app_manager):
+    """Bootstrap workflow definitions from apps into database."""
+    try:
+        logger.info("🚀 Starting workflow bootstrap process...")
+
+        # Get all apps
+        apps = app_manager.list_apps()
+        loaded_count = 0
+
+        for app in apps:
+            logger.info(f"📦 Processing app: {app.app_id}")
+
+            # Process each flow in the app
+            for flow_name, flow_config in app.flows.items():
+                try:
+                    # Get flow_id from config
+                    flow_id = getattr(flow_config, 'flow_id', flow_name)
+                    version = getattr(flow_config, 'version', '1.0.0')
+
+                    # Check if flow already exists in database
+                    existing_flow = engine.db_manager.get_flow_by_name(flow_id)
+                    if existing_flow:
+                        logger.info(f"  ⏭️  Flow {flow_id} already exists in database, skipping")
+                        continue
+
+                    # Load workflow definition
+                    logger.info(f"  🔄 Loading workflow definition for {app.app_id}.{flow_name}")
+                    workflow_definition = app_manager.load_workflow_definition(app.app_id, flow_name)
+
+                    # Create flow in database
+                    db_flow_id = engine.create_flow(
+                        name=flow_id,
+                        definition=workflow_definition,
+                        version=version
+                    )
+
+                    logger.info(f"  ✅ Successfully loaded {flow_id} (DB ID: {db_flow_id})")
+                    loaded_count += 1
+
+                except Exception as e:
+                    logger.error(f"  ❌ Failed to load {app.app_id}.{flow_name}: {e}")
+                    continue
+
+        logger.info(f"🎉 Workflow bootstrap completed! Loaded {loaded_count} workflows")
+
+    except Exception as e:
+        logger.error(f"❌ Workflow bootstrap failed: {e}")
+        # Don't raise exception to avoid breaking server startup
+        pass
+
+
 def create_app(db_path: Optional[str] = None) -> FastAPI:
     """Create FastAPI application with modular route structure."""
-    
+
     # Load configuration
     config = get_config()
 
@@ -48,6 +99,9 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
 
     # Initialize dependencies
     init_dependencies(engine, app_manager, templates, config)
+
+    # Auto-load workflow definitions from apps into database
+    _bootstrap_workflows(engine, app_manager)
 
     # Setup exception handlers
     setup_exception_handlers(app)
@@ -84,16 +138,18 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
     logger.info("FastAPI application created with modular route structure")
     return app
 
+
 # Server startup script
 if __name__ == "__main__":
     import uvicorn
 
     config = get_config()
-    app = create_app()
 
+    # Use import string for uvicorn to support reload and workers
     uvicorn.run(
-        app,
+        "workflow_engine.api.server:create_app",
         host=config.server.host,
         port=config.server.port,
-        reload=config.development.reload
+        reload=config.development.reload,
+        factory=True
     )

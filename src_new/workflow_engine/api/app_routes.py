@@ -5,17 +5,19 @@ from fastapi import APIRouter, HTTPException, Query, Request, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from .dependencies import app_manager_dependency, db_manager_dependency, engine_dependency
+from .dependencies import app_manager_dependency, db_manager_dependency, engine_dependency, workflow_control_dependency
 from ..apps import AppManager
 from ..storage.database import DatabaseManager
 from ..core.engine import WorkflowEngine
 from ..utils.logger import get_logger
 from ..config import get_config
+from ..sdk.control import WorkflowControl
 
 logger = get_logger(__name__)
 
 # Initialize templates
 templates = Jinja2Templates(directory="workflow_engine/templates")
+
 
 def create_app_router() -> APIRouter:
     """Create application-specific routes."""
@@ -45,9 +47,9 @@ def create_app_router() -> APIRouter:
         return flow_version_param, None
 
     def get_flow_version_by_id_and_version(
-        flow_id: str,
-        version: Optional[str] = None,
-        db_manager: DatabaseManager = None
+            flow_id: str,
+            version: Optional[str] = None,
+            db_manager: DatabaseManager = None
     ):
         """Get flow version by flow_id and version. If version is None, get latest."""
         try:
@@ -118,11 +120,11 @@ def create_app_router() -> APIRouter:
     # Note: .htm route must come before the general route to avoid conflicts
     @router.get("/{app_name}/{flow_identifier}.htm", response_class=HTMLResponse, tags=["applications"])
     async def get_flow_custom_page(
-        request: Request,
-        app_name: str,
-        flow_identifier: str,
-        app_manager: AppManager = Depends(app_manager_dependency),
-        db_manager: DatabaseManager = Depends(db_manager_dependency)
+            request: Request,
+            app_name: str,
+            flow_identifier: str,
+            app_manager: AppManager = Depends(app_manager_dependency),
+            db_manager: DatabaseManager = Depends(db_manager_dependency)
     ):
         """Get flow-specific custom page from web/templates/index.htm."""
         # Validate app exists (flexible matching)
@@ -138,7 +140,8 @@ def create_app_router() -> APIRouter:
         flow_name, flow_config, flow_id, version = parse_flow_identifier(app, flow_identifier)
 
         if not flow_config:
-            raise HTTPException(status_code=404, detail=f"Flow '{flow_identifier}' not found in application '{app_name}'")
+            raise HTTPException(status_code=404,
+                                detail=f"Flow '{flow_identifier}' not found in application '{app_name}'")
 
         # Get configuration for apps directory
         config = get_config()
@@ -190,11 +193,11 @@ def create_app_router() -> APIRouter:
 
     @router.get("/{app_name}/{flow_identifier}", response_class=HTMLResponse, tags=["applications"])
     async def get_flow_console_page_simplified(
-        request: Request,
-        app_name: str,
-        flow_identifier: str,
-        app_manager: AppManager = Depends(app_manager_dependency),
-        db_manager: DatabaseManager = Depends(db_manager_dependency)
+            request: Request,
+            app_name: str,
+            flow_identifier: str,
+            app_manager: AppManager = Depends(app_manager_dependency),
+            db_manager: DatabaseManager = Depends(db_manager_dependency)
     ):
         """Get flow-specific console page using flow_name, flow_id, or flow_id-version."""
         # Validate app exists (flexible matching)
@@ -206,7 +209,8 @@ def create_app_router() -> APIRouter:
         flow_name, flow_config, flow_id, version = parse_flow_identifier(app, flow_identifier)
 
         if not flow_config:
-            raise HTTPException(status_code=404, detail=f"Flow '{flow_identifier}' not found in application '{app_name}'")
+            raise HTTPException(status_code=404,
+                                detail=f"Flow '{flow_identifier}' not found in application '{app_name}'")
 
         # Get configuration for apps directory
         config = get_config()
@@ -259,20 +263,18 @@ def create_app_router() -> APIRouter:
             }
         )
 
-
-
     # New API routes based on flow_id-version format
     @router.post("/api/flows/{flow_version_param}/submit", tags=["flows"])
     async def submit_flow_form(
-        request: Request,
-        flow_version_param: str,
-        app_manager: AppManager = Depends(app_manager_dependency),
-        db_manager: DatabaseManager = Depends(db_manager_dependency),
-        engine: WorkflowEngine = Depends(engine_dependency)
+            request: Request,
+            flow_version_param: str,
+            app_manager: AppManager = Depends(app_manager_dependency),
+            db_manager: DatabaseManager = Depends(db_manager_dependency),
+            control: WorkflowControl = Depends(workflow_control_dependency)
     ):
         """Submit form data to workflow engine and start workflow."""
         flow_id, version = parse_flow_version_id(flow_version_param)
-        
+
         # Validate flow exists and get version
         flow, flow_version = get_flow_version_by_id_and_version(flow_id, version, db_manager)
         if not flow or not flow_version:
@@ -282,18 +284,46 @@ def create_app_router() -> APIRouter:
             # Parse form data
             form_data = await request.form()
             form_dict = {}
+
+            # Get configuration for file upload directory
+            config = get_config()
+            upload_dir = config.get_logging_directory_path().parent / "uploads"
+            upload_dir.mkdir(parents=True, exist_ok=True)
+
             for key, value in form_data.items():
                 if hasattr(value, 'filename'):  # File upload
-                    form_dict[key] = {
-                        "filename": value.filename,
-                        "content_type": value.content_type,
-                        "size": len(await value.read()) if value.filename else 0
-                    }
+                    if value.filename:
+                        # Save file to local directory
+                        import uuid
+                        import os
+                        from pathlib import Path
+
+                        # Generate unique filename to avoid conflicts
+                        file_extension = Path(value.filename).suffix
+                        unique_filename = f"{uuid.uuid4()}{file_extension}"
+                        file_path = upload_dir / unique_filename
+
+                        # Save file content to disk
+                        file_content = await value.read()
+                        with open(file_path, 'wb') as f:
+                            f.write(file_content)
+
+                        # Store file path and metadata
+                        form_dict[key] = {
+                            "filename": value.filename,
+                            "content_type": value.content_type,
+                            "size": len(file_content),
+                            "file_path": str(file_path)  # Pass file path instead of content
+                        }
+
+                        logger.info(f"Saved uploaded file: {value.filename} -> {file_path}")
+                    else:
+                        form_dict[key] = None
                 else:
                     form_dict[key] = value
 
-            # Start workflow with form data
-            thread_id = engine.start_workflow(
+            # Start workflow with form data using WorkflowControl
+            thread_id = control.start_workflow(
                 flow_version_id=flow_version["flow_version_id"],
                 input_data=form_dict,
                 thread_id=None
@@ -314,7 +344,7 @@ def create_app_router() -> APIRouter:
                 if app_name:
                     break
 
-            # Encode form data for URL transmission
+            # Encode form data for URL transmission (but keep it clean)
             import urllib.parse
             import json
             form_data_json = json.dumps(form_dict)
@@ -335,11 +365,11 @@ def create_app_router() -> APIRouter:
 
     @router.post("/api/flows/{flow_version_param}/start", tags=["flows"])
     async def start_workflow_api(
-        flow_version_param: str,
-        request: Request,
-        app_manager: AppManager = Depends(app_manager_dependency),
-        db_manager: DatabaseManager = Depends(db_manager_dependency),
-        engine: WorkflowEngine = Depends(engine_dependency)
+            flow_version_param: str,
+            request: Request,
+            app_manager: AppManager = Depends(app_manager_dependency),
+            db_manager: DatabaseManager = Depends(db_manager_dependency),
+            control: WorkflowControl = Depends(workflow_control_dependency)
     ):
         """Start workflow execution via API."""
         flow_id, version = parse_flow_version_id(flow_version_param)
@@ -357,8 +387,8 @@ def create_app_router() -> APIRouter:
             raise HTTPException(status_code=404, detail=f"Flow '{flow_id}' version '{version or 'latest'}' not found")
 
         try:
-            # Start workflow execution
-            thread_id = engine.start_workflow(
+            # Start workflow execution using WorkflowControl
+            thread_id = control.start_workflow(
                 flow_version_id=flow_version["flow_version_id"],
                 input_data=inputs,
                 thread_id=None
@@ -397,10 +427,10 @@ def create_app_router() -> APIRouter:
 
     @router.post("/api/flows/{flow_version_param}/stop", tags=["flows"])
     async def stop_workflow_api(
-        flow_version_param: str,
-        request: Request,
-        db_manager: DatabaseManager = Depends(db_manager_dependency),
-        engine: WorkflowEngine = Depends(engine_dependency)
+            flow_version_param: str,
+            request: Request,
+            db_manager: DatabaseManager = Depends(db_manager_dependency),
+            control: WorkflowControl = Depends(workflow_control_dependency)
     ):
         """Stop workflow execution via API."""
         # Parse request body to get thread_id
@@ -412,15 +442,15 @@ def create_app_router() -> APIRouter:
         except Exception as e:
             raise HTTPException(status_code=400, detail="Invalid request body")
         flow_id, version = parse_flow_version_id(flow_version_param)
-        
+
         # Validate flow exists
         flow, flow_version = get_flow_version_by_id_and_version(flow_id, version, db_manager)
         if not flow or not flow_version:
             raise HTTPException(status_code=404, detail=f"Flow '{flow_id}' version '{version or 'latest'}' not found")
 
         try:
-            # Stop workflow execution
-            success = engine.pause_workflow(thread_id)  # Using pause as stop
+            # Stop workflow execution using WorkflowControl
+            success = control.pause_workflow(thread_id)  # Using pause as stop
             if not success:
                 raise HTTPException(status_code=404, detail="Workflow not found or cannot be stopped")
 
@@ -441,10 +471,10 @@ def create_app_router() -> APIRouter:
 
     @router.post("/api/flows/{flow_version_param}/resume", tags=["flows"])
     async def resume_workflow_api(
-        flow_version_param: str,
-        request: Request,
-        db_manager: DatabaseManager = Depends(db_manager_dependency),
-        engine: WorkflowEngine = Depends(engine_dependency)
+            flow_version_param: str,
+            request: Request,
+            db_manager: DatabaseManager = Depends(db_manager_dependency),
+            control: WorkflowControl = Depends(workflow_control_dependency)
     ):
         """Resume workflow execution via API."""
         # Parse request body to get thread_id and updates
@@ -457,15 +487,15 @@ def create_app_router() -> APIRouter:
         except Exception as e:
             raise HTTPException(status_code=400, detail="Invalid request body")
         flow_id, version = parse_flow_version_id(flow_version_param)
-        
+
         # Validate flow exists
         flow, flow_version = get_flow_version_by_id_and_version(flow_id, version, db_manager)
         if not flow or not flow_version:
             raise HTTPException(status_code=404, detail=f"Flow '{flow_id}' version '{version or 'latest'}' not found")
 
         try:
-            # Resume workflow execution
-            success = engine.resume_workflow(thread_id, updates)
+            # Resume workflow execution using WorkflowControl
+            success = control.resume_workflow(thread_id, updates)
             if not success:
                 raise HTTPException(status_code=404, detail="Workflow not found or cannot be resumed")
 
