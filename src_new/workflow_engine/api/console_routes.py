@@ -1,20 +1,17 @@
 """Console UI routes for workflow engine."""
 
+from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from .dependencies import app_manager_dependency, db_manager_dependency
+from .dependencies import app_manager_dependency, db_manager_dependency, config_dependency
 from ..apps import AppManager
 from ..storage.database import DatabaseManager
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
-
-# Initialize templates
-templates = Jinja2Templates(directory="workflow_engine/templates")
-
 
 def create_console_router() -> APIRouter:
     """Create console UI routes."""
@@ -25,9 +22,13 @@ def create_console_router() -> APIRouter:
             request: Request,
             id: Optional[str] = Query(None, description="Console ID in format: app_id-flow_id"),
             app_manager: AppManager = Depends(app_manager_dependency),
-            db_manager: DatabaseManager = Depends(db_manager_dependency)
+            db_manager: DatabaseManager = Depends(db_manager_dependency),
+            config = Depends(config_dependency)
     ):
         """Application console view with optional app-specific context."""
+
+        # Initialize templates with config-based directory
+        templates = Jinja2Templates(directory=str(config.get_templates_directory_path()))
 
         if not id:
             # Return global console view
@@ -111,13 +112,13 @@ def create_console_router() -> APIRouter:
             }
 
     @router.get("/console/health")
-    async def console_health():
+    async def console_health(config = Depends(config_dependency)):
         """Console health check endpoint."""
         return {
             "status": "healthy",
             "console_type": "workflow_engine",
-            "timestamp": "2025-10-23T13:57:00Z",
-            "version": "1.0.0"
+            "timestamp": datetime.utcnow().isoformat(),
+            "version": config.server.version
         }
 
     return router

@@ -342,7 +342,10 @@
                 
                 <div class="button-group">
                     <button type="button" class="btn btn-secondary" onclick="resetForm()">取消</button>
-                    <button type="submit" class="btn btn-primary">确定</button>
+                    <button type="submit" class="btn btn-primary" id="submitBtn">
+                        <span id="submitText">🚀 开始智能选品</span>
+                        <span id="loadingText" style="display: none;">⏳ 正在提交...</span>
+                    </button>
                 </div>
             </div>
         </form>
@@ -408,6 +411,17 @@
                 requiredFile.focus();
                 return false;
             }
+
+            // 显示提交状态
+            const submitBtn = document.getElementById('submitBtn');
+            const submitText = document.getElementById('submitText');
+            const loadingText = document.getElementById('loadingText');
+
+            submitBtn.disabled = true;
+            submitText.style.display = 'none';
+            loadingText.style.display = 'inline';
+
+            console.log('📤 正在提交智能选品表单...');
 
             // 如果勾选了记住选择，保存表单设置
             const rememberCheckbox = document.getElementById('remember_settings');

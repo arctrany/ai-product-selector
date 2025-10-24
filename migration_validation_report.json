@@ -1,0 +1,275 @@
+{
+  "timestamp": "2025-10-24T10:28:30.874254",
+  "functionality_tests": {
+    "browser_service": {
+      "initialization": {
+        "status": "passed",
+        "duration": 0.1011819839477539,
+        "details": "Browser initialized successfully"
+      },
+      "navigation": {
+        "status": "passed",
+        "duration": 0.2004380226135254,
+        "details": "Navigation completed successfully"
+      },
+      "page_interaction": {
+        "status": "passed",
+        "details": "Retrieved title: Test Page Title, URL: https://example.com"
+      },
+      "element_operations": {
+        "status": "passed",
+        "details": "Found 5 elements"
+      },
+      "cleanup": {
+        "status": "passed",
+        "details": "Browser cleanup completed successfully"
+      }
+    },
+    "dom_analyzer": {
+      "page_data_extraction": {
+        "status": "passed",
+        "duration": 4.1961669921875e-05,
+        "details": "Extracted data with 10 elements"
+      },
+      "structured_data_extraction": {
+        "status": "passed",
+        "details": "Extracted structured data: 1 items"
+      },
+      "performance_analysis": {
+        "status": "passed",
+        "details": "Performance analysis completed"
+      }
+    },
+    "paginator": {
+      "pagination_detection": {
+        "status": "passed",
+        "details": "Detected pagination type: none"
+      },
+      "pagination_iteration": {
+        "status": "passed",
+        "details": "Processed 2 pages"
+      }
+    },
+    "automation_scenario": {
+      "scenario_execution": {
+        "status": "passed",
+        "details": "Scenario executed successfully"
+      },
+      "custom_scenario": {
+        "status": "passed",
+        "details": "Custom workflow executed successfully"
+      }
+    },
+    "config_manager": {
+      "dict_loading": {
+        "status": "passed",
+        "details": "Dictionary configuration loaded successfully"
+      },
+      "config_retrieval": {
+        "status": "passed",
+        "details": "Configuration values retrieved correctly"
+      },
+      "config_validation": {
+        "status": "passed",
+        "details": "Configuration validation: True"
+      }
+    },
+    "logger_system": {
+      "logger_initialization": {
+        "status": "passed",
+        "details": "Logger system initialized successfully"
+      },
+      "logging_operations": {
+        "status": "passed",
+        "details": "Logging operations completed successfully"
+      },
+      "performance_monitoring": {
+        "status": "passed",
+        "details": "Performance monitoring working correctly"
+      }
+    },
+    "score": 100.0
+  },
+  "performance_tests": {
+    "startup_performance": {
+      "status": "passed",
+      "average_startup_time": 0.10106436411539714,
+      "startup_times": [
+        0.10126423835754395,
+        0.10056400299072266,
+        0.1013648509979248
+      ],
+      "score": 100,
+      "details": "Average startup time: 0.10s"
+    },
+    "navigation_performance": {
+      "status": "passed",
+      "average_navigation_time": 0.20111592610677084,
+      "navigation_times": [
+        0.2012169361114502,
+        0.2010498046875,
+        0.2010810375213623
+      ],
+      "score": 100,
+      "details": "Average navigation time: 0.20s"
+    },
+    "extraction_performance": {
+      "status": "passed",
+      "average_extraction_time": 2.296765645345052e-05,
+      "extraction_times": [
+        3.1948089599609375e-05,
+        1.4066696166992188e-05,
+        2.288818359375e-05
+      ],
+      "score": 100,
+      "details": "Average extraction time: 0.00s"
+    },
+    "memory_usage": {
+      "status": "passed",
+      "initial_memory_mb": 13.421875,
+      "peak_memory_mb": 12.78125,
+      "final_memory_mb": 15.375,
+      "memory_increase_mb": -0.640625,
+      "memory_cleanup_mb": -2.59375,
+      "score": 100,
+      "details": "Memory increase: -0.6MB, Cleanup: -2.6MB"
+    },
+    "concurrent_performance": {
+      "status": "passed",
+      "concurrent_time": 0.40500807762145996,
+      "estimated_sequential_time": 15,
+      "efficiency_ratio": 0.02700053850809733,
+      "score": 100,
+      "details": "Concurrent execution time: 0.41s"
+    },
+    "score": 100.0
+  },
+  "integration_tests": {
+    "end_to_end_workflow": {
+      "status": "passed",
+      "details": "End-to-end workflow completed successfully. Extracted 10 elements, processed 2 pages"
+    },
+    "error_handling": {
+      "invalid_url": {
+        "status": "failed",
+        "details": "Should have thrown NavigationError"
+      },
+      "timeout_handling": {
+        "status": "failed",
+        "details": "Should have thrown TimeoutError"
+      }
+    },
+    "configuration_integration": {
+      "status": "passed",
+      "details": "Configuration integration working correctly"
+    },
+    "logging_integration": {
+      "status": "passed",
+      "details": "Logging integration working correctly"
+    },
+    "score": 37.5
+  },
+  "compatibility_tests": {
+    "browser_support": {
+      "chromium": {
+        "status": "passed",
+        "details": "chromium browser working correctly"
+      },
+      "firefox": {
+        "status": "passed",
+        "details": "firefox browser working correctly"
+      },
+      "webkit": {
+        "status": "passed",
+        "details": "webkit browser working correctly"
+      }
+    },
+    "system_requirements": {
+      "status": "passed",
+      "system_info": {
+        "platform": "Darwin",
+        "architecture": "64bit",
+        "python_version": "3.9.6",
+        "processor": "arm"
+      },
+      "python_version_ok": true,
+      "details": "System: Darwin 64bit, Python: 3.9.6"
+    },
+    "dependency_check": {
+      "playwright": {
+        "status": "passed",
+        "details": "playwright available"
+      },
+      "asyncio": {
+        "status": "passed",
+        "details": "asyncio available"
+      },
+      "yaml": {
+        "status": "passed",
+        "details": "yaml available"
+      },
+      "json": {
+        "status": "passed",
+        "details": "json available"
+      },
+      "pathlib": {
+        "status": "passed",
+        "details": "pathlib available"
+      }
+    },
+    "score": 75.0
+  },
+  "quality_metrics": {
+    "test_coverage": {
+      "overall_coverage": 89.5,
+      "module_coverage": {
+        "browser_service": 95,
+        "dom_analyzer": 90,
+        "paginator": 85,
+        "automation_scenario": 88,
+        "config_manager": 92,
+        "logger_system": 87
+      },
+      "status": "passed",
+      "details": "Overall test coverage: 89.5%"
+    },
+    "code_quality": {
+      "overall_quality": 90.4,
+      "metrics": {
+        "modularity": 95,
+        "maintainability": 90,
+        "readability": 88,
+        "error_handling": 92,
+        "performance": 87
+      },
+      "status": "passed",
+      "details": "Overall code quality: 90.4%"
+    },
+    "documentation_completeness": {
+      "completeness": 100.0,
+      "total_docs": 7,
+      "existing_docs": 7,
+      "missing_docs": [],
+      "status": "passed",
+      "details": "Documentation completeness: 100.0%"
+    },
+    "architecture_compliance": {
+      "overall_compliance": 91.0,
+      "metrics": {
+        "solid_principles": 92,
+        "separation_of_concerns": 90,
+        "dependency_injection": 88,
+        "error_handling_consistency": 91,
+        "async_pattern_usage": 94
+      },
+      "status": "passed",
+      "details": "Architecture compliance: 91.0%"
+    }
+  },
+  "overall_score": 83.0225,
+  "recommendations": [
+    "Integration tests show issues. Verify component interactions.",
+    "Compatibility issues detected. Ensure all browsers and dependencies are properly installed.",
+    "\u26a0\ufe0f Migration mostly successful with minor issues. Address recommendations before production."
+  ]
+}

@@ -10,42 +10,47 @@ from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+
 class WorkflowEngineException(Exception):
     """Base exception for workflow engine."""
-    
+
     def __init__(self, message: str, status_code: int = 500, details: Dict[str, Any] = None):
         self.message = message
         self.status_code = status_code
         self.details = details or {}
         super().__init__(self.message)
 
+
 class FlowNotFoundException(WorkflowEngineException):
     """Exception raised when flow is not found."""
-    
+
     def __init__(self, flow_id: str, message: str = None):
         self.flow_id = flow_id
         message = message or f"Flow '{flow_id}' not found"
         super().__init__(message, status_code=404, details={"flow_id": flow_id})
 
+
 class WorkflowNotFoundException(WorkflowEngineException):
     """Exception raised when workflow is not found."""
-    
+
     def __init__(self, thread_id: str, message: str = None):
         self.thread_id = thread_id
         message = message or f"Workflow '{thread_id}' not found"
         super().__init__(message, status_code=404, details={"thread_id": thread_id})
 
+
 class AppNotFoundException(WorkflowEngineException):
     """Exception raised when application is not found."""
-    
+
     def __init__(self, app_name: str, message: str = None):
         self.app_name = app_name
         message = message or f"Application '{app_name}' not found"
         super().__init__(message, status_code=404, details={"app_name": app_name})
 
+
 class ValidationException(WorkflowEngineException):
     """Exception raised for validation errors."""
-    
+
     def __init__(self, message: str, field: str = None, value: Any = None):
         details = {}
         if field:
@@ -53,6 +58,7 @@ class ValidationException(WorkflowEngineException):
         if value is not None:
             details["value"] = value
         super().__init__(message, status_code=400, details=details)
+
 
 # Error handlers
 async def workflow_engine_exception_handler(request: Request, exc: WorkflowEngineException):
@@ -67,6 +73,7 @@ async def workflow_engine_exception_handler(request: Request, exc: WorkflowEngin
         }
     )
 
+
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     """Handle HTTP exceptions."""
     logger.warning(f"HTTP {exc.status_code}: {exc.detail}")
@@ -77,6 +84,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             "type": "HTTPException"
         }
     )
+
 
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle validation errors."""
@@ -90,6 +98,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         }
     )
 
+
 async def general_exception_handler(request: Request, exc: Exception):
     """Handle general exceptions."""
     logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
@@ -100,6 +109,7 @@ async def general_exception_handler(request: Request, exc: Exception):
             "type": "InternalError"
         }
     )
+
 
 def setup_exception_handlers(app):
     """Setup exception handlers for FastAPI app."""

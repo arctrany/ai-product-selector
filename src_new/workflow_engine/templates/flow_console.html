@@ -287,38 +287,36 @@
             }
         }
 
-        // 启动工作流 (新的主要启动函数)
+        // 启动工作流 (新的主要启动函数，携带提交阶段生成的 thread_id)
         function startWorkflow() {
             console.log('启动工作流:', flowName);
             addLog('info', '正在启动工作流...');
 
-            // 构建正确的API端点
             const flowId = "{{ flow_id }}";
             const apiUrl = `/api/flows/${flowId}/start`;
-
             addLog('debug', `调用API: ${apiUrl}`);
 
-            // 调用后端API启动工作流
+            // 从URL获取提交阶段生成的thread_id
+            const urlParams = new URLSearchParams(window.location.search);
+            const pendingThreadId = urlParams.get('thread_id') || null;
+
+            // 调用后端API启动工作流（如果存在pendingThreadId则复用）
             fetch(apiUrl, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    input_data: {}
+                    input_data: {},
+                    thread_id: pendingThreadId
                 })
             })
             .then(async response => {
                 addLog('debug', `API响应状态: ${response.status}`);
-
                 const data = await response.json();
 
                 if (!response.ok) {
-                    // 处理HTTP错误状态
                     const errorMsg = data.detail || data.message || `HTTP ${response.status} 错误`;
                     throw new Error(errorMsg);
                 }
-
                 return data;
             })
             .then(data => {
@@ -327,25 +325,19 @@
                 if (data.thread_id) {
                     addLog('success', `✅ 工作流启动成功！Thread ID: ${data.thread_id}`);
                     updateStatus('running', '工作流运行中...');
-
-                    // 显示启动详情
                     addLog('info', `📋 流程ID: ${data.flow_id}`);
                     addLog('info', `📋 版本: ${data.version}`);
                     addLog('info', `📋 状态: ${data.status}`);
 
-                    // 格式化显示输入数据
                     if (data.inputs && Object.keys(data.inputs).length > 0) {
                         addLog('info', '📝 输入数据:');
                         displayInputData(data.inputs);
                     }
 
-                    // 如果有表单数据，显示表单数据
-                    const urlParams = new URLSearchParams(window.location.search);
                     if (urlParams.get('form_data') === 'submitted') {
                         displayFormData(data.inputs || {});
                     }
 
-                    // 开始轮询日志
                     startLogPolling(data.thread_id);
                 } else {
                     const errorMsg = data.detail || data.message || '未知错误';
@@ -357,7 +349,6 @@
                 console.error('启动工作流失败:', error);
                 addLog('error', `❌ 启动失败: ${error.message}`);
 
-                // 显示更详细的错误信息
                 if (error.message.includes('404')) {
                     addLog('warning', '💡 提示: 请检查流程ID是否正确，或流程是否已发布');
                 } else if (error.message.includes('500')) {

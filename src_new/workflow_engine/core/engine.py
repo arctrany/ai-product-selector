@@ -290,36 +290,42 @@ class WorkflowEngine:
         return flow_id
     
     def start_workflow(self, flow_version_id: int, input_data: Optional[Dict[str, Any]] = None,
-                      thread_id: Optional[str] = None) -> str:
+                       thread_id: Optional[str] = None) -> str:
         """Start workflow execution."""
-        
+
         if thread_id is None:
             thread_id = str(uuid.uuid4())
-        
+
         # Get flow version
         flow_version = self.db_manager.get_flow_version(flow_version_id)
         if not flow_version:
             raise ValueError(f"Flow version not found: {flow_version_id}")
-        
+
         # Ensure functions are registered before execution
         self._ensure_functions_registered(flow_version_id)
 
         # Create workflow definition
         definition = WorkflowDefinition(**flow_version["dsl_json"])
-        
+
         # Compile workflow
         graph = self.compile_workflow(definition)
         compiled_graph = graph.compile(checkpointer=self.checkpointer)
-        
+
         # Create initial state
         initial_state = WorkflowState(
             thread_id=thread_id,
             data=input_data or {},
             metadata={"flow_version_id": flow_version_id}
         )
-        
-        # Create run record
-        self.db_manager.create_run(thread_id, flow_version_id, "pending")
+
+        # Create run record only if it doesn't exist; otherwise update metadata/status safely
+        existing_run = self.db_manager.get_run(thread_id)
+        if not existing_run:
+            # Store inputs in metadata for observability
+            self.db_manager.create_run(thread_id, flow_version_id, "pending", metadata={"inputs": input_data or {}})
+        else:
+            # Avoid duplicate insert; keep or reset to pending before engine sets running at start node
+            self.db_manager.update_run_status(thread_id, "pending", metadata={"inputs": input_data or {}, "restarted": True})
         
         # Start execution
         config = {"configurable": {"thread_id": thread_id}}

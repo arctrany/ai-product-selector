@@ -351,54 +351,7 @@ class TestWorkflowRoutesRefactor:
             thread_id=None
         )
 
-    def test_stop_workflow_api_endpoint(self):
-        """Test stop workflow API endpoint uses WorkflowControl."""
-        # Mock database responses
-        flow_version = {"flow_version_id": 1, "version": "1.0.0"}
-        flow = {"flow_id": "test_flow"}
-        self.mock_db_manager.get_flow_by_name.return_value = flow
-        self.mock_db_manager.get_latest_flow_version.return_value = flow_version
-        self.mock_control.pause_workflow.return_value = True
 
-        # Test request
-        response = self.client.post("/api/flows/test_flow-1.0.0/stop", json={
-            "thread_id": "thread_123"
-        })
-
-        # Verify response
-        assert response.status_code == 200
-        data = response.json()
-        assert data["thread_id"] == "thread_123"
-        assert data["status"] == "stopped"
-
-        # Verify control was called
-        self.mock_control.pause_workflow.assert_called_once_with("thread_123")
-
-    def test_resume_workflow_api_endpoint(self):
-        """Test resume workflow API endpoint uses WorkflowControl."""
-        # Mock database responses
-        flow_version = {"flow_version_id": 1, "version": "1.0.0"}
-        flow = {"flow_id": "test_flow"}
-        self.mock_db_manager.get_flow_by_name.return_value = flow
-        self.mock_db_manager.get_latest_flow_version.return_value = flow_version
-        self.mock_control.resume_workflow.return_value = True
-
-        # Test request
-        response = self.client.post("/api/flows/test_flow-1.0.0/resume", json={
-            "thread_id": "thread_123",
-            "updates": {"key": "new_value"}
-        })
-
-        # Verify response
-        assert response.status_code == 200
-        data = response.json()
-        assert data["thread_id"] == "thread_123"
-        assert data["status"] == "resumed"
-
-        # Verify control was called
-        self.mock_control.resume_workflow.assert_called_once_with(
-            "thread_123", {"key": "new_value"}
-        )
 
 
 class TestAppRoutesRefactor:

@@ -233,68 +233,7 @@ class TestAppRoutesRefactored:
         assert response.status_code == 404
         assert "not found" in response.json()["detail"]
 
-    def test_stop_workflow_api(self, client, mock_db_manager):
-        """Test stop workflow API."""
-        with patch('workflow_engine.core.engine.WorkflowEngine') as mock_engine:
-            mock_engine_instance = Mock()
-            mock_engine_instance.pause_workflow.return_value = True
-            mock_engine.return_value = mock_engine_instance
 
-            response = client.post(
-                "/api/flows/abba-ccdd-eeff-1.0.0/stop",
-                json={"thread_id": "test-thread-id"}
-            )
-            assert response.status_code == 200
-            data = response.json()
-            assert data["flow_id"] == "abba-ccdd-eeff"
-            assert data["version"] == "1.0.0"
-            assert data["status"] == "stopped"
-
-    def test_stop_workflow_api_not_found(self, client, mock_db_manager):
-        """Test stop workflow API with workflow not found."""
-        with patch('workflow_engine.core.engine.WorkflowEngine') as mock_engine:
-            mock_engine_instance = Mock()
-            mock_engine_instance.pause_workflow.return_value = False
-            mock_engine.return_value = mock_engine_instance
-
-            response = client.post(
-                "/api/flows/abba-ccdd-eeff-1.0.0/stop",
-                json={"thread_id": "invalid-thread-id"}
-            )
-            assert response.status_code == 404
-            assert "cannot be stopped" in response.json()["detail"]
-
-    def test_resume_workflow_api(self, client, mock_db_manager):
-        """Test resume workflow API."""
-        with patch('workflow_engine.core.engine.WorkflowEngine') as mock_engine:
-            mock_engine_instance = Mock()
-            mock_engine_instance.resume_workflow.return_value = True
-            mock_engine.return_value = mock_engine_instance
-
-            response = client.post(
-                "/api/flows/abba-ccdd-eeff-1.0.0/resume",
-                json={"thread_id": "test-thread-id", "updates": {"key": "value"}}
-            )
-            assert response.status_code == 200
-            data = response.json()
-            assert data["flow_id"] == "abba-ccdd-eeff"
-            assert data["version"] == "1.0.0"
-            assert data["status"] == "resumed"
-            assert data["updates"] == {"key": "value"}
-
-    def test_resume_workflow_api_not_found(self, client, mock_db_manager):
-        """Test resume workflow API with workflow not found."""
-        with patch('workflow_engine.core.engine.WorkflowEngine') as mock_engine:
-            mock_engine_instance = Mock()
-            mock_engine_instance.resume_workflow.return_value = False
-            mock_engine.return_value = mock_engine_instance
-
-            response = client.post(
-                "/api/flows/abba-ccdd-eeff-1.0.0/resume",
-                json={"thread_id": "invalid-thread-id"}
-            )
-            assert response.status_code == 404
-            assert "cannot be resumed" in response.json()["detail"]
 
     def test_parse_flow_version_id_with_version(self, client):
         """Test parsing flow_id-version parameter."""

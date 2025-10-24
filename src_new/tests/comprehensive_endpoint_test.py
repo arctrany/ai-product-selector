@@ -230,48 +230,7 @@ class ComprehensiveEndpointTest:
             self.log_test("Start Flow API", False, f"Error: {str(e)}")
             return None
 
-    def test_stop_flow_api(self, flow_id: str, thread_id: str) -> bool:
-        """测试Flow停止 - POST /api/flows/{flow_version_param}/stop"""
-        try:
-            stop_data = {"thread_id": thread_id}
-            response = self.session.post(
-                f"{self.base_url}/api/flows/{flow_id}-latest/stop",
-                json=stop_data
-            )
 
-            success = response.status_code == 200
-            if success:
-                data = response.json()
-                self.log_test("Stop Flow API", success, f"Status: {data.get('status', 'N/A')}")
-            else:
-                self.log_test("Stop Flow API", False, f"HTTP {response.status_code}: {response.text}")
-            return success
-        except Exception as e:
-            self.log_test("Stop Flow API", False, f"Error: {str(e)}")
-            return False
-
-    def test_resume_flow_api(self, flow_id: str, thread_id: str) -> bool:
-        """测试Flow恢复 - POST /api/flows/{flow_version_param}/resume"""
-        try:
-            resume_data = {
-                "thread_id": thread_id,
-                "updates": {"resumed": True}
-            }
-            response = self.session.post(
-                f"{self.base_url}/api/flows/{flow_id}-latest/resume",
-                json=resume_data
-            )
-
-            success = response.status_code == 200
-            if success:
-                data = response.json()
-                self.log_test("Resume Flow API", success, f"Status: {data.get('status', 'N/A')}")
-            else:
-                self.log_test("Resume Flow API", False, f"HTTP {response.status_code}: {response.text}")
-            return success
-        except Exception as e:
-            self.log_test("Resume Flow API", False, f"Error: {str(e)}")
-            return False
 
     # ==================== 工作流运行端点测试 ====================
 
@@ -553,11 +512,6 @@ class ComprehensiveEndpointTest:
         print("-" * 30)
         self.test_submit_flow_form()
         thread_id = self.test_start_flow_api()
-        
-        if thread_id:
-            time.sleep(1)  # 等待工作流启动
-            self.test_stop_flow_api("test_comprehensive_flow", thread_id)
-            self.test_resume_flow_api("test_comprehensive_flow", thread_id)
 
         # 4. 工作流运行端点测试
         print("\n🏃 Workflow Run Endpoints")
@@ -624,7 +578,7 @@ class ComprehensiveEndpointTest:
         categories = {
             "System": ["Root Redirect", "Health Check", "Status Endpoint", "Apps List"],
             "Flow Management": ["Create Flow", "List Flows", "Get Flow by ID", "Publish Flow"],
-            "Flow Operations": ["Submit Flow Form", "Start Flow API", "Stop Flow API", "Resume Flow API"],
+            "Flow Operations": ["Submit Flow Form", "Start Flow API"],
             "Workflow Runs": ["List Runs", "Start Run", "Get Run Status", "Pause Run", "Resume Run", "Get Run Logs", "Download Run Logs"],
             "WebSocket": ["WebSocket Stats"],
             "Console": ["Console UI", "Console Health", "Console Stats", "System Console"],

@@ -1,12 +1,12 @@
 """Database layer for workflow engine using SQLite."""
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, Integer, JSON, String, Text, create_engine
+    Boolean, Column, DateTime, Integer, JSON, String, Text, create_engine, and_
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -17,20 +17,18 @@ logger = get_logger(__name__)
 
 Base = declarative_base()
 
-
 class Flow(Base):
     """Flow definition table."""
     __tablename__ = "flows"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-
 class FlowVersion(Base):
     """Flow version table."""
     __tablename__ = "flow_versions"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     flow_id = Column(Integer, nullable=False)
     version = Column(String(50), nullable=False)
@@ -39,11 +37,10 @@ class FlowVersion(Base):
     published = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-
 class FlowRun(Base):
     """Flow run table."""
     __tablename__ = "runs"
-    
+
     thread_id = Column(String(255), primary_key=True)
     flow_version_id = Column(Integer, nullable=False)
     status = Column(String(50), nullable=False)
@@ -52,11 +49,10 @@ class FlowRun(Base):
     last_event_at = Column(DateTime)
     run_metadata = Column(JSON, default=dict)
 
-
 class Signal(Base):
     """Control signal table."""
     __tablename__ = "signals"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     thread_id = Column(String(255), nullable=False)
     type = Column(String(50), nullable=False)
@@ -64,29 +60,216 @@ class Signal(Base):
     ts = Column(DateTime, default=datetime.utcnow)
     processed = Column(Boolean, default=False)
 
-
 class DatabaseManager:
     """Database manager for workflow engine."""
-    
+
     def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
             db_dir = Path.home() / ".ren"
             db_dir.mkdir(exist_ok=True)
             db_path = str(db_dir / "workflow.db")
-        
+
         self.db_path = db_path
         self.engine = create_engine(f"sqlite:///{db_path}", echo=False)
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
-        
+
         # Create tables
         Base.metadata.create_all(bind=self.engine)
         logger.info(f"Database initialized at {db_path}")
-    
+
     def get_session(self) -> Session:
         """Get database session."""
         return self.SessionLocal()
-    
 
+    def cleanup_old_data(self, retention_days: int = 30) -> Dict[str, int]:
+        """
+        Clean up old thread data beyond retention period.
+
+        Args:
+            retention_days: Number of days to retain data (default: 30)
+
+        Returns:
+            Dictionary with cleanup statistics
+        """
+        cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+        cleanup_stats = {
+            "runs_deleted": 0,
+            "signals_deleted": 0,
+            "cutoff_date": cutoff_date.isoformat()
+        }
+
+        logger.info(f"Starting data cleanup for records older than {cutoff_date}")
+
+        with self.get_session() as session:
+            try:
+                # Find old runs to delete (using last_event_at as primary criteria)
+                old_runs_query = session.query(FlowRun).filter(
+                    FlowRun.last_event_at < cutoff_date
+                )
+
+                # Also include runs that have no last_event_at but have old started_at
+                old_runs_query_no_event = session.query(FlowRun).filter(
+                    and_(
+                        FlowRun.last_event_at.is_(None),
+                        FlowRun.started_at < cutoff_date
+                    )
+                )
+
+                # Get thread_ids before deletion for signal cleanup
+                old_thread_ids = set()
+
+                # Collect thread_ids from both queries
+                for run in old_runs_query.all():
+                    old_thread_ids.add(run.thread_id)
+
+                for run in old_runs_query_no_event.all():
+                    old_thread_ids.add(run.thread_id)
+
+                # Delete old runs
+                runs_deleted = old_runs_query.delete(synchronize_session=False)
+                runs_deleted += old_runs_query_no_event.delete(synchronize_session=False)
+
+                cleanup_stats["runs_deleted"] = runs_deleted
+
+                # Delete signals for old thread_ids
+                if old_thread_ids:
+                    signals_deleted = session.query(Signal).filter(
+                        Signal.thread_id.in_(old_thread_ids)
+                    ).delete(synchronize_session=False)
+                    cleanup_stats["signals_deleted"] = signals_deleted
+
+                # Also delete very old signals (older than retention period)
+                old_signals_deleted = session.query(Signal).filter(
+                    Signal.ts < cutoff_date
+                ).delete(synchronize_session=False)
+
+                cleanup_stats["signals_deleted"] += old_signals_deleted
+
+                session.commit()
+
+                logger.info(f"Data cleanup completed: {cleanup_stats}")
+
+            except Exception as e:
+                session.rollback()
+                logger.error(f"Data cleanup failed: {e}")
+                raise
+
+        return cleanup_stats
+
+    def get_data_retention_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about data retention and storage usage.
+
+        Returns:
+            Dictionary with retention statistics
+        """
+        stats = {
+            "total_runs": 0,
+            "runs_by_age": {
+                "last_24h": 0,
+                "last_7d": 0,
+                "last_30d": 0,
+                "older_than_30d": 0
+            },
+            "total_signals": 0,
+            "signals_by_age": {
+                "last_24h": 0,
+                "last_7d": 0,
+                "last_30d": 0,
+                "older_than_30d": 0
+            },
+            "oldest_run": None,
+            "newest_run": None
+        }
+
+        now = datetime.utcnow()
+        day_ago = now - timedelta(days=1)
+        week_ago = now - timedelta(days=7)
+        month_ago = now - timedelta(days=30)
+
+        with self.get_session() as session:
+            # Run statistics
+            stats["total_runs"] = session.query(FlowRun).count()
+
+            # Runs by age (using last_event_at or started_at)
+            stats["runs_by_age"]["last_24h"] = session.query(FlowRun).filter(
+                FlowRun.last_event_at >= day_ago
+            ).count()
+
+            stats["runs_by_age"]["last_7d"] = session.query(FlowRun).filter(
+                FlowRun.last_event_at >= week_ago
+            ).count()
+
+            stats["runs_by_age"]["last_30d"] = session.query(FlowRun).filter(
+                FlowRun.last_event_at >= month_ago
+            ).count()
+
+            stats["runs_by_age"]["older_than_30d"] = session.query(FlowRun).filter(
+                FlowRun.last_event_at < month_ago
+            ).count()
+
+            # Signal statistics
+            stats["total_signals"] = session.query(Signal).count()
+
+            stats["signals_by_age"]["last_24h"] = session.query(Signal).filter(
+                Signal.ts >= day_ago
+            ).count()
+
+            stats["signals_by_age"]["last_7d"] = session.query(Signal).filter(
+                Signal.ts >= week_ago
+            ).count()
+
+            stats["signals_by_age"]["last_30d"] = session.query(Signal).filter(
+                Signal.ts >= month_ago
+            ).count()
+
+            stats["signals_by_age"]["older_than_30d"] = session.query(Signal).filter(
+                Signal.ts < month_ago
+            ).count()
+
+            # Oldest and newest runs
+            oldest_run = session.query(FlowRun).order_by(
+                FlowRun.last_event_at.asc()
+            ).first()
+            if oldest_run and oldest_run.last_event_at:
+                stats["oldest_run"] = oldest_run.last_event_at.isoformat()
+
+            newest_run = session.query(FlowRun).order_by(
+                FlowRun.last_event_at.desc()
+            ).first()
+            if newest_run and newest_run.last_event_at:
+                stats["newest_run"] = newest_run.last_event_at.isoformat()
+
+        return stats
+
+    def cleanup_orphaned_signals(self) -> int:
+        """
+        Clean up signals that reference non-existent thread_ids.
+
+        Returns:
+            Number of orphaned signals deleted
+        """
+        with self.get_session() as session:
+            # Get all existing thread_ids
+            existing_thread_ids = {
+                row[0] for row in session.query(FlowRun.thread_id).all()
+            }
+
+            if not existing_thread_ids:
+                # No runs exist, delete all signals
+                orphaned_count = session.query(Signal).delete(synchronize_session=False)
+            else:
+                # Delete signals with thread_ids not in existing runs
+                orphaned_count = session.query(Signal).filter(
+                    ~Signal.thread_id.in_(existing_thread_ids)
+                ).delete(synchronize_session=False)
+
+            session.commit()
+
+            if orphaned_count > 0:
+                logger.info(f"Cleaned up {orphaned_count} orphaned signals")
+
+            return orphaned_count
 
     def create_flow_by_name(self, flow_name: str, version: str = "1.0.0",
                            dsl_json: Optional[Dict[str, Any]] = None, published: bool = True) -> int:

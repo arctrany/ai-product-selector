@@ -29,8 +29,7 @@ class WorkflowControl:
             signal_data = {"node_id": node_id} if node_id else {}
             signal_id = self.db_manager.create_signal(thread_id, "pause_request", signal_data)
 
-            logger.info(f"Pause requested for workflow {thread_id}",
-                        context={"signal_id": signal_id, "node_id": node_id})
+            logger.info(f"Pause requested for workflow {thread_id}, signal_id: {signal_id}, node_id: {node_id}")
 
             return True
 
@@ -53,8 +52,7 @@ class WorkflowControl:
             signal_data = {"updates": updates} if updates else {}
             signal_id = self.db_manager.create_signal(thread_id, "resume_request", signal_data)
 
-            logger.info(f"Resume requested for workflow {thread_id}",
-                        context={"signal_id": signal_id, "has_updates": bool(updates)})
+            logger.info(f"Resume requested for workflow {thread_id}, signal_id: {signal_id}, has_updates: {bool(updates)}")
 
             return True
 
@@ -77,8 +75,7 @@ class WorkflowControl:
             signal_data = {"reason": reason} if reason else {}
             signal_id = self.db_manager.create_signal(thread_id, "cancel_request", signal_data)
 
-            logger.info(f"Cancel requested for workflow {thread_id}",
-                        context={"signal_id": signal_id, "reason": reason})
+            logger.info(f"Cancel requested for workflow {thread_id}, signal_id: {signal_id}, reason: {reason}")
 
             return True
 

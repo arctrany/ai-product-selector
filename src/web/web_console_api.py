@@ -28,10 +28,12 @@ current_runner = None
 # 任务执行器接口 - 由具体业务模块实现
 _task_executor = None
 
+
 def register_task_executor(executor):
     """注册任务执行器"""
     global _task_executor
     _task_executor = executor
+
 
 async def run_automation_task(task_id: str, form_data: Dict[str, Any]):
     """运行自动化任务 - 纯API接口，委托给注册的执行器"""
@@ -66,14 +68,17 @@ async def run_automation_task(task_id: str, form_data: Dict[str, Any]):
         web_console.set_task_error(task_id, error_msg)
         current_runner = None
 
+
 def set_form_data(form_data: Dict[str, Any]):
     """设置表单数据 - 供外部调用"""
     global current_form_data
     current_form_data = form_data.copy()
 
+
 def get_form_data() -> Optional[Dict[str, Any]]:
     """获取表单数据"""
     return current_form_data
+
 
 # ==================== 任务管理API ====================
 
@@ -93,7 +98,8 @@ def start_task():
             return jsonify({'success': False, 'error': '任务执行器未注册，请检查系统初始化'}), 500
 
         # 让执行器决定任务参数
-        task_config = _task_executor.get_task_config(current_form_data) if hasattr(_task_executor, 'get_task_config') else {}
+        task_config = _task_executor.get_task_config(current_form_data) if hasattr(_task_executor,
+                                                                                   'get_task_config') else {}
 
         task_id = f"task_{uuid.uuid4().hex[:8]}"
         task_name = task_config.get('name', '自动化任务')
@@ -121,6 +127,7 @@ def start_task():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
 @api_bp.route('/task/<task_id>/pause', methods=['POST'])
 def pause_task(task_id):
     """暂停任务API"""
@@ -130,6 +137,7 @@ def pause_task(task_id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
 @api_bp.route('/task/<task_id>/resume', methods=['POST'])
 def resume_task(task_id):
     """恢复任务API"""
@@ -138,6 +146,7 @@ def resume_task(task_id):
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @api_bp.route('/task/<task_id>/stop', methods=['POST'])
 def stop_task(task_id):
@@ -154,6 +163,7 @@ def stop_task(task_id):
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
 
 # ==================== 控制台管理API ====================
 
@@ -175,6 +185,7 @@ def get_console_state():
         }
         return jsonify(fallback_state)
 
+
 @api_bp.route('/console/clear', methods=['POST'])
 def clear_console():
     """清空控制台API"""
@@ -183,6 +194,7 @@ def clear_console():
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
 
 # ==================== 浏览器控制API ====================
 
@@ -196,21 +208,21 @@ def get_browser_screenshot():
         if not current_runner:
             web_console.warning("截图请求失败: 没有活跃的浏览器会话")
             return jsonify({
-                'error': 'No active browser session', 
+                'error': 'No active browser session',
                 'detail': 'Task not started or browser not initialized'
             }), 404
 
         if not hasattr(current_runner, 'browser_service') or not current_runner.browser_service:
             web_console.warning("截图请求失败: 浏览器服务不可用")
             return jsonify({
-                'error': 'Browser service not available', 
+                'error': 'Browser service not available',
                 'detail': 'BrowserService not created'
             }), 404
 
         if not current_runner.browser_service.is_initialized():
             web_console.warning("截图请求失败: 浏览器未初始化")
             return jsonify({
-                'error': 'Browser not initialized', 
+                'error': 'Browser not initialized',
                 'detail': 'Browser initialization incomplete'
             }), 404
 
@@ -233,7 +245,7 @@ def get_browser_screenshot():
         else:
             web_console.error("截图获取失败: 返回数据为空")
             return jsonify({
-                'error': 'Screenshot failed - no data returned', 
+                'error': 'Screenshot failed - no data returned',
                 'detail': 'Browser may be busy or page not loaded'
             }), 500
 
@@ -244,6 +256,6 @@ def get_browser_screenshot():
         web_console.error(error_msg)
         web_console.error(f"错误详情: {error_details}")
         return jsonify({
-            'error': f'Screenshot error: {str(e)}', 
+            'error': f'Screenshot error: {str(e)}',
             'detail': 'Internal server error'
         }), 500

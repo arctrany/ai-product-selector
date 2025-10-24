@@ -94,35 +94,4 @@ def create_flow_router() -> APIRouter:
             logger.error(f"Failed to get flow {flow_id}: {e}")
             raise ValidationException(f"Failed to get flow: {str(e)}")
 
-    @router.get("")
-    async def list_flows(
-        limit: int = 100,
-        db_manager: DatabaseManager = Depends(db_manager_dependency)
-    ):
-        """List all flows."""
-        try:
-            # This would need to be implemented in DatabaseManager
-            # For now, return empty list
-            return {"flows": [], "total": 0, "limit": limit}
-
-        except Exception as e:
-            logger.error(f"Failed to list flows: {e}")
-            raise ValidationException(f"Failed to list flows: {str(e)}")
-
-    @router.delete("/{flow_id}")
-    async def delete_flow(
-        flow_id: str,
-        db_manager: DatabaseManager = Depends(db_manager_dependency)
-    ):
-        """Delete a flow."""
-        try:
-            # This would need to be implemented in DatabaseManager
-            # For now, just return success
-            logger.info(f"Flow deletion requested: {flow_id}")
-            return {"flow_id": flow_id, "status": "deleted"}
-
-        except Exception as e:
-            logger.error(f"Failed to delete flow {flow_id}: {e}")
-            raise ValidationException(f"Failed to delete flow: {str(e)}")
-
     return router
