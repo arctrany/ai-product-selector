@@ -6,10 +6,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, Integer, JSON, String, Text, create_engine, and_
+    Boolean, Column, DateTime, Integer, JSON, String, Text, create_engine, and_, Index, select
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from ..utils.logger import get_logger
 
@@ -63,18 +67,42 @@ class Signal(Base):
 class DatabaseManager:
     """Database manager for workflow engine."""
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None, config=None):
+        # Import here to avoid circular imports
+        from ..core.config import get_config
+
+        # Use provided config or get global config
+        self.config = config or get_config()
+
+        if db_path is None:
+            db_path = self.config.db_path
+
         if db_path is None:
             db_dir = Path.home() / ".ren"
             db_dir.mkdir(exist_ok=True)
             db_path = str(db_dir / "workflow.db")
 
         self.db_path = db_path
-        self.engine = create_engine(f"sqlite:///{db_path}", echo=False)
+        self.engine = create_engine(
+            f"sqlite:///{db_path}",
+            echo=self.config.db_echo,
+            pool_size=self.config.db_pool_size,
+            max_overflow=self.config.db_max_overflow
+        )
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+
+        # Initialize thread pool for async operations with configurable workers
+        self.thread_pool = ThreadPoolExecutor(max_workers=self.config.thread_pool_workers)
+
+        # Thread safety lock
+        self._lock = threading.RLock()
 
         # Create tables
         Base.metadata.create_all(bind=self.engine)
+
+        # Create performance indexes
+        self.create_database_indexes()
+
         logger.info(f"Database initialized at {db_path}")
 
     def get_session(self) -> Session:
@@ -568,3 +596,331 @@ class DatabaseManager:
                 "published": flow_version.published,
                 "created_at": flow_version.created_at.isoformat() if flow_version.created_at else None
             }
+
+    def atomic_update_run_status(self, thread_id: str, expected_status: str,
+                                new_status: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Atomically update run status only if current status matches expected status.
+        This prevents race conditions in status updates.
+
+        Args:
+            thread_id: The thread ID of the run
+            expected_status: The expected current status
+            new_status: The new status to set
+            metadata: Optional metadata to update
+
+        Returns:
+            True if update was successful, False if status didn't match or run not found
+        """
+        with self.get_session() as session:
+            try:
+                # Use SELECT FOR UPDATE to lock the row
+                run = session.query(FlowRun).filter(
+                    FlowRun.thread_id == thread_id
+                ).with_for_update().first()
+
+                if not run:
+                    logger.warning(f"Run not found for atomic update: {thread_id}")
+                    return False
+
+                if run.status != expected_status:
+                    logger.warning(f"Status mismatch for {thread_id}: expected {expected_status}, got {run.status}")
+                    return False
+
+                # Update status and timestamps
+                run.status = new_status
+                run.last_event_at = datetime.utcnow()
+
+                if new_status == "running" and not run.started_at:
+                    run.started_at = datetime.utcnow()
+                elif new_status in ["completed", "failed", "cancelled"]:
+                    run.finished_at = datetime.utcnow()
+
+                if metadata:
+                    if run.run_metadata is None:
+                        run.run_metadata = {}
+                    run.run_metadata.update(metadata)
+
+                session.commit()
+                logger.info(f"Atomically updated run status: {thread_id} {expected_status} -> {new_status}")
+                return True
+
+            except Exception as e:
+                session.rollback()
+                logger.error(f"Atomic status update failed for {thread_id}: {e}")
+                return False
+
+    def atomic_claim_signal(self, thread_id: str, signal_type: str) -> Optional[Dict[str, Any]]:
+        """
+        Atomically claim and mark a signal as processed to prevent duplicate processing.
+
+        Args:
+            thread_id: The thread ID to look for signals
+            signal_type: The type of signal to claim (optional filter)
+
+        Returns:
+            Signal data if successfully claimed, None if no signal available
+        """
+        with self.get_session() as session:
+            try:
+                # Find and lock the oldest unprocessed signal
+                query = session.query(Signal).filter(
+                    Signal.thread_id == thread_id,
+                    Signal.processed == False
+                )
+
+                if signal_type:
+                    query = query.filter(Signal.type == signal_type)
+
+                signal = query.order_by(Signal.ts).with_for_update().first()
+
+                if not signal:
+                    return None
+
+                # Mark as processed atomically
+                signal.processed = True
+                session.commit()
+
+                logger.info(f"Atomically claimed signal {signal.id} for {thread_id}")
+
+                return {
+                    "id": signal.id,
+                    "thread_id": signal.thread_id,
+                    "type": signal.type,
+                    "payload_json": signal.payload_json,
+                    "ts": signal.ts.isoformat() if signal.ts else None
+                }
+
+            except Exception as e:
+                session.rollback()
+                logger.error(f"Atomic signal claim failed for {thread_id}: {e}")
+                return None
+
+    def create_database_indexes(self):
+        """
+        Create database indexes for performance optimization.
+        This should be called during database initialization.
+        """
+        try:
+            # Index for flow run queries by thread_id (primary key, already indexed)
+            # Index for flow run queries by status and last_event_at
+            run_status_index = Index('idx_runs_status_event', FlowRun.status, FlowRun.last_event_at)
+
+            # Index for signal queries by thread_id and processed status
+            signal_thread_processed_index = Index('idx_signals_thread_processed',
+                                                 Signal.thread_id, Signal.processed, Signal.ts)
+
+            # Index for flow version queries by flow_id and published status
+            version_flow_published_index = Index('idx_versions_flow_published',
+                                                FlowVersion.flow_id, FlowVersion.published)
+
+            # Create indexes if they don't exist
+            run_status_index.create(self.engine, checkfirst=True)
+            signal_thread_processed_index.create(self.engine, checkfirst=True)
+            version_flow_published_index.create(self.engine, checkfirst=True)
+
+            logger.info("Database indexes created successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to create database indexes: {e}")
+            # Don't raise - indexes are performance optimization, not critical
+
+    def get_connection_for_checkpointer(self):
+        """
+        Get a raw database connection for LangGraph checkpointer.
+        This returns the underlying SQLite connection that can be used
+        by SqliteSaver for checkpoint persistence.
+        """
+        return self.engine.raw_connection()
+
+    # Async Operations (using thread pool for SQLite)
+
+    async def async_update_run_status(self, thread_id: str, expected_status: str,
+                                     new_status: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """Async version of atomic_update_run_status."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self.thread_pool,
+            self.atomic_update_run_status,
+            thread_id, expected_status, new_status, metadata
+        )
+
+    async def async_get_run(self, thread_id: str) -> Optional[Dict[str, Any]]:
+        """Async version of get_run."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self.thread_pool, self.get_run, thread_id)
+
+    async def async_create_signal(self, thread_id: str, signal_type: str,
+                                 payload: Optional[Dict[str, Any]] = None) -> int:
+        """Async version of create_signal."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self.thread_pool,
+            self.create_signal,
+            thread_id, signal_type, payload
+        )
+
+    async def async_claim_signal(self, thread_id: str, signal_type: str = None) -> Optional[Dict[str, Any]]:
+        """Async version of atomic_claim_signal."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self.thread_pool,
+            self.atomic_claim_signal,
+            thread_id, signal_type
+        )
+
+    # Batch Operations for Performance
+
+    def batch_update_run_statuses(self, updates: List[Dict[str, Any]]) -> Dict[str, int]:
+        """
+        Batch update multiple run statuses for better performance.
+
+        Args:
+            updates: List of dicts with keys: thread_id, expected_status, new_status, metadata
+
+        Returns:
+            Dict with success/failure counts
+        """
+        results = {"success": 0, "failed": 0, "errors": []}
+
+        with self.get_session() as session:
+            try:
+                for update in updates:
+                    try:
+                        thread_id = update["thread_id"]
+                        expected_status = update["expected_status"]
+                        new_status = update["new_status"]
+                        metadata = update.get("metadata", {})
+
+                        # Use SELECT FOR UPDATE to lock the row
+                        run = session.query(FlowRun).filter(
+                            FlowRun.thread_id == thread_id
+                        ).with_for_update().first()
+
+                        if not run:
+                            results["failed"] += 1
+                            results["errors"].append(f"Run not found: {thread_id}")
+                            continue
+
+                        if run.status != expected_status:
+                            results["failed"] += 1
+                            results["errors"].append(f"Status mismatch for {thread_id}: expected {expected_status}, got {run.status}")
+                            continue
+
+                        # Update status and timestamps
+                        run.status = new_status
+                        run.last_event_at = datetime.utcnow()
+
+                        if new_status == "running" and not run.started_at:
+                            run.started_at = datetime.utcnow()
+                        elif new_status in ["completed", "failed", "cancelled"]:
+                            run.finished_at = datetime.utcnow()
+
+                        if metadata:
+                            if run.run_metadata is None:
+                                run.run_metadata = {}
+                            run.run_metadata.update(metadata)
+
+                        results["success"] += 1
+
+                    except Exception as e:
+                        results["failed"] += 1
+                        results["errors"].append(f"Error updating {update.get('thread_id', 'unknown')}: {str(e)}")
+
+                session.commit()
+                logger.info(f"Batch update completed: {results['success']} success, {results['failed']} failed")
+
+            except Exception as e:
+                session.rollback()
+                logger.error(f"Batch update failed: {e}")
+                results["errors"].append(f"Transaction failed: {str(e)}")
+
+        return results
+
+    def batch_create_signals(self, signals: List[Dict[str, Any]]) -> Dict[str, int]:
+        """
+        Batch create multiple signals for better performance.
+
+        Args:
+            signals: List of dicts with keys: thread_id, type, payload_json
+
+        Returns:
+            Dict with success/failure counts and created signal IDs
+        """
+        results = {"success": 0, "failed": 0, "signal_ids": [], "errors": []}
+
+        with self.get_session() as session:
+            try:
+                signal_objects = []
+
+                for signal_data in signals:
+                    try:
+                        signal = Signal(
+                            thread_id=signal_data["thread_id"],
+                            type=signal_data["type"],
+                            payload_json=signal_data.get("payload_json", {})
+                        )
+                        signal_objects.append(signal)
+                        results["success"] += 1
+
+                    except Exception as e:
+                        results["failed"] += 1
+                        results["errors"].append(f"Error creating signal: {str(e)}")
+
+                # Bulk insert all signals
+                session.add_all(signal_objects)
+                session.commit()
+
+                # Get the IDs of created signals
+                for signal in signal_objects:
+                    session.refresh(signal)
+                    results["signal_ids"].append(signal.id)
+
+                logger.info(f"Batch signal creation completed: {results['success']} success, {results['failed']} failed")
+
+            except Exception as e:
+                session.rollback()
+                logger.error(f"Batch signal creation failed: {e}")
+                results["errors"].append(f"Transaction failed: {str(e)}")
+
+        return results
+
+    def get_runs_by_status_batch(self, statuses: List[str], limit: int = 1000) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Get runs by multiple statuses in a single query for better performance.
+
+        Args:
+            statuses: List of status strings to filter by
+            limit: Maximum number of runs to return per status
+
+        Returns:
+            Dict mapping status to list of runs
+        """
+        results = {status: [] for status in statuses}
+
+        with self.get_session() as session:
+            # Single query to get all runs with specified statuses
+            runs = session.query(FlowRun).filter(
+                FlowRun.status.in_(statuses)
+            ).order_by(FlowRun.last_event_at.desc()).limit(limit).all()
+
+            # Group by status
+            for run in runs:
+                if run.status in results:
+                    results[run.status].append({
+                        "thread_id": run.thread_id,
+                        "flow_version_id": run.flow_version_id,
+                        "status": run.status,
+                        "started_at": run.started_at.isoformat() if run.started_at else None,
+                        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+                        "last_event_at": run.last_event_at.isoformat() if run.last_event_at else None,
+                        "metadata": run.run_metadata
+                    })
+
+        return results
+
+    def close(self):
+        """Clean up resources."""
+        if hasattr(self, 'thread_pool'):
+            self.thread_pool.shutdown(wait=True)
+        self.engine.dispose()
