@@ -3,7 +3,9 @@
 # Workflow Engine Server Control Script
 # Usage: ./workflow_server.sh [start|stop|restart|status]
 
-PROJECT_DIR="/Users/haowu/IdeaProjects/ai-product-selector3"
+# Get the directory where the script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR"
 SERVER_MODULE="workflow_engine.api.server"
 PID_FILE="$PROJECT_DIR/.workflow_server.pid"
 LOG_FILE="$PROJECT_DIR/workflow_server.log"
@@ -58,7 +60,7 @@ start_server() {
     cd "$PROJECT_DIR/src_new"
     
     # Start server in background
-    nohup python3 -m "$SERVER_MODULE" > "$LOG_FILE" 2>&1 &
+    nohup /usr/local/bin/python3.11 -m "$SERVER_MODULE" > "$LOG_FILE" 2>&1 &
     local server_pid=$!
     
     # Save PID

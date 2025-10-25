@@ -166,7 +166,7 @@ class WorkflowEngine:
             
             # If condition is a JSONLogic expression, evaluate it
             if isinstance(condition, dict):
-                import jsonlogic
+                from json_logic import jsonLogic as jsonlogic
                 context_data = {
                     **state.data,
                     "metadata": state.metadata,

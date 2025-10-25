@@ -3,7 +3,7 @@
 from typing import Any, Dict, Optional
 
 try:
-    import jsonlogic
+    from json_logic import jsonLogic as jsonlogic
     HAS_JSONLOGIC = True
 except ImportError:
     HAS_JSONLOGIC = False
