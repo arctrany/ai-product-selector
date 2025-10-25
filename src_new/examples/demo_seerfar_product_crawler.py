@@ -20,8 +20,8 @@ project_root = src_new_dir.parent  # 项目根目录
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(src_new_dir))
 
-from rpa.browser.browser_service import BrowserService
-from rpa.browser.implementations.config_manager import ConfigManager
+from src_new.rpa.browser.browser_service import BrowserService
+from src_new.rpa.browser.implementations.config_manager import ConfigManager
 
 
 class SeerfarProductCrawler:
