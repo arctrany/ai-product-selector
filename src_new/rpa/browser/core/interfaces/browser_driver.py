@@ -1,181 +1,47 @@
 """
 浏览器驱动接口定义
 
-定义了浏览器驱动的标准接口，支持不同浏览器引擎的统一操作
-遵循接口隔离原则，提供清晰的抽象层
+本模块定义了浏览器驱动的抽象接口，
+遵循依赖倒置原则，让上层模块依赖抽象而不是具体实现。
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, List, Union
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from ..models.browser_config import BrowserConfig
-    from ..models.page_element import PageElement
-    from ..exceptions.browser_exceptions import BrowserError
-else:
-    # 运行时使用字符串类型注解避免循环导入
-    BrowserConfig = 'BrowserConfig'
-    PageElement = 'PageElement'
-    BrowserError = Exception
+from playwright.async_api import Browser, BrowserContext, Page
 
 
 class IBrowserDriver(ABC):
-    """浏览器驱动接口 - 定义浏览器操作的标准接口"""
+    """
+    浏览器驱动抽象接口
+    
+    定义了浏览器驱动必须实现的核心方法，
+    支持依赖注入和多种浏览器引擎实现。
+    """
+
+    # ========================================
+    # 🚀 生命周期管理接口
+    # ========================================
 
     @abstractmethod
-    async def initialize(self, config: BrowserConfig) -> bool:
+    async def initialize(self) -> bool:
         """
-        初始化浏览器驱动
+        异步初始化浏览器驱动
         
-        Args:
-            config: 浏览器配置
-            
         Returns:
             bool: 初始化是否成功
-            
-        Raises:
-            BrowserError: 初始化失败时抛出
         """
         pass
 
     @abstractmethod
-    async def navigate_to(self, url: str, wait_until: str = 'networkidle') -> bool:
+    async def shutdown(self) -> bool:
         """
-        导航到指定URL
-        
-        Args:
-            url: 目标URL
-            wait_until: 等待条件
-            
-        Returns:
-            bool: 导航是否成功
-        """
-        pass
-
-    @abstractmethod
-    async def find_element(self, selector: str, timeout: int = 10000) -> Optional[PageElement]:
-        """
-        查找页面元素
-        
-        Args:
-            selector: 元素选择器
-            timeout: 超时时间(毫秒)
-            
-        Returns:
-            Optional[PageElement]: 找到的元素，未找到返回None
-        """
-        pass
-
-    @abstractmethod
-    async def find_elements(self, selector: str, timeout: int = 10000) -> List[PageElement]:
-        """
-        查找多个页面元素
-        
-        Args:
-            selector: 元素选择器
-            timeout: 超时时间(毫秒)
-            
-        Returns:
-            List[PageElement]: 找到的元素列表
-        """
-        pass
-
-    @abstractmethod
-    async def click_element(self, selector: str, timeout: int = 10000) -> bool:
-        """
-        点击页面元素
-        
-        Args:
-            selector: 元素选择器
-            timeout: 超时时间(毫秒)
-            
-        Returns:
-            bool: 点击是否成功
-        """
-        pass
-
-    @abstractmethod
-    async def input_text(self, selector: str, text: str, timeout: int = 10000) -> bool:
-        """
-        向元素输入文本
-        
-        Args:
-            selector: 元素选择器
-            text: 要输入的文本
-            timeout: 超时时间(毫秒)
-            
-        Returns:
-            bool: 输入是否成功
-        """
-        pass
-
-    @abstractmethod
-    async def take_screenshot(self, full_page: bool = False) -> Optional[bytes]:
-        """
-        截取页面截图
-        
-        Args:
-            full_page: 是否截取整个页面
-            
-        Returns:
-            Optional[bytes]: 截图数据，失败返回None
-        """
-        pass
-
-    @abstractmethod
-    async def execute_script(self, script: str, *args) -> Any:
-        """
-        执行JavaScript脚本
-        
-        Args:
-            script: JavaScript代码
-            *args: 脚本参数
-            
-        Returns:
-            Any: 脚本执行结果
-        """
-        pass
-
-    @abstractmethod
-    async def wait_for_element(self, selector: str, timeout: int = 10000) -> bool:
-        """
-        等待元素出现
-        
-        Args:
-            selector: 元素选择器
-            timeout: 超时时间(毫秒)
-            
-        Returns:
-            bool: 元素是否出现
-        """
-        pass
-
-    @abstractmethod
-    async def get_page_title(self) -> str:
-        """
-        获取页面标题
+        异步关闭浏览器驱动
         
         Returns:
-            str: 页面标题
+            bool: 关闭是否成功
         """
-        pass
-
-    @abstractmethod
-    async def get_current_url(self) -> str:
-        """
-        获取当前页面URL
-        
-        Returns:
-            str: 当前URL
-        """
-        pass
-
-    @abstractmethod
-    async def close(self) -> None:
-        """关闭浏览器驱动，释放资源"""
         pass
 
     @abstractmethod
@@ -188,85 +54,246 @@ class IBrowserDriver(ABC):
         """
         pass
 
-
-class IPageManager(ABC):
-    """页面管理器接口 - 管理多个页面/标签页"""
-
-    @abstractmethod
-    async def new_page(self) -> str:
-        """
-        创建新页面
-        
-        Returns:
-            str: 页面ID
-        """
-        pass
+    # ========================================
+    # 🌐 页面导航接口
+    # ========================================
 
     @abstractmethod
-    async def switch_to_page(self, page_id: str) -> bool:
+    async def open_page(self, url: str, wait_until: str = 'networkidle') -> bool:
         """
-        切换到指定页面
+        打开指定URL的页面
         
         Args:
-            page_id: 页面ID
+            url: 要打开的URL
+            wait_until: 等待条件
             
         Returns:
-            bool: 切换是否成功
+            bool: 操作是否成功
         """
         pass
 
     @abstractmethod
-    async def close_page(self, page_id: str) -> bool:
+    def get_page_url(self) -> Optional[str]:
         """
-        关闭指定页面
+        获取当前页面URL
+        
+        Returns:
+            Optional[str]: 页面URL
+        """
+        pass
+
+    @abstractmethod
+    async def get_page_title_async(self) -> Optional[str]:
+        """
+        异步获取当前页面标题
+        
+        Returns:
+            Optional[str]: 页面标题，失败时返回 None
+        """
+        pass
+
+    # ========================================
+    # 📸 页面操作接口
+    # ========================================
+
+    @abstractmethod
+    async def screenshot_async(self, file_path: Union[str, Path]) -> Optional[Path]:
+        """
+        异步截取当前页面的截图
         
         Args:
-            page_id: 页面ID
+            file_path: 截图保存路径
             
         Returns:
-            bool: 关闭是否成功
+            Optional[Path]: 截图文件路径，失败时返回 None
         """
         pass
 
     @abstractmethod
-    async def get_all_pages(self) -> List[str]:
+    async def execute_script(self, script: str) -> Any:
         """
-        获取所有页面ID
-        
-        Returns:
-            List[str]: 页面ID列表
-        """
-        pass
-
-
-class IResourceManager(ABC):
-    """资源管理器接口 - 管理浏览器资源生命周期"""
-
-    @abstractmethod
-    async def acquire_resource(self, resource_type: str, config: Dict[str, Any]) -> Any:
-        """
-        获取资源
+        异步执行JavaScript脚本
         
         Args:
-            resource_type: 资源类型
-            config: 资源配置
+            script: JavaScript代码
             
         Returns:
-            Any: 资源对象
+            Any: 脚本执行结果
         """
         pass
 
+    # ========================================
+    # 🎯 元素交互接口
+    # ========================================
+
     @abstractmethod
-    async def release_resource(self, resource: Any) -> None:
+    async def wait_for_element(self, selector: str, timeout: int = 30000) -> bool:
         """
-        释放资源
+        等待元素出现
         
         Args:
-            resource: 要释放的资源
+            selector: 元素选择器
+            timeout: 超时时间（毫秒）
+            
+        Returns:
+            bool: 元素是否出现
         """
         pass
 
     @abstractmethod
-    async def cleanup_all(self) -> None:
-        """清理所有资源"""
+    async def click_element(self, selector: str) -> bool:
+        """
+        点击指定元素
+        
+        Args:
+            selector: 元素选择器
+            
+        Returns:
+            bool: 操作是否成功
+        """
+        pass
+
+    @abstractmethod
+    async def fill_input(self, selector: str, text: str) -> bool:
+        """
+        填充输入框
+        
+        Args:
+            selector: 输入框选择器
+            text: 要填充的文本
+            
+        Returns:
+            bool: 操作是否成功
+        """
+        pass
+
+    @abstractmethod
+    async def get_element_text(self, selector: str) -> Optional[str]:
+        """
+        异步获取元素文本内容
+        
+        Args:
+            selector: 元素选择器
+            
+        Returns:
+            Optional[str]: 元素文本内容，失败时返回 None
+        """
+        pass
+
+    # ========================================
+    # 🔍 访问器接口
+    # ========================================
+
+    @abstractmethod
+    def get_page(self) -> Optional[Page]:
+        """
+        获取页面对象
+        
+        Returns:
+            Optional[Page]: 页面对象
+        """
+        pass
+
+    @abstractmethod
+    def get_context(self) -> Optional[BrowserContext]:
+        """
+        获取浏览器上下文
+        
+        Returns:
+            Optional[BrowserContext]: 浏览器上下文
+        """
+        pass
+
+    @abstractmethod
+    def get_browser(self) -> Optional[Browser]:
+        """
+        获取浏览器实例
+        
+        Returns:
+            Optional[Browser]: 浏览器实例
+        """
+        pass
+
+    # ========================================
+    # 🔐 会话管理接口
+    # ========================================
+
+    @abstractmethod
+    async def verify_login_state(self, domain: str) -> Dict[str, Any]:
+        """
+        验证指定域名的登录状态
+
+        Args:
+            domain: 要验证的域名
+
+        Returns:
+            Dict[str, Any]: 验证结果
+        """
+        pass
+
+    @abstractmethod
+    async def save_storage_state(self, file_path: str) -> bool:
+        """
+        保存浏览器存储状态到文件
+
+        Args:
+            file_path: 保存路径
+
+        Returns:
+            bool: 保存是否成功
+        """
+        pass
+
+    @abstractmethod
+    async def load_storage_state(self, file_path: str) -> bool:
+        """
+        从文件加载浏览器存储状态
+
+        Args:
+            file_path: 文件路径
+
+        Returns:
+            bool: 加载是否成功
+        """
+        pass
+
+    # ========================================
+    # 🔄 同步兼容接口
+    # ========================================
+
+    @abstractmethod
+    def screenshot(self, file_path: Union[str, Path]) -> Optional[Path]:
+        """
+        同步截图方法（向后兼容）
+        
+        Args:
+            file_path: 截图保存路径
+            
+        Returns:
+            Optional[Path]: 截图文件路径
+        """
+        pass
+
+    @abstractmethod
+    def get_page_title(self) -> Optional[str]:
+        """
+        同步获取页面标题方法（向后兼容）
+        
+        Returns:
+            Optional[str]: 页面标题
+        """
+        pass
+
+    # ========================================
+    # 🔄 上下文管理器接口
+    # ========================================
+
+    @abstractmethod
+    async def __aenter__(self):
+        """异步上下文管理器入口"""
+        pass
+
+    @abstractmethod
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """异步上下文管理器出口"""
         pass

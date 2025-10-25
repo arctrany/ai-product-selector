@@ -249,6 +249,19 @@ class PaginationError(BrowserError):
             details['pagination_type'] = pagination_type
         super().__init__(message, "PAGINATION_ERROR", details)
 
+class PageAnalysisError(BrowserError):
+    """页面分析异常"""
+
+    def __init__(self, message: str, url: Optional[str] = None, analysis_type: Optional[str] = None, element_count: Optional[int] = None):
+        details = {}
+        if url:
+            details['url'] = url
+        if analysis_type:
+            details['analysis_type'] = analysis_type
+        if element_count:
+            details['element_count'] = element_count
+        super().__init__(message, "PAGE_ANALYSIS_ERROR", details)
+
 
 # 异常工厂函数
 def create_browser_error(error_type: str, message: str, **kwargs) -> BrowserError:
@@ -273,6 +286,7 @@ def create_browser_error(error_type: str, message: str, **kwargs) -> BrowserErro
         'runner_execution': RunnerExecutionError,
         'scenario_execution': ScenarioExecutionError,  # 向后兼容
         'pagination': PaginationError,
+        'page_analysis': PageAnalysisError,
     }
     
     error_class = error_classes.get(error_type, BrowserError)

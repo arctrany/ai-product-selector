@@ -1,1145 +1,672 @@
 """
-DOM页面分析器实现
+优化的DOM页面分析器实现
 
-基于原有DOMAnalyzer重构，遵循IPageAnalyzer接口规范
-提供DOM深度分析、元素提取、内容验证等功能
+全面重构版本，包含以下改进：
+1. 性能优化：批量JS执行，减少跨进程往返
+2. 稳定性：使用locator API替代query_selector
+3. 兼容性：Edge/Chrome一致行为，shadow DOM支持
+4. 可维护性：统一日志、异常处理、配置化参数
+5. 功能增强：网络端点监听、现代性能API、可访问性检测
 """
 
 import asyncio
-import re
 import time
-from typing import Dict, Any, List, Optional, Union
-from playwright.async_api import Page, ElementHandle
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Any, Union, Callable
+from playwright.async_api import Page, ElementHandle, Locator
 
-from ..core.interfaces.page_analyzer import (
-    IPageAnalyzer, 
-    IContentExtractor, 
-    IElementMatcher, 
-    IPageValidator
-)
-from ..core.models.page_element import (
-    PageElement,
-    ElementAttributes,
-    ElementBounds,
-    ElementState as ElementStateEnum,
-    ElementType
-)
-from ..core.exceptions.browser_exceptions import (
-    BrowserError,
-    ElementNotFoundError,
-    ValidationError,
-    handle_browser_error
-)
+from ..core.interfaces.page_analyzer import IPageAnalyzer, IContentExtractor, IElementMatcher, IPageValidator
+from ..core.models.page_element import PageElement, ElementAttributes, ElementBounds, ElementCollection, ElementType, ElementState
+from ..core.exceptions.browser_exceptions import PageAnalysisError, ElementNotFoundError, ValidationError, ScriptExecutionError
+from .logger_system import get_logger, StructuredLogger
 
 
-class DOMPageAnalyzer(IPageAnalyzer):
-    """DOM页面分析器实现"""
+@dataclass
+class AnalysisConfig:
+    """页面分析配置"""
+    # 规模限制
+    max_elements: int = 300
+    max_texts: int = 100
+    max_links: int = 50
+    max_depth: int = 5
     
-    def __init__(self, page: Page = None, debug_mode: bool = False):
-        """
-        初始化DOM页面分析器
-        
-        Args:
-            page: Playwright页面对象
-            debug_mode: 是否启用调试模式
-        """
-        self.page = page
-        self.debug_mode = debug_mode
-        self._content_extractor = DOMContentExtractor(page, debug_mode)
-        self._element_matcher = DOMElementMatcher(page, debug_mode)
-        self._page_validator = DOMPageValidator(page, debug_mode)
-        
-        print(f"🎯 DOM页面分析器初始化完成")
-        print(f"   调试模式: {'启用' if debug_mode else '禁用'}")
+    # 时间预算
+    time_budget_ms: int = 30000  # 30秒
+    
+    # 并发控制
+    max_concurrent: int = 15
+    
+    # 功能开关
+    enable_dynamic_content: bool = True
+    enable_network_monitoring: bool = True
+    enable_shadow_dom: bool = False
+    enable_accessibility: bool = False
+    
+    # 等待策略
+    wait_strategy: str = "domcontentloaded"  # domcontentloaded, networkidle
+    
+    # 过滤配置
+    text_blacklist_patterns: List[str] = field(default_factory=lambda: [
+        r'^\d+$',  # 纯数字
+        r'^[\s\n\r\t]*$',  # 空白字符
+        r'^[^\w\s]+$'  # 纯符号
+    ])
+    
+    # 性能优化
+    use_batch_js: bool = True
+    use_locator_api: bool = True
 
-    async def analyze_page(self, url: Optional[str] = None) -> Dict[str, Any]:
+
+class OptimizedDOMPageAnalyzer(IPageAnalyzer, IContentExtractor, IElementMatcher, IPageValidator):
+    """优化的DOM页面分析器"""
+    
+    def __init__(self, page: Page, config: Optional[AnalysisConfig] = None, logger: Optional[StructuredLogger] = None):
+        self.page = page
+        self.config = config or AnalysisConfig()
+        self.logger = logger or get_logger("DOMPageAnalyzer")
+        
+        # 并发控制
+        self._semaphore = asyncio.Semaphore(self.config.max_concurrent)
+        
+        # 网络监听
+        self._network_endpoints: List[str] = []
+        self._request_listener: Optional[Callable] = None
+        
+        # 性能计时
+        self._start_time: Optional[float] = None
+        
+        # 批量JS模板
+        self._batch_js_templates = self._init_js_templates()
+        
+        self.logger.info("DOMPageAnalyzer initialized", 
+                        config=self.config.__dict__)
+
+    def _init_js_templates(self) -> Dict[str, str]:
+        """初始化批量JS模板"""
+        return {
+            'extract_elements': '''
+                (config) => {
+                    const { maxElements, maxDepth, enableShadowDom } = config;
+                    const elements = [];
+                    
+                    function collectElements(root, depth = 0) {
+                        if (depth > maxDepth || elements.length >= maxElements) return;
+                        
+                        const selector = enableShadowDom ? '*' : '*:not([data-shadow])';
+                        const nodeList = root.querySelectorAll(selector);
+                        
+                        Array.from(nodeList).slice(0, maxElements - elements.length).forEach((el, idx) => {
+                            const rect = el.getBoundingClientRect();
+                            const attrs = {};
+                            
+                            // 收集属性
+                            for (const attr of el.attributes) {
+                                attrs[attr.name] = attr.value;
+                            }
+                            
+                            // 计算选择器
+                            let selector = el.tagName.toLowerCase();
+                            if (el.id) selector += `#${el.id}`;
+                            else if (el.className) {
+                                const classes = el.className.split(' ').filter(c => c.trim());
+                                if (classes.length > 0) selector += `.${classes[0]}`;
+                            }
+                            
+                            // 收集子元素标签
+                            const children = Array.from(el.children)
+                                .slice(0, 10)
+                                .map(c => c.tagName.toLowerCase());
+                            
+                            elements.push({
+                                selector: selector,
+                                tag_name: el.tagName.toLowerCase(),
+                                text_content: (el.textContent || '').trim().slice(0, 200),
+                                inner_html: (el.innerHTML || '').slice(0, 500),
+                                attributes: attrs,
+                                bounds: {
+                                    x: rect.x,
+                                    y: rect.y,
+                                    width: rect.width,
+                                    height: rect.height
+                                },
+                                state: {
+                                    visible: !!(rect.width || rect.height),
+                                    enabled: !el.disabled,
+                                    readonly: !!el.readOnly,
+                                    focused: document.activeElement === el,
+                                    selected: !!el.selected
+                                },
+                                children: children
+                            });
+                        });
+                        
+                        // 处理Shadow DOM
+                        if (enableShadowDom) {
+                            nodeList.forEach(el => {
+                                if (el.shadowRoot) {
+                                    collectElements(el.shadowRoot, depth + 1);
+                                }
+                            });
+                        }
+                    }
+                    
+                    collectElements(document, 0);
+                    return elements;
+                }
+            ''',
+            
+            'extract_links': r'''
+                (config) => {
+                    const { maxLinks } = config;
+                    const links = [];
+                    
+                    // 优先处理标准链接
+                    const anchors = Array.from(document.querySelectorAll('a[href]')).slice(0, maxLinks);
+                    anchors.forEach(anchor => {
+                        const rect = anchor.getBoundingClientRect();
+                        links.push({
+                            selector: `a[href="${anchor.href}"]`,
+                            tag_name: 'a',
+                            text_content: (anchor.textContent || '').trim().slice(0, 100),
+                            href: anchor.href,
+                            real_url: anchor.href, // DOM原生解析
+                            attributes: {
+                                href: anchor.href,
+                                target: anchor.target || '',
+                                title: anchor.title || ''
+                            },
+                            bounds: {
+                                x: rect.x,
+                                y: rect.y,
+                                width: rect.width,
+                                height: rect.height
+                            },
+                            type: 'standard_link'
+                        });
+                    });
+                    
+                    // 处理具有onclick或data-*的元素
+                    if (links.length < maxLinks) {
+                        const remaining = maxLinks - links.length;
+                        const clickableElements = Array.from(document.querySelectorAll('[onclick], [data-url], [data-link], [data-href]'))
+                            .slice(0, remaining);
+                        
+                        clickableElements.forEach(el => {
+                            const rect = el.getBoundingClientRect();
+                            let realUrl = '';
+                            
+                            // 提取真实URL
+                            if (el.dataset.url) realUrl = el.dataset.url;
+                            else if (el.dataset.link) realUrl = el.dataset.link;
+                            else if (el.dataset.href) realUrl = el.dataset.href;
+                            else if (el.onclick) {
+                                // 正则提取onclick中的URL
+                                const onclickStr = el.onclick.toString();
+                                const urlMatch = onclickStr.match(/(?:location\.href|window\.open)\\s*=\\s*['"]([^'"]+)['"]/);
+                                if (urlMatch) realUrl = urlMatch[1];
+                            }
+                            
+                            if (realUrl) {
+                                links.push({
+                                    selector: el.tagName.toLowerCase() + (el.id ? `#${el.id}` : ''),
+                                    tag_name: el.tagName.toLowerCase(),
+                                    text_content: (el.textContent || '').trim().slice(0, 100),
+                                    href: realUrl,
+                                    real_url: realUrl,
+                                    attributes: {
+                                        'data-url': el.dataset.url || '',
+                                        'data-link': el.dataset.link || '',
+                                        onclick: el.onclick ? 'true' : 'false'
+                                    },
+                                    bounds: {
+                                        x: rect.x,
+                                        y: rect.y,
+                                        width: rect.width,
+                                        height: rect.height
+                                    },
+                                    type: 'dynamic_link'
+                                });
+                            }
+                        });
+                    }
+                    
+                    return links;
+                }
+            ''',
+            
+            'extract_performance': '''
+                () => {
+                    try {
+                        // 使用现代PerformanceNavigationTiming API
+                        const navigation = performance.getEntriesByType('navigation')[0];
+                        if (navigation) {
+                            return {
+                                domContentLoaded: navigation.domContentLoadedEventEnd - navigation.startTime,
+                                load: navigation.loadEventEnd - navigation.startTime,
+                                firstPaint: navigation.responseStart - navigation.startTime,
+                                navigationStart: navigation.startTime,
+                                type: 'navigation_timing'
+                            };
+                        }
+                        
+                        // 降级到performance.timing（兼容性）
+                        const timing = performance.timing;
+                        if (timing) {
+                            return {
+                                domContentLoaded: timing.domContentLoadedEventEnd - timing.navigationStart,
+                                load: timing.loadEventEnd - timing.navigationStart,
+                                firstPaint: timing.responseStart - timing.navigationStart,
+                                navigationStart: timing.navigationStart,
+                                type: 'legacy_timing'
+                            };
+                        }
+                        
+                        return { error: 'No timing API available' };
+                    } catch (error) {
+                        return { error: error.message };
+                    }
+                }
+            ''',
+            
+            'extract_accessibility': '''
+                () => {
+                    const accessibility = {
+                        images_with_alt: 0,
+                        images_without_alt: 0,
+                        links_with_text: 0,
+                        links_without_text: 0,
+                        form_inputs_with_labels: 0,
+                        form_inputs_without_labels: 0,
+                        headings_hierarchy: [],
+                        landmarks: []
+                    };
+                    
+                    // 检查图片alt属性
+                    document.querySelectorAll('img').forEach(img => {
+                        if (img.alt && img.alt.trim()) {
+                            accessibility.images_with_alt++;
+                        } else {
+                            accessibility.images_without_alt++;
+                        }
+                    });
+                    
+                    // 检查链接文本
+                    document.querySelectorAll('a').forEach(link => {
+                        if (link.textContent && link.textContent.trim()) {
+                            accessibility.links_with_text++;
+                        } else {
+                            accessibility.links_without_text++;
+                        }
+                    });
+                    
+                    // 检查表单标签
+                    document.querySelectorAll('input, textarea, select').forEach(input => {
+                        const id = input.id;
+                        const hasLabel = id && document.querySelector(`label[for="${id}"]`);
+                        if (hasLabel || input.getAttribute('aria-label')) {
+                            accessibility.form_inputs_with_labels++;
+                        } else {
+                            accessibility.form_inputs_without_labels++;
+                        }
+                    });
+                    
+                    // 检查标题层级
+                    document.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(heading => {
+                        accessibility.headings_hierarchy.push({
+                            level: parseInt(heading.tagName.charAt(1)),
+                            text: heading.textContent.trim().slice(0, 50)
+                        });
+                    });
+                    
+                    // 检查地标元素
+                    document.querySelectorAll('main, nav, aside, header, footer, section, article').forEach(landmark => {
+                        accessibility.landmarks.push({
+                            tag: landmark.tagName.toLowerCase(),
+                            role: landmark.getAttribute('role') || '',
+                            label: landmark.getAttribute('aria-label') || ''
+                        });
+                    });
+                    
+                    return accessibility;
+                }
+            '''
+        }
+
+    async def _start_network_monitoring(self):
+        """开始网络监听"""
+        if not self.config.enable_network_monitoring:
+            return
+        
+        self._network_endpoints.clear()
+        
+        def on_request_finished(request):
+            try:
+                url = request.url
+                if any(pattern in url for pattern in ['/api/', '.json', '/ajax/', '/xhr/']):
+                    self._network_endpoints.append(url)
+            except Exception as e:
+                self.logger.warning("Network monitoring error", error=str(e))
+        
+        self._request_listener = on_request_finished
+        self.page.on("requestfinished", self._request_listener)
+        
+        self.logger.debug("Network monitoring started")
+
+    async def _stop_network_monitoring(self):
+        """停止网络监听"""
+        if self._request_listener:
+            try:
+                self.page.remove_listener("requestfinished", self._request_listener)
+                self._request_listener = None
+                self.logger.debug("Network monitoring stopped", 
+                                endpoints_count=len(self._network_endpoints))
+            except Exception as e:
+                self.logger.warning("Failed to stop network monitoring", error=str(e))
+
+    async def _check_time_budget(self):
+        """检查时间预算"""
+        if self._start_time and self.config.time_budget_ms > 0:
+            elapsed = (time.time() - self._start_time) * 1000
+            if elapsed > self.config.time_budget_ms:
+                raise PageAnalysisError(
+                    f"Analysis time budget exceeded: {elapsed:.0f}ms > {self.config.time_budget_ms}ms",
+                    analysis_type="time_budget_check"
+                )
+
+    async def analyze_page(self, url: Optional[str] = None, allow_navigation: bool = False) -> Dict[str, Any]:
         """
-        分析整个页面
+        分析整个页面结构
         
         Args:
-            url: 可选的URL，如果提供则先导航到该URL
+            url: 页面URL，如果为None则分析当前页面
+            allow_navigation: 是否允许导航到指定URL
             
         Returns:
             Dict[str, Any]: 页面分析结果
-            
-        Raises:
-            PageAnalysisError: 页面分析失败时抛出
         """
+        timer_id = self.logger.log_operation_start("analyze_page", url=url)
+        self._start_time = time.time()
+        
         try:
-            start_time = time.time()
-            print(f"📊 开始页面分析...")
+            # 导航处理
+            if url and allow_navigation:
+                await self.page.goto(url, wait_until=self.config.wait_strategy)
+                await self.page.wait_for_load_state(self.config.wait_strategy)
             
-            # 如果提供了URL，先导航到该页面
-            if url:
-                print(f"🌐 导航到页面: {url}")
-                await self.page.goto(url, wait_until='networkidle', timeout=30000)
+            current_url = self.page.url
             
-            # 获取页面基本信息
-            page_info = await self._get_page_info()
+            # 开始网络监听
+            await self._start_network_monitoring()
             
-            # 分析页面结构
-            structure_info = await self._analyze_page_structure()
+            # 并行执行各种分析
+            async with self._semaphore:
+                tasks = []
+                
+                # 基础元素分析
+                if self.config.use_batch_js:
+                    tasks.append(self._batch_extract_elements())
+                else:
+                    tasks.append(self._extract_elements_legacy())
+                
+                # 链接分析
+                tasks.append(self._batch_extract_links())
+                
+                # 性能信息
+                tasks.append(self._extract_performance_info())
+                
+                # 页面基础信息
+                tasks.append(self._extract_page_info())
+                
+                # 可访问性分析（可选）
+                if self.config.enable_accessibility:
+                    tasks.append(self._extract_accessibility_info())
+                
+                # 动态内容分析（可选）
+                if self.config.enable_dynamic_content:
+                    tasks.append(self._extract_dynamic_content())
+                
+                # 等待所有任务完成
+                results = await asyncio.gather(*tasks, return_exceptions=True)
             
-            # 提取所有元素
-            elements_info = await self._extract_all_elements()
+            # 停止网络监听
+            await self._stop_network_monitoring()
             
-            # 分析链接
-            links_info = await self._analyze_links()
+            # 处理结果
+            elements_data = results[0] if not isinstance(results[0], Exception) else []
+            links_data = results[1] if not isinstance(results[1], Exception) else []
+            performance_data = results[2] if not isinstance(results[2], Exception) else {}
+            page_info = results[3] if not isinstance(results[3], Exception) else {}
             
-            # 分析文本内容
-            texts_info = await self._analyze_texts()
+            accessibility_data = {}
+            dynamic_content = {}
             
-            # 执行动态内容分析
-            dynamic_info = await self._analyze_dynamic_content()
+            result_index = 4
+            if self.config.enable_accessibility and len(results) > result_index:
+                accessibility_data = results[result_index] if not isinstance(results[result_index], Exception) else {}
+                result_index += 1
             
-            # 页面验证
-            validation_result = await self._page_validator.validate_page_structure()
+            if self.config.enable_dynamic_content and len(results) > result_index:
+                dynamic_content = results[result_index] if not isinstance(results[result_index], Exception) else {}
             
+            # 添加网络端点信息
+            if self.config.enable_network_monitoring:
+                dynamic_content['network_endpoints'] = self._network_endpoints.copy()
+            
+            # 构建最终结果
             analysis_result = {
+                'url': current_url,
+                'timestamp': time.time(),
                 'page_info': page_info,
-                'structure': structure_info,
-                'elements': elements_info,
-                'links': links_info,
-                'texts': texts_info,
-                'dynamic_content': dynamic_info,
-                'validation': validation_result,
-                'analysis_time': time.time() - start_time,
-                'timestamp': time.time()
+                'elements': {
+                    'total_count': len(elements_data),
+                    'data': elements_data
+                },
+                'links': {
+                    'total_count': len(links_data),
+                    'data': links_data
+                },
+                'performance': performance_data,
+                'dynamic_content': dynamic_content,
+                'accessibility': accessibility_data,
+                'analysis_config': {
+                    'max_elements': self.config.max_elements,
+                    'time_budget_ms': self.config.time_budget_ms,
+                    'features_enabled': {
+                        'network_monitoring': self.config.enable_network_monitoring,
+                        'accessibility': self.config.enable_accessibility,
+                        'shadow_dom': self.config.enable_shadow_dom
+                    }
+                }
             }
             
-            print(f"✅ 页面分析完成，耗时: {analysis_result['analysis_time']:.2f}秒")
-            print(f"   元素数量: {len(elements_info)}")
-            print(f"   链接数量: {len(links_info)}")
-            print(f"   文本数量: {len(texts_info)}")
+            self.logger.log_operation_end(timer_id, "analyze_page", success=True,
+                                        elements_count=len(elements_data),
+                                        links_count=len(links_data))
             
             return analysis_result
             
         except Exception as e:
-            raise BrowserError(f"页面分析失败: {str(e)}") from e
-
-    async def analyze_element(self, selector: str, context: Optional[Dict[str, Any]] = None) -> PageElement:
-        """
-        分析指定元素
-        
-        Args:
-            selector: 元素选择器
-            context: 分析上下文
+            await self._stop_network_monitoring()
+            self.logger.log_operation_end(timer_id, "analyze_page", success=False)
             
-        Returns:
-            PageElement: 元素分析结果
-            
-        Raises:
-            ElementNotFoundError: 元素未找到时抛出
-        """
-        try:
-            print(f"🔍 分析元素: {selector}")
-            
-            # 查找元素
-            element_handle = await self.page.query_selector(selector)
-            if not element_handle:
-                raise ElementNotFoundError(f"未找到元素: {selector}")
-            
-            # 分析元素详情
-            element_info = await self._analyze_single_element(element_handle, selector)
-            
-            # 创建PageElement对象
-            page_element = PageElement(
-                selector=selector,
-                attributes=ElementAttributes(
-                    tag_name=element_info['tag_name'],
-                    **element_info['attributes']
-                ),
-                bounds=ElementBounds(**element_info['bounds']),
-                text_content=element_info['text_content'],
-                inner_html=element_info['inner_html'],
-                children_selectors=element_info['children']
-            )
-
-            # 设置元素状态
-            if element_info['state'].get('visible'):
-                page_element.add_state(ElementStateEnum.VISIBLE)
-            if element_info['state'].get('enabled'):
-                page_element.add_state(ElementStateEnum.ENABLED)
-            if element_info['state'].get('focused'):
-                page_element.add_state(ElementStateEnum.FOCUSED)
-            if element_info['state'].get('selected'):
-                page_element.add_state(ElementStateEnum.SELECTED)
-            
-            print(f"✅ 元素分析完成: {page_element.tag_name}")
-            return page_element
-            
-        except ElementNotFoundError:
-            raise
-        except Exception as e:
-            raise BrowserError(f"元素分析失败: {str(e)}") from e
-
-    async def extract_content(self, extraction_rules: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        根据规则提取内容
-        
-        Args:
-            extraction_rules: 提取规则
-            
-        Returns:
-            Dict[str, Any]: 提取的内容
-        """
-        return await self._content_extractor.extract_content(extraction_rules)
-
-    async def match_elements(self, criteria: Dict[str, Any]) -> List[PageElement]:
-        """
-        根据条件匹配元素
-        
-        Args:
-            criteria: 匹配条件
-            
-        Returns:
-            List[PageElement]: 匹配的元素列表
-        """
-        return await self._element_matcher.match_elements(criteria)
-
-    async def validate_page(self, validation_rules: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        验证页面
-        
-        Args:
-            validation_rules: 验证规则
-            
-        Returns:
-            Dict[str, Any]: 验证结果
-        """
-        return await self._page_validator.validate_page(validation_rules)
-
-    # ==================== IPageAnalyzer接口方法实现 ====================
-
-    async def extract_elements(self, selector: str, element_type: Optional[str] = None) -> 'ElementCollection':
-        """
-        提取页面元素
-
-        Args:
-            selector: 元素选择器
-            element_type: 元素类型过滤
-
-        Returns:
-            ElementCollection: 元素集合
-        """
-        try:
-            from ..core.models.page_element import ElementCollection
-
-            elements = await self.page.query_selector_all(selector)
-            page_elements = []
-
-            for i, element in enumerate(elements):
-                try:
-                    element_info = await self._analyze_single_element(element, f"{selector}[{i}]")
-                    page_element = PageElement(
-                        selector=f"{selector}[{i}]",
-                        attributes=ElementAttributes(
-                            tag_name=element_info['tag_name'],
-                            **element_info['attributes']
-                        ),
-                        bounds=ElementBounds(**element_info['bounds']),
-                        text_content=element_info['text_content'],
-                        inner_html=element_info['inner_html'],
-                        children_selectors=element_info['children']
-                    )
-
-                    # 设置元素状态
-                    if element_info['state'].get('visible'):
-                        page_element.add_state(ElementStateEnum.VISIBLE)
-                    if element_info['state'].get('enabled'):
-                        page_element.add_state(ElementStateEnum.ENABLED)
-                    if element_info['state'].get('focused'):
-                        page_element.add_state(ElementStateEnum.FOCUSED)
-                    if element_info['state'].get('selected'):
-                        page_element.add_state(ElementStateEnum.SELECTED)
-
-                    # 类型过滤
-                    if element_type:
-                        try:
-                            expected_type = ElementType(element_type)
-                            if page_element.element_type == expected_type:
-                                page_elements.append(page_element)
-                        except ValueError:
-                            # 未知类型，添加所有元素
-                            page_elements.append(page_element)
-                    else:
-                        page_elements.append(page_element)
-
-                except Exception as e:
-                    if self.debug_mode:
-                        print(f"⚠️ 提取元素{i}失败: {e}")
-                    continue
-
-            return ElementCollection(
-                elements=page_elements,
-                selector=selector,
-                total_count=len(page_elements)
-            )
-
-        except Exception as e:
-            print(f"⚠️ 元素提取失败: {e}")
-            from ..core.models.page_element import ElementCollection
-            return ElementCollection(elements=[], selector=selector, total_count=0)
-
-    async def extract_links(self, filter_pattern: Optional[str] = None) -> List[PageElement]:
-        """
-        提取页面链接
-
-        Args:
-            filter_pattern: 链接过滤模式
-
-        Returns:
-            List[PageElement]: 链接元素列表
-        """
-        try:
-            links_info = await self._analyze_links()
-            page_elements = []
-
-            for link_info in links_info:
-                try:
-                    # 过滤链接
-                    if filter_pattern:
-                        real_link = link_info.get('real_link', '')
-                        href = link_info.get('href', '')
-                        if filter_pattern not in real_link and filter_pattern not in href:
-                            continue
-
-                    page_element = PageElement(
-                        selector=f"link-{link_info['index']}",
-                        attributes=ElementAttributes(
-                            tag_name=link_info['tag'],
-                            href=link_info.get('href', ''),
-                            **({'onclick': link_info['onclick']} if link_info.get('onclick') else {}),
-                            **({'data-url': link_info['data_url']} if link_info.get('data_url') else {}),
-                            **({'data-link': link_info['data_link']} if link_info.get('data_link') else {})
-                        ),
-                        text_content=link_info['text'],
-                        element_type=ElementType.LINK
-                    )
-
-                    page_elements.append(page_element)
-
-                except Exception as e:
-                    if self.debug_mode:
-                        print(f"⚠️ 处理链接{link_info.get('index', 'unknown')}失败: {e}")
-                    continue
-
-            return page_elements
-
-        except Exception as e:
-            print(f"⚠️ 链接提取失败: {e}")
-            return []
-
-    async def extract_text_content(self, selector: Optional[str] = None) -> List[str]:
-        """
-        提取文本内容
-
-        Args:
-            selector: 选择器，如果为None则提取所有文本
-
-        Returns:
-            List[str]: 文本内容列表
-        """
-        try:
-            if selector:
-                elements = await self.page.query_selector_all(selector)
-                texts = []
-                for element in elements:
-                    text = await element.text_content()
-                    if text and text.strip():
-                        texts.append(text.strip())
-                return texts
+            if isinstance(e, PageAnalysisError):
+                raise
             else:
-                # 提取所有文本
-                texts_info = await self._analyze_texts()
-                return [text_info['text'] for text_info in texts_info if text_info.get('text')]
+                raise PageAnalysisError(
+                    f"Page analysis failed: {str(e)}",
+                    url=url,
+                    analysis_type="full_analysis"
+                ) from e
 
-        except Exception as e:
-            print(f"⚠️ 文本内容提取失败: {e}")
-            return []
-
-    async def extract_images(self, include_data_urls: bool = False) -> List[PageElement]:
-        """
-        提取页面图片
-
-        Args:
-            include_data_urls: 是否包含data URL图片
-
-        Returns:
-            List[PageElement]: 图片元素列表
-        """
+    async def _batch_extract_elements(self) -> List[Dict[str, Any]]:
+        """批量提取元素（高性能版本）"""
         try:
-            images = await self.page.query_selector_all('img')
-            page_elements = []
-
-            for i, img in enumerate(images):
-                try:
-                    src = await img.get_attribute('src')
-                    alt = await img.get_attribute('alt')
-                    title = await img.get_attribute('title')
-
-                    # 过滤data URL
-                    if not include_data_urls and src and src.startswith('data:'):
-                        continue
-
-                    page_element = PageElement(
-                        selector=f"img[{i}]",
-                        attributes=ElementAttributes(
-                            tag_name='img',
-                            src=src or '',
-                            alt=alt or '',
-                            title=title or ''
-                        ),
-                        element_type=ElementType.IMAGE
-                    )
-
-                    page_elements.append(page_element)
-
-                except Exception as e:
-                    if self.debug_mode:
-                        print(f"⚠️ 处理图片{i}失败: {e}")
-                    continue
-
-            return page_elements
-
-        except Exception as e:
-            print(f"⚠️ 图片提取失败: {e}")
-            return []
-
-    async def extract_forms(self) -> List[PageElement]:
-        """
-        提取页面表单
-
-        Returns:
-            List[PageElement]: 表单元素列表
-        """
-        try:
-            forms = await self.page.query_selector_all('form')
-            page_elements = []
-
-            for i, form in enumerate(forms):
-                try:
-                    action = await form.get_attribute('action')
-                    method = await form.get_attribute('method')
-                    name = await form.get_attribute('name')
-
-                    # 获取表单输入元素
-                    inputs = await form.query_selector_all('input, textarea, select')
-                    input_info = []
-                    for input_elem in inputs:
-                        input_type = await input_elem.get_attribute('type')
-                        input_name = await input_elem.get_attribute('name')
-                        input_info.append({
-                            'type': input_type,
-                            'name': input_name
-                        })
-
-                    page_element = PageElement(
-                        selector=f"form[{i}]",
-                        attributes=ElementAttributes(
-                            tag_name='form',
-                            name=name or '',
-                            **({'action': action} if action else {}),
-                            **({'method': method} if method else {})
-                        ),
-                        element_type=ElementType.FORM,
-                        custom_data={'inputs': input_info}
-                    )
-
-                    page_elements.append(page_element)
-
-                except Exception as e:
-                    if self.debug_mode:
-                        print(f"⚠️ 处理表单{i}失败: {e}")
-                    continue
-
-            return page_elements
-
-        except Exception as e:
-            print(f"⚠️ 表单提取失败: {e}")
-            return []
-
-    async def analyze_element_hierarchy(self, root_selector: str) -> Dict[str, Any]:
-        """
-        分析元素层级结构
-
-        Args:
-            root_selector: 根元素选择器
-
-        Returns:
-            Dict[str, Any]: 层级结构信息
-        """
-        try:
-            root_element = await self.page.query_selector(root_selector)
-            if not root_element:
-                return {'error': f'根元素未找到: {root_selector}'}
-
-            async def analyze_hierarchy(element, depth=0, max_depth=5):
-                if depth > max_depth:
-                    return {'truncated': True, 'reason': 'max_depth_reached'}
-
-                tag_name = await element.evaluate('el => el.tagName.toLowerCase()')
-                text_content = await element.text_content()
-
-                # 获取子元素
-                children = await element.query_selector_all('> *')
-                children_info = []
-
-                for child in children[:10]:  # 限制子元素数量
-                    child_info = await analyze_hierarchy(child, depth + 1, max_depth)
-                    children_info.append(child_info)
-
-                return {
-                    'tag': tag_name,
-                    'text': text_content[:100] if text_content else '',  # 限制文本长度
-                    'children_count': len(children),
-                    'children': children_info,
-                    'depth': depth
-                }
-
-            hierarchy = await analyze_hierarchy(root_element)
-
-            return {
-                'root_selector': root_selector,
-                'hierarchy': hierarchy,
-                'analysis_time': time.time()
+            await self._check_time_budget()
+            
+            config = {
+                'maxElements': self.config.max_elements,
+                'maxDepth': self.config.max_depth,
+                'enableShadowDom': self.config.enable_shadow_dom
             }
-
+            
+            elements_data = await self.page.evaluate(
+                self._batch_js_templates['extract_elements'],
+                config
+            )
+            
+            self.logger.debug("Batch element extraction completed",
+                            elements_count=len(elements_data))
+            
+            return elements_data
+            
         except Exception as e:
-            print(f"⚠️ 元素层级分析失败: {e}")
+            self.logger.error("Batch element extraction failed", exception=e)
+            raise PageAnalysisError(
+                f"Element extraction failed: {str(e)}",
+                analysis_type="element_extraction"
+            ) from e
+
+    async def _batch_extract_links(self) -> List[Dict[str, Any]]:
+        """批量提取链接"""
+        try:
+            await self._check_time_budget()
+            
+            config = {
+                'maxLinks': self.config.max_links
+            }
+            
+            links_data = await self.page.evaluate(
+                self._batch_js_templates['extract_links'],
+                config
+            )
+            
+            self.logger.debug("Batch link extraction completed",
+                            links_count=len(links_data))
+            
+            return links_data
+            
+        except Exception as e:
+            self.logger.error("Batch link extraction failed", exception=e)
+            raise PageAnalysisError(
+                f"Link extraction failed: {str(e)}",
+                analysis_type="link_extraction"
+            ) from e
+
+    async def _extract_performance_info(self) -> Dict[str, Any]:
+        """提取性能信息"""
+        try:
+            performance_data = await self.page.evaluate(
+                self._batch_js_templates['extract_performance']
+            )
+            
+            # 添加内存信息（容错处理）
+            try:
+                memory_info = await self.page.evaluate('''
+                    () => {
+                        if (performance.memory) {
+                            return {
+                                used: performance.memory.usedJSHeapSize,
+                                total: performance.memory.totalJSHeapSize,
+                                limit: performance.memory.jsHeapSizeLimit
+                            };
+                        }
+                        return null;
+                    }
+                ''')
+                if memory_info:
+                    performance_data['memory'] = memory_info
+            except Exception:
+                # 内存信息可能不可用（隐私策略）
+                performance_data['memory'] = {'error': 'Memory info not available'}
+            
+            return performance_data
+            
+        except Exception as e:
+            self.logger.warning("Performance info extraction failed", exception=e)
             return {'error': str(e)}
 
-    # ==================== 内部实现方法 ====================
-    
-    async def _get_page_info(self) -> Dict[str, Any]:
-        """获取页面基本信息"""
+    async def _extract_page_info(self) -> Dict[str, Any]:
+        """提取页面基础信息"""
         try:
-            return {
-                'url': self.page.url,
-                'title': await self.page.title(),
-                'viewport': self.page.viewport_size,
-                'user_agent': await self.page.evaluate('() => navigator.userAgent'),
-                'ready_state': await self.page.evaluate('() => document.readyState'),
-                'load_time': await self.page.evaluate('() => performance.timing.loadEventEnd - performance.timing.navigationStart')
-            }
-        except Exception as e:
-            print(f"⚠️ 获取页面信息失败: {e}")
-            return {}
-
-    async def _analyze_page_structure(self) -> Dict[str, Any]:
-        """分析页面结构"""
-        try:
-            structure = await self.page.evaluate('''
+            page_info = await self.page.evaluate('''
                 () => {
-                    const getElementStats = (element) => {
-                        const stats = {
-                            tag: element.tagName.toLowerCase(),
-                            children: element.children.length,
-                            depth: 0
-                        };
-                        
-                        let parent = element.parentElement;
-                        while (parent) {
-                            stats.depth++;
-                            parent = parent.parentElement;
-                        }
-                        
-                        return stats;
-                    };
-                    
-                    const allElements = document.querySelectorAll('*');
-                    const tagCounts = {};
-                    let maxDepth = 0;
-                    
-                    allElements.forEach(el => {
-                        const stats = getElementStats(el);
-                        tagCounts[stats.tag] = (tagCounts[stats.tag] || 0) + 1;
-                        maxDepth = Math.max(maxDepth, stats.depth);
-                    });
-                    
                     return {
-                        total_elements: allElements.length,
-                        tag_counts: tagCounts,
-                        max_depth: maxDepth,
-                        has_forms: document.forms.length > 0,
-                        has_images: document.images.length > 0,
-                        has_links: document.links.length > 0
+                        title: document.title || '',
+                        url: window.location.href,
+                        domain: window.location.hostname,
+                        protocol: window.location.protocol,
+                        viewport: {
+                            width: window.innerWidth,
+                            height: window.innerHeight
+                        },
+                        document_ready_state: document.readyState,
+                        has_doctype: !!document.doctype,
+                        charset: document.characterSet || document.charset || '',
+                        lang: document.documentElement.lang || '',
+                        meta_description: (document.querySelector('meta[name="description"]') || {}).content || '',
+                        meta_keywords: (document.querySelector('meta[name="keywords"]') || {}).content || ''
                     };
                 }
             ''')
             
-            return structure
+            return page_info
             
         except Exception as e:
-            print(f"⚠️ 页面结构分析失败: {e}")
-            return {}
+            self.logger.warning("Page info extraction failed", exception=e)
+            return {'error': str(e)}
 
-    async def _extract_all_elements(self) -> List[Dict[str, Any]]:
-        """提取所有元素"""
+    async def _extract_accessibility_info(self) -> Dict[str, Any]:
+        """提取可访问性信息"""
         try:
-            elements = await self.page.query_selector_all('*')
-            elements_info = []
+            accessibility_data = await self.page.evaluate(
+                self._batch_js_templates['extract_accessibility']
+            )
             
-            for i, element in enumerate(elements[:100]):  # 限制数量避免过多
+            # 可选：集成axe-core
+            if hasattr(self.config, 'use_axe_core') and self.config.use_axe_core:
                 try:
-                    element_info = await self._analyze_single_element(element, f"element-{i}")
-                    elements_info.append(element_info)
-                except Exception as e:
-                    if self.debug_mode:
-                        print(f"⚠️ 分析元素{i}失败: {e}")
-                    continue
+                    await self.page.add_script_tag(
+                        url="https://cdn.jsdelivr.net/npm/axe-core@4.7.2/axe.min.js"
+                    )
+                    axe_results = await self.page.evaluate("async () => await axe.run()")
+                    accessibility_data['axe_results'] = axe_results
+                except Exception as axe_error:
+                    self.logger.warning("Axe-core integration failed", exception=axe_error)
+                    accessibility_data['axe_error'] = str(axe_error)
             
-            return elements_info
-            
-        except Exception as e:
-            print(f"⚠️ 元素提取失败: {e}")
-            return []
-
-    async def _analyze_single_element(self, element: ElementHandle, selector: str) -> Dict[str, Any]:
-        """分析单个元素"""
-        try:
-            # 获取基本信息
-            tag_name = await element.evaluate('el => el.tagName.toLowerCase()')
-            text_content = await element.text_content() or ""
-            inner_html = await element.inner_html()
-            
-            # 获取属性
-            attributes = await element.evaluate('''
-                el => {
-                    const attrs = {};
-                    for (let attr of el.attributes) {
-                        attrs[attr.name] = attr.value;
-                    }
-                    return attrs;
-                }
-            ''')
-            
-            # 获取边界信息
-            bounding_box = await element.bounding_box()
-            bounds = {
-                'x': bounding_box['x'] if bounding_box else 0,
-                'y': bounding_box['y'] if bounding_box else 0,
-                'width': bounding_box['width'] if bounding_box else 0,
-                'height': bounding_box['height'] if bounding_box else 0
-            }
-            
-            # 获取状态信息
-            state = await element.evaluate('''
-                el => ({
-                    visible: !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length),
-                    enabled: !el.disabled,
-                    readonly: el.readOnly || false,
-                    focused: document.activeElement === el,
-                    selected: el.selected || false
-                })
-            ''')
-            
-            # 获取子元素
-            children = await element.query_selector_all('> *')
-            children_info = [await child.evaluate('el => el.tagName.toLowerCase()') for child in children[:10]]
-            
-            return {
-                'selector': selector,
-                'tag_name': tag_name,
-                'text_content': text_content,
-                'inner_html': inner_html[:500] if inner_html else "",  # 限制长度
-                'attributes': attributes,
-                'bounds': bounds,
-                'state': state,
-                'children': children_info
-            }
+            return accessibility_data
             
         except Exception as e:
-            if self.debug_mode:
-                print(f"⚠️ 分析单个元素失败: {e}")
-            return {
-                'selector': selector,
-                'tag_name': 'unknown',
-                'text_content': '',
-                'inner_html': '',
-                'attributes': {},
-                'bounds': {'x': 0, 'y': 0, 'width': 0, 'height': 0},
-                'state': {'visible': False, 'enabled': False, 'readonly': False, 'focused': False, 'selected': False},
-                'children': []
-            }
+            self.logger.warning("Accessibility info extraction failed", exception=e)
+            return {'error': str(e)}
 
-    async def _analyze_links(self) -> List[Dict[str, Any]]:
-        """分析链接"""
-        try:
-            links = await self.page.query_selector_all('a, [href], [onclick], [data-url], [data-link]')
-            links_info = []
-            
-            for i, link in enumerate(links):
-                try:
-                    link_info = await self._analyze_single_link(link, i)
-                    if link_info:
-                        links_info.append(link_info)
-                except Exception as e:
-                    if self.debug_mode:
-                        print(f"⚠️ 分析链接{i}失败: {e}")
-                    continue
-            
-            return links_info
-            
-        except Exception as e:
-            print(f"⚠️ 链接分析失败: {e}")
-            return []
-
-    async def _analyze_single_link(self, element: ElementHandle, index: int) -> Optional[Dict[str, Any]]:
-        """分析单个链接"""
-        try:
-            tag_name = await element.evaluate('el => el.tagName.toLowerCase()')
-            text = await element.text_content() or ""
-            
-            # 获取各种链接属性
-            href = await element.get_attribute('href')
-            onclick = await element.get_attribute('onclick')
-            data_url = await element.get_attribute('data-url')
-            data_link = await element.get_attribute('data-link')
-            
-            # 尝试提取真实链接
-            real_link = await self._extract_real_link(element)
-            
-            return {
-                'index': index,
-                'tag': tag_name,
-                'text': text.strip(),
-                'href': href,
-                'onclick': onclick,
-                'data_url': data_url,
-                'data_link': data_link,
-                'real_link': real_link
-            }
-            
-        except Exception as e:
-            if self.debug_mode:
-                print(f"⚠️ 分析单个链接失败: {e}")
-            return None
-
-    async def _extract_real_link(self, element: ElementHandle) -> Optional[str]:
-        """提取真实链接"""
-        try:
-            # 1. 检查href属性
-            href = await element.get_attribute('href')
-            if href and href.strip() and not href.startswith('javascript:'):
-                return href.strip()
-            
-            # 2. 检查onclick事件
-            onclick = await element.get_attribute('onclick')
-            if onclick:
-                url_patterns = [
-                    r"window\.open\(['\"]([^'\"]+)['\"]",
-                    r"location\.href\s*=\s*['\"]([^'\"]+)['\"]",
-                    r"window\.location\s*=\s*['\"]([^'\"]+)['\"]",
-                    r"https?://[^\s'\"]+",
-                ]
-                for pattern in url_patterns:
-                    match = re.search(pattern, onclick)
-                    if match:
-                        return match.group(1) if match.groups() else match.group(0)
-            
-            # 3. 检查data属性
-            for attr in ['data-url', 'data-link', 'data-href', 'data-original-url']:
-                value = await element.get_attribute(attr)
-                if value and value.strip():
-                    return value.strip()
-            
-            # 4. JavaScript动态获取
-            real_url = await element.evaluate('''
-                el => {
-                    return el.dataset.url || el.dataset.link || el.dataset.href || 
-                           el.getAttribute('data-original-url') || null;
-                }
-            ''')
-            
-            return real_url
-            
-        except Exception:
-            return None
-
-    async def _analyze_texts(self) -> List[Dict[str, Any]]:
-        """分析文本内容"""
-        try:
-            text_elements = await self.page.query_selector_all('span, div, p, td, th, a, strong, em, b, i')
-            texts_info = []
-            
-            for i, element in enumerate(text_elements):
-                try:
-                    text = await element.text_content()
-                    if text and text.strip():
-                        text = text.strip()
-                        text_info = {
-                            'index': i,
-                            'text': text,
-                            'length': len(text),
-                            'is_numeric': text.isdigit(),
-                            'is_potential_id': text.isdigit() and len(text) >= 6,
-                            'contains_url': bool(re.search(r'https?://', text)),
-                            'contains_email': bool(re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text))
-                        }
-                        texts_info.append(text_info)
-                except Exception as e:
-                    if self.debug_mode:
-                        print(f"⚠️ 分析文本{i}失败: {e}")
-                    continue
-            
-            return texts_info
-            
-        except Exception as e:
-            print(f"⚠️ 文本分析失败: {e}")
-            return []
-
-    async def _analyze_dynamic_content(self) -> Dict[str, Any]:
-        """分析动态内容"""
+    async def _extract_dynamic_content(self) -> Dict[str, Any]:
+        """提取动态内容信息"""
         try:
             dynamic_data = await self.page.evaluate('''
                 () => {
                     const data = {
-                        scripts: [],
-                        ajax_endpoints: [],
-                        event_listeners: [],
-                        dynamic_elements: []
-                    };
-                    
-                    // 获取所有脚本
-                    document.querySelectorAll('script').forEach((script, i) => {
-                        if (script.src) {
-                            data.scripts.push({
-                                index: i,
-                                src: script.src,
-                                type: script.type || 'text/javascript'
-                            });
-                        }
-                    });
-                    
-                    // 查找可能的AJAX端点
-                    const allElements = document.querySelectorAll('*');
-                    allElements.forEach(el => {
-                        for (let attr of el.attributes) {
-                            if (attr.value && (attr.value.includes('/api/') || attr.value.includes('.json'))) {
-                                data.ajax_endpoints.push({
-                                    element: el.tagName,
-                                    attribute: attr.name,
-                                    endpoint: attr.value
-                                });
-                            }
-                        }
-                    });
-                    
-                    return data;
-                }
-            ''')
-            
-            return dynamic_data
-            
-        except Exception as e:
-            print(f"⚠️ 动态内容分析失败: {e}")
-            return {}
-
-
-class DOMContentExtractor(IContentExtractor):
-    """DOM内容提取器实现"""
-    
-    def __init__(self, page: Page = None, debug_mode: bool = False):
-        self.page = page
-        self.debug_mode = debug_mode
-
-    async def extract_content(self, extraction_rules: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        根据规则提取内容
-        
-        Args:
-            extraction_rules: 提取规则
-            
-        Returns:
-            Dict[str, Any]: 提取的内容
-        """
-        try:
-            extracted_content = {}
-            
-            for rule_name, rule_config in extraction_rules.items():
-                try:
-                    content = await self._extract_by_rule(rule_config)
-                    extracted_content[rule_name] = content
-                except Exception as e:
-                    if self.debug_mode:
-                        print(f"⚠️ 规则{rule_name}提取失败: {e}")
-                    extracted_content[rule_name] = None
-            
-            return extracted_content
-            
-        except Exception as e:
-            print(f"⚠️ 内容提取失败: {e}")
-            return {}
-
-    async def extract_structured_data(self, schema: Dict[str, Any]) -> Dict[str, Any]:
-        """提取结构化数据"""
-        try:
-            structured_data = {}
-
-            # 提取JSON-LD数据
-            json_ld_scripts = await self.page.query_selector_all('script[type="application/ld+json"]')
-            json_ld_data = []
-            for script in json_ld_scripts:
-                try:
-                    content = await script.text_content()
-                    if content:
-                        import json
-                        data = json.loads(content)
-                        json_ld_data.append(data)
-                except Exception as e:
-                    if self.debug_mode:
-                        print(f"⚠️ JSON-LD解析失败: {e}")
-
-            if json_ld_data:
-                structured_data['json_ld'] = json_ld_data
-
-            # 提取微数据 (Microdata)
-            microdata_items = await self.page.query_selector_all('[itemscope]')
-            microdata_data = []
-            for item in microdata_items:
-                try:
-                    item_type = await item.get_attribute('itemtype')
-                    item_data = {'type': item_type, 'properties': {}}
-
-                    # 获取所有属性
-                    props = await item.query_selector_all('[itemprop]')
-                    for prop in props:
-                        prop_name = await prop.get_attribute('itemprop')
-                        prop_value = await prop.text_content() or await prop.get_attribute('content')
-                        if prop_name and prop_value:
-                            item_data['properties'][prop_name] = prop_value
-
-                    microdata_data.append(item_data)
-                except Exception as e:
-                    if self.debug_mode:
-                        print(f"⚠️ 微数据解析失败: {e}")
-
-            if microdata_data:
-                structured_data['microdata'] = microdata_data
-
-            # 提取Open Graph数据
-            og_tags = await self.page.query_selector_all('meta[property^="og:"]')
-            og_data = {}
-            for tag in og_tags:
-                try:
-                    property_name = await tag.get_attribute('property')
-                    content = await tag.get_attribute('content')
-                    if property_name and content:
-                        og_data[property_name] = content
-                except Exception as e:
-                    if self.debug_mode:
-                        print(f"⚠️ Open Graph解析失败: {e}")
-
-            if og_data:
-                structured_data['open_graph'] = og_data
-
-            # 提取Twitter Card数据
-            twitter_tags = await self.page.query_selector_all('meta[name^="twitter:"]')
-            twitter_data = {}
-            for tag in twitter_tags:
-                try:
-                    name = await tag.get_attribute('name')
-                    content = await tag.get_attribute('content')
-                    if name and content:
-                        twitter_data[name] = content
-                except Exception as e:
-                    if self.debug_mode:
-                        print(f"⚠️ Twitter Card解析失败: {e}")
-
-            if twitter_data:
-                structured_data['twitter_card'] = twitter_data
-
-            return structured_data
-
-        except Exception as e:
-            print(f"⚠️ 结构化数据提取失败: {e}")
-            return {}
-
-    async def extract_by_selector(self, selector: str, attribute: Optional[str] = None) -> Any:
-        """根据选择器提取内容"""
-        try:
-            if not self.page:
-                return None
-
-            element = await self.page.query_selector(selector)
-            if not element:
-                return None
-
-            if attribute:
-                return await element.get_attribute(attribute)
-            else:
-                return await element.text_content()
-
-        except Exception as e:
-            if self.debug_mode:
-                print(f"⚠️ 选择器提取失败: {e}")
-            return None
-
-    async def extract_list_data(self, list_selector: str, item_selectors: Dict[str, str]) -> List[Dict[str, Any]]:
-        """提取列表数据"""
-        try:
-            if not self.page:
-                return []
-
-            list_items = await self.page.query_selector_all(list_selector)
-            extracted_data = []
-
-            for item in list_items:
-                item_data = {}
-                for key, selector in item_selectors.items():
-                    try:
-                        element = await item.query_selector(selector)
-                        if element:
-                            item_data[key] = await element.text_content()
-                        else:
-                            item_data[key] = None
-                    except Exception as e:
-                        if self.debug_mode:
-                            print(f"⚠️ 提取列表项 {key} 失败: {e}")
-                        item_data[key] = None
-
-                extracted_data.append(item_data)
-
-            return extracted_data
-
-        except Exception as e:
-            if self.debug_mode:
-                print(f"⚠️ 列表数据提取失败: {e}")
-            return []
-
-    async def extract_table_data(self, table_selector: str) -> Dict[str, Any]:
-        """提取表格数据"""
-        try:
-            if not self.page:
-                return {}
-
-            table = await self.page.query_selector(table_selector)
-            if not table:
-                return {}
-
-            # 提取表头
-            headers = []
-            header_rows = await table.query_selector_all('thead tr, tr:first-child')
-            if header_rows:
-                header_cells = await header_rows[0].query_selector_all('th, td')
-                for cell in header_cells:
-                    text = await cell.text_content()
-                    headers.append(text.strip() if text else '')
-
-            # 提取数据行
-            rows = []
-            data_rows = await table.query_selector_all('tbody tr, tr:not(:first-child)')
-            for row in data_rows:
-                cells = await row.query_selector_all('td, th')
-                row_data = []
-                for cell in cells:
-                    text = await cell.text_content()
-                    row_data.append(text.strip() if text else '')
-                if row_data:  # 只添加非空行
-                    rows.append(row_data)
-
-            return {
-                'headers': headers,
-                'rows': rows,
-                'row_count': len(rows),
-                'column_count': len(headers) if headers else (len(rows[0]) if rows else 0)
-            }
-
-        except Exception as e:
-            if self.debug_mode:
-                print(f"⚠️ 表格数据提取失败: {e}")
-            return {}
-
-    async def extract_metadata(self) -> Dict[str, Any]:
-        """提取页面元数据"""
-        try:
-            if not self.page:
-                return {}
-
-            metadata = {}
-
-            # 提取基本元数据
-            metadata['title'] = await self.page.title()
-            metadata['url'] = self.page.url
-
-            # 提取meta标签
-            meta_tags = await self.page.query_selector_all('meta')
-            meta_data = {}
-
-            for meta in meta_tags:
-                name = await meta.get_attribute('name')
-                property_attr = await meta.get_attribute('property')
-                content = await meta.get_attribute('content')
-
-                if name and content:
-                    meta_data[name] = content
-                elif property_attr and content:
-                    meta_data[property_attr] = content
-
-            metadata['meta'] = meta_data
-
-            # 提取链接标签
-            link_tags = await self.page.query_selector_all('link')
-            links = []
-
-            for link in link_tags:
-                rel = await link.get_attribute('rel')
-                href = await link.get_attribute('href')
-                if rel and href:
-                    links.append({'rel': rel, 'href': href})
-
-            metadata['links'] = links
-
-            return metadata
-
-        except Exception as e:
-            if self.debug_mode:
-                print(f"⚠️ 元数据提取失败: {e}")
-            return {}
-
-    async def extract_dynamic_content(self) -> Dict[str, Any]:
-        """提取动态内容"""
-        try:
-            if not self.page:
-                return {}
-
-            # 执行JavaScript来获取动态内容
-            dynamic_data = await self.page.evaluate('''
-                () => {
-                    const data = {
-                        scripts: [],
                         ajax_endpoints: [],
                         dynamic_elements: [],
-                        event_listeners: []
+                        lazy_loaded_images: [],
+                        spa_routes: []
                     };
                     
-                    // 获取所有脚本
-                    document.querySelectorAll('script').forEach((script, i) => {
-                        if (script.src) {
-                            data.scripts.push({
-                                index: i,
-                                src: script.src,
-                                type: script.type || 'text/javascript'
-                            });
-                        }
-                    });
-                    
-                    // 查找可能的AJAX端点
-                    const allElements = document.querySelectorAll('*');
-                    allElements.forEach(el => {
-                        for (let attr of el.attributes) {
-                            if (attr.value && (attr.value.includes('/api/') || attr.value.includes('.json'))) {
+                    // 查找AJAX端点
+                    document.querySelectorAll('[data-url], [data-api], [data-endpoint]').forEach(el => {
+                        ['data-url', 'data-api', 'data-endpoint'].forEach(attr => {
+                            const value = el.getAttribute(attr);
+                            if (value && (value.includes('/api/') || value.includes('.json'))) {
                                 data.ajax_endpoints.push({
                                     element: el.tagName,
-                                    attribute: attr.name,
-                                    endpoint: attr.value
+                                    attribute: attr,
+                                    endpoint: value
                                 });
                             }
-                        }
+                        });
                     });
                     
-                    // 查找动态元素（有data-*属性的）
+                    // 查找动态元素
                     document.querySelectorAll('[data-dynamic], [data-load], [data-src]').forEach((el, i) => {
                         data.dynamic_elements.push({
                             index: i,
@@ -1151,260 +678,793 @@ class DOMContentExtractor(IContentExtractor):
                         });
                     });
                     
+                    // 查找懒加载图片
+                    document.querySelectorAll('img[data-src], img[loading="lazy"]').forEach(img => {
+                        data.lazy_loaded_images.push({
+                            src: img.src || '',
+                            dataSrc: img.getAttribute('data-src') || '',
+                            loading: img.loading || ''
+                        });
+                    });
+                    
                     return data;
                 }
             ''')
-
+            
             return dynamic_data
-
-        except Exception as e:
-            if self.debug_mode:
-                print(f"⚠️ 动态内容提取失败: {e}")
-            return {}
-
-    async def _extract_by_rule(self, rule_config: Dict[str, Any]) -> Any:
-        """根据规则提取内容"""
-        if not self.page:
-            return None
-
-        rule_type = rule_config.get('type', 'text')
-        selector = rule_config.get('selector')
-        
-        if not selector:
-            return None
-        
-        if rule_type == 'text':
-            return await self.extract_by_selector(selector)
-        elif rule_type == 'attribute':
-            attribute = rule_config.get('attribute')
-            return await self.extract_by_selector(selector, attribute)
-        elif rule_type == 'list':
-            elements = await self.page.query_selector_all(selector)
-            return [await elem.text_content() for elem in elements]
-        else:
-            return None
-
-
-class DOMElementMatcher(IElementMatcher):
-    """DOM元素匹配器实现"""
-    
-    def __init__(self, page: Page = None, debug_mode: bool = False):
-        self.page = page
-        self.debug_mode = debug_mode
-
-    async def match_elements(self, criteria: Dict[str, Any]) -> List[PageElement]:
-        """根据条件匹配元素"""
-        try:
-            matched_elements = []
-            
-            # 根据不同条件类型进行匹配
-            if 'selector' in criteria:
-                elements = await self.page.query_selector_all(criteria['selector'])
-                for i, element in enumerate(elements):
-                    page_element = await self._create_page_element(element, f"{criteria['selector']}[{i}]")
-                    if await self._matches_criteria(page_element, criteria):
-                        matched_elements.append(page_element)
-            
-            return matched_elements
             
         except Exception as e:
-            print(f"⚠️ 元素匹配失败: {e}")
-            return []
+            self.logger.warning("Dynamic content extraction failed", exception=e)
+            return {'error': str(e)}
 
-    async def match_by_text(self, text: str, exact: bool = False) -> List[PageElement]:
-        """根据文本匹配元素"""
+    # 实现接口方法（使用locator API优化）
+    async def extract_elements(self, selector: str, element_type: Optional[str] = None) -> ElementCollection:
+        """提取页面元素（使用locator API）"""
         try:
-            if exact:
-                selector = f'//*[text()="{text}"]'
+            if self.config.use_locator_api:
+                # 使用locator API
+                locator = self.page.locator(selector)
+                count = await locator.count()
+                
+                elements = []
+                for i in range(min(count, self.config.max_elements)):
+                    element_locator = locator.nth(i)
+                    element_data = await self._extract_element_from_locator(element_locator, f"{selector}[{i}]")
+                    if element_data:
+                        elements.append(element_data)
+                
+                return ElementCollection(elements=elements, selector=selector, total_count=count)
             else:
-                selector = f'//*[contains(text(), "{text}")]'
-            
-            elements = await self.page.query_selector_all(f'xpath={selector}')
-            matched_elements = []
-            
-            for i, element in enumerate(elements):
-                page_element = await self._create_page_element(element, f"text-match-{i}")
-                matched_elements.append(page_element)
-            
-            return matched_elements
-            
+                # 降级到传统方法
+                return await self._extract_elements_legacy_method(selector, element_type)
+                
         except Exception as e:
-            print(f"⚠️ 文本匹配失败: {e}")
-            return []
+            self.logger.error("Element extraction failed", exception=e, selector=selector)
+            raise ElementNotFoundError(selector) from e
 
-    async def match_by_attributes(self, attributes: Dict[str, str]) -> List[PageElement]:
-        """根据属性匹配元素"""
+    async def _extract_element_from_locator(self, locator: Locator, selector: str) -> Optional[PageElement]:
+        """从locator提取元素信息"""
         try:
-            # 构建属性选择器
-            attr_selectors = []
-            for attr, value in attributes.items():
-                attr_selectors.append(f'[{attr}="{value}"]')
-            
-            selector = ''.join(attr_selectors)
-            elements = await self.page.query_selector_all(selector)
-            
-            matched_elements = []
-            for i, element in enumerate(elements):
-                page_element = await self._create_page_element(element, f"attr-match-{i}")
-                matched_elements.append(page_element)
-            
-            return matched_elements
-            
-        except Exception as e:
-            print(f"⚠️ 属性匹配失败: {e}")
-            return []
-
-    async def _create_page_element(self, element: ElementHandle, selector: str) -> PageElement:
-        """创建PageElement对象"""
-        try:
-            # 获取标签名
-            tag_name = await element.evaluate('el => el.tagName.toLowerCase()')
-
-            # 获取文本内容
-            text_content = await element.text_content() or ""
-
-            # 获取内部HTML
-            inner_html = await element.inner_html()
-
-            # 获取所有属性
-            attributes_dict = await element.evaluate('''
-                el => {
+            # 批量获取元素信息
+            element_info = await locator.evaluate('''
+                (el) => {
+                    const rect = el.getBoundingClientRect();
                     const attrs = {};
-                    for (let attr of el.attributes) {
+                    for (const attr of el.attributes) {
                         attrs[attr.name] = attr.value;
                     }
-                    return attrs;
-                }
-            ''')
-
-            # 获取元素边界
-            bounding_box = await element.bounding_box()
-            if bounding_box:
-                bounds = ElementBounds(
-                    x=bounding_box['x'],
-                    y=bounding_box['y'],
-                    width=bounding_box['width'],
-                    height=bounding_box['height']
-                )
-            else:
-                bounds = ElementBounds(x=0, y=0, width=0, height=0)
-
-            # 创建ElementAttributes对象
-            element_attributes = ElementAttributes(
-                tag_name=tag_name,
-                attributes=attributes_dict
-            )
-
-            # 获取子元素选择器
-            children_selectors = await element.evaluate('''
-                el => {
-                    const children = [];
-                    for (let i = 0; i < el.children.length; i++) {
-                        const child = el.children[i];
-                        let childSelector = child.tagName.toLowerCase();
-                        if (child.id) {
-                            childSelector += `#${child.id}`;
-                        } else if (child.className) {
-                            const classes = child.className.split(' ').filter(c => c.trim());
-                            if (classes.length > 0) {
-                                childSelector += `.${classes[0]}`;
-                            }
+                    
+                    return {
+                        tag_name: el.tagName.toLowerCase(),
+                        text_content: (el.textContent || '').trim(),
+                        inner_html: (el.innerHTML || '').slice(0, 500),
+                        attributes: attrs,
+                        bounds: {
+                            x: rect.x,
+                            y: rect.y,
+                            width: rect.width,
+                            height: rect.height
+                        },
+                        state: {
+                            visible: !!(rect.width || rect.height),
+                            enabled: !el.disabled,
+                            readonly: !!el.readOnly,
+                            focused: document.activeElement === el,
+                            selected: !!el.selected
                         }
-                        children.push(childSelector);
-                    }
-                    return children;
+                    };
                 }
             ''')
+            
+            # 创建PageElement对象
+            return self._create_page_element_from_dict(element_info, selector)
+            
+        except Exception as e:
+            self.logger.warning("Failed to extract element from locator", exception=e)
+            return None
 
-            return PageElement(
-                selector=selector,
-                attributes=element_attributes,
-                text_content=text_content,
-                bounds=bounds,
-                inner_html=inner_html,
-                children_selectors=children_selectors
-            )
+    def _create_page_element_from_dict(self, data: Dict[str, Any], selector: str) -> PageElement:
+        """从字典数据创建PageElement对象"""
+        # 创建属性对象
+        attrs_data = data.get('attributes', {})
+        attributes = ElementAttributes(
+            tag_name=data.get('tag_name', ''),
+            **{k: v for k, v in attrs_data.items() if hasattr(ElementAttributes, k)}
+        )
+        
+        # 创建边界对象
+        bounds_data = data.get('bounds', {})
+        bounds = ElementBounds(
+            x=bounds_data.get('x', 0),
+            y=bounds_data.get('y', 0),
+            width=bounds_data.get('width', 0),
+            height=bounds_data.get('height', 0)
+        )
+        
+        # 创建状态列表
+        state_data = data.get('state', {})
+        states = []
+        if state_data.get('visible'): states.append(ElementState.VISIBLE)
+        if state_data.get('enabled'): states.append(ElementState.ENABLED)
+        if state_data.get('focused'): states.append(ElementState.FOCUSED)
+        if state_data.get('selected'): states.append(ElementState.SELECTED)
+        
+        return PageElement(
+            selector=selector,
+            attributes=attributes,
+            text_content=data.get('text_content', ''),
+            inner_html=data.get('inner_html', ''),
+            bounds=bounds,
+            states=states
+        )
+
+    async def match_by_text(self, text: str, exact: bool = False) -> List[PageElement]:
+        """根据文本匹配元素（使用locator API）"""
+        try:
+            if self.config.use_locator_api:
+                # 使用locator API
+                locator = self.page.get_by_text(text, exact=exact)
+                count = await locator.count()
+                
+                elements = []
+                for i in range(min(count, self.config.max_elements)):
+                    element_locator = locator.nth(i)
+                    element_data = await self._extract_element_from_locator(
+                        element_locator, f"text-match-{i}"
+                    )
+                    if element_data:
+                        elements.append(element_data)
+                
+                return elements
+            else:
+                # 降级到XPath方法
+                return await self._match_by_text_legacy(text, exact)
+                
+        except Exception as e:
+            self.logger.error("Text matching failed", exception=e, text=text)
+            return []
+
+    # 其他接口方法的实现...
+    async def extract_links(self, filter_pattern: Optional[str] = None) -> List[PageElement]:
+        """提取页面链接"""
+        try:
+            links_data = await self._batch_extract_links()
+            elements = []
+            
+            for link_data in links_data:
+                if filter_pattern and filter_pattern not in link_data.get('href', ''):
+                    continue
+                
+                element = self._create_page_element_from_dict(link_data, link_data['selector'])
+                elements.append(element)
+            
+            return elements
+            
+        except Exception as e:
+            self.logger.error("Link extraction failed", exception=e)
+            raise PageAnalysisError(f"Link extraction failed: {str(e)}") from e
+
+    async def validate_page_load(self, expected_elements: List[str]) -> bool:
+        """验证页面是否完全加载"""
+        try:
+            for selector in expected_elements:
+                try:
+                    await self.page.wait_for_selector(selector, timeout=5000)
+                except Exception:
+                    self.logger.warning("Expected element not found", selector=selector)
+                    return False
+            return True
+        except Exception as e:
+            self.logger.error("Page load validation failed", exception=e)
+            return False
+
+    # 完整实现所有接口方法
+    async def extract_text_content(self, selector: Optional[str] = None) -> List[str]:
+        """提取文本内容"""
+        try:
+            await self._check_time_budget()
+
+            if selector:
+                # 提取特定选择器的文本
+                if self.config.use_locator_api:
+                    locator = self.page.locator(selector)
+                    count = await locator.count()
+                    texts = []
+                    for i in range(min(count, self.config.max_texts)):
+                        text = await locator.nth(i).text_content()
+                        if text and self._is_valid_text(text.strip()):
+                            texts.append(text.strip())
+                    return texts
+                else:
+                    elements = await self.page.query_selector_all(selector)
+                    texts = []
+                    for element in elements[:self.config.max_texts]:
+                        text = await element.text_content()
+                        if text and self._is_valid_text(text.strip()):
+                            texts.append(text.strip())
+                    return texts
+            else:
+                # 提取所有文本内容
+                text_data = await self.page.evaluate(f'''
+                    () => {{
+                        const texts = [];
+                        const textTags = ['p', 'span', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'td', 'th'];
+                        
+                        textTags.forEach(tag => {{
+                            const elements = document.querySelectorAll(tag);
+                            Array.from(elements).slice(0, {self.config.max_texts}).forEach(el => {{
+                                const text = (el.textContent || '').trim();
+                                if (text && text.length > 3 && text.length < 500) {{
+                                    texts.push(text);
+                                }}
+                            }});
+                        }});
+                        
+                        return [...new Set(texts)].slice(0, {self.config.max_texts});
+                    }}
+                ''')
+
+                return [text for text in text_data if self._is_valid_text(text)]
 
         except Exception as e:
-            if self.debug_mode:
-                print(f"⚠️ 创建PageElement失败: {e}")
-            # 返回基本的PageElement对象
-            return PageElement(
-                selector=selector,
-                attributes=ElementAttributes(tag_name="unknown"),
-                text_content="",
-                bounds=ElementBounds(x=0, y=0, width=0, height=0),
-                inner_html="",
-                children_selectors=[]
-            )
+            self.logger.error("Text content extraction failed", exception=e)
+            raise PageAnalysisError(f"Text extraction failed: {str(e)}") from e
+
+    async def extract_images(self, include_data_urls: bool = False) -> List[PageElement]:
+        """提取页面图片"""
+        try:
+            await self._check_time_budget()
+
+            image_data = await self.page.evaluate(f'''
+                (includeDataUrls) => {{
+                    const images = [];
+                    const imgElements = Array.from(document.querySelectorAll('img')).slice(0, {self.config.max_elements});
+                    
+                    imgElements.forEach((img, index) => {{
+                        const rect = img.getBoundingClientRect();
+                        const src = img.src || img.getAttribute('data-src') || '';
+                        
+                        // 过滤data URL（如果不包含）
+                        if (!includeDataUrls && src.startsWith('data:')) {{
+                            return;
+                        }}
+                        
+                        const attrs = {{}};
+                        for (const attr of img.attributes) {{
+                            attrs[attr.name] = attr.value;
+                        }}
+                        
+                        images.push({{
+                            selector: `img[src="${{src}}"]`,
+                            tag_name: 'img',
+                            text_content: img.alt || '',
+                            attributes: attrs,
+                            bounds: {{
+                                x: rect.x,
+                                y: rect.y,
+                                width: rect.width,
+                                height: rect.height
+                            }},
+                            state: {{
+                                visible: !!(rect.width || rect.height),
+                                loaded: img.complete && img.naturalHeight !== 0
+                            }},
+                            src: src,
+                            alt: img.alt || '',
+                            naturalWidth: img.naturalWidth || 0,
+                            naturalHeight: img.naturalHeight || 0
+                        }});
+                    }});
+                    
+                    return images;
+                }}
+            ''', include_data_urls)
+
+            elements = []
+            for img_data in image_data:
+                element = self._create_page_element_from_dict(img_data, img_data['selector'])
+                elements.append(element)
+
+            self.logger.debug("Image extraction completed", images_count=len(elements))
+            return elements
+
+        except Exception as e:
+            self.logger.error("Image extraction failed", exception=e)
+            raise PageAnalysisError(f"Image extraction failed: {str(e)}") from e
+
+    async def extract_forms(self) -> List[PageElement]:
+        """提取页面表单"""
+        try:
+            await self._check_time_budget()
+
+            form_data = await self.page.evaluate(f'''
+                () => {{
+                    const forms = [];
+                    const formElements = Array.from(document.querySelectorAll('form')).slice(0, {self.config.max_elements});
+                    
+                    formElements.forEach((form, index) => {{
+                        const rect = form.getBoundingClientRect();
+                        const attrs = {{}};
+                        for (const attr of form.attributes) {{
+                            attrs[attr.name] = attr.value;
+                        }}
+                        
+                        // 收集表单字段
+                        const fields = [];
+                        const inputs = form.querySelectorAll('input, textarea, select');
+                        inputs.forEach(input => {{
+                            fields.push({{
+                                type: input.type || input.tagName.toLowerCase(),
+                                name: input.name || '',
+                                id: input.id || '',
+                                required: input.required || false,
+                                placeholder: input.placeholder || ''
+                            }});
+                        }});
+                        
+                        forms.push({{
+                            selector: `form:nth-of-type(${{index + 1}})`,
+                            tag_name: 'form',
+                            text_content: '',
+                            attributes: attrs,
+                            bounds: {{
+                                x: rect.x,
+                                y: rect.y,
+                                width: rect.width,
+                                height: rect.height
+                            }},
+                            state: {{
+                                visible: !!(rect.width || rect.height)
+                            }},
+                            action: form.action || '',
+                            method: form.method || 'get',
+                            fields: fields
+                        }});
+                    }});
+                    
+                    return forms;
+                }}
+            ''')
+
+            elements = []
+            for form_info in form_data:
+                element = self._create_page_element_from_dict(form_info, form_info['selector'])
+                elements.append(element)
+
+            self.logger.debug("Form extraction completed", forms_count=len(elements))
+            return elements
+
+        except Exception as e:
+            self.logger.error("Form extraction failed", exception=e)
+            raise PageAnalysisError(f"Form extraction failed: {str(e)}") from e
+
+    async def analyze_element_hierarchy(self, root_selector: str) -> Dict[str, Any]:
+        """分析元素层级结构"""
+        try:
+            await self._check_time_budget()
+
+            hierarchy_data = await self.page.evaluate(f'''
+                (rootSelector, maxDepth) => {{
+                    const root = document.querySelector(rootSelector);
+                    if (!root) return null;
+                    
+                    function analyzeElement(element, depth = 0) {{
+                        if (depth > maxDepth) return null;
+                        
+                        const rect = element.getBoundingClientRect();
+                        const children = [];
+                        
+                        Array.from(element.children).forEach(child => {{
+                            const childData = analyzeElement(child, depth + 1);
+                            if (childData) children.push(childData);
+                        }});
+                        
+                        return {{
+                            tag: element.tagName.toLowerCase(),
+                            id: element.id || '',
+                            classes: element.className ? element.className.split(' ').filter(c => c.trim()) : [],
+                            depth: depth,
+                            bounds: {{
+                                x: rect.x,
+                                y: rect.y,
+                                width: rect.width,
+                                height: rect.height
+                            }},
+                            children: children,
+                            childCount: element.children.length,
+                            textContent: (element.textContent || '').trim().slice(0, 100)
+                        }};
+                    }}
+                    
+                    return analyzeElement(root);
+                }}
+            ''', root_selector, self.config.max_depth)
+
+            if not hierarchy_data:
+                raise ElementNotFoundError(root_selector)
+
+            # 计算统计信息
+            def count_elements(node):
+                count = 1
+                for child in node.get('children', []):
+                    count += count_elements(child)
+                return count
+
+            total_elements = count_elements(hierarchy_data)
+            max_depth = self._calculate_max_depth(hierarchy_data)
+
+            result = {
+                'root_selector': root_selector,
+                'hierarchy': hierarchy_data,
+                'statistics': {
+                    'total_elements': total_elements,
+                    'max_depth': max_depth,
+                    'direct_children': len(hierarchy_data.get('children', []))
+                }
+            }
+
+            self.logger.debug("Element hierarchy analysis completed",
+                            total_elements=total_elements, max_depth=max_depth)
+            return result
+
+        except Exception as e:
+            self.logger.error("Element hierarchy analysis failed", exception=e)
+            raise PageAnalysisError(f"Hierarchy analysis failed: {str(e)}") from e
+
+    async def extract_structured_data(self, schema_type: str) -> Dict[str, Any]:
+        """提取结构化数据"""
+        try:
+            await self._check_time_budget()
+
+            if schema_type.lower() == 'json-ld':
+                structured_data = await self.page.evaluate('''
+                    () => {
+                        const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+                        const data = [];
+                        
+                        scripts.forEach(script => {
+                            try {
+                                const json = JSON.parse(script.textContent);
+                                data.push(json);
+                            } catch (e) {
+                                // 忽略解析错误的JSON
+                            }
+                        });
+                        
+                        return data;
+                    }
+                ''')
+            elif schema_type.lower() == 'microdata':
+                structured_data = await self.page.evaluate('''
+                    () => {
+                        const items = [];
+                        const elements = document.querySelectorAll('[itemscope]');
+                        
+                        elements.forEach(el => {
+                            const item = {
+                                type: el.getAttribute('itemtype') || '',
+                                properties: {}
+                            };
+                            
+                            const props = el.querySelectorAll('[itemprop]');
+                            props.forEach(prop => {
+                                const name = prop.getAttribute('itemprop');
+                                const value = prop.getAttribute('content') || prop.textContent || '';
+                                if (name) {
+                                    item.properties[name] = value;
+                                }
+                            });
+                            
+                            items.push(item);
+                        });
+                        
+                        return items;
+                    }
+                ''')
+            elif schema_type.lower() == 'rdfa':
+                structured_data = await self.page.evaluate('''
+                    () => {
+                        const items = [];
+                        const elements = document.querySelectorAll('[typeof]');
+                        
+                        elements.forEach(el => {
+                            const item = {
+                                type: el.getAttribute('typeof') || '',
+                                properties: {}
+                            };
+                            
+                            const props = el.querySelectorAll('[property]');
+                            props.forEach(prop => {
+                                const name = prop.getAttribute('property');
+                                const value = prop.getAttribute('content') || prop.textContent || '';
+                                if (name) {
+                                    item.properties[name] = value;
+                                }
+                            });
+                            
+                            items.push(item);
+                        });
+                        
+                        return items;
+                    }
+                ''')
+            else:
+                raise ValidationError(f"Unsupported schema type: {schema_type}")
+
+            result = {
+                'schema_type': schema_type,
+                'data': structured_data,
+                'count': len(structured_data) if isinstance(structured_data, list) else 1
+            }
+
+            self.logger.debug("Structured data extraction completed",
+                            schema_type=schema_type, count=result['count'])
+            return result
+
+        except Exception as e:
+            self.logger.error("Structured data extraction failed", exception=e)
+            raise PageAnalysisError(f"Structured data extraction failed: {str(e)}") from e
+
+    async def extract_table_data(self, table_selector: str) -> List[Dict[str, str]]:
+        """提取表格数据"""
+        try:
+            await self._check_time_budget()
+
+            table_data = await self.page.evaluate('''
+                (selector) => {
+                    const table = document.querySelector(selector);
+                    if (!table) return [];
+                    
+                    const rows = [];
+                    const headerRow = table.querySelector('thead tr, tr:first-child');
+                    let headers = [];
+                    
+                    // 提取表头
+                    if (headerRow) {
+                        const headerCells = headerRow.querySelectorAll('th, td');
+                        headers = Array.from(headerCells).map(cell => 
+                            (cell.textContent || '').trim() || `Column_${headers.length + 1}`
+                        );
+                    }
+                    
+                    // 提取数据行
+                    const dataRows = table.querySelectorAll('tbody tr, tr:not(:first-child)');
+                    dataRows.forEach(row => {
+                        const cells = row.querySelectorAll('td, th');
+                        const rowData = {};
+                        
+                        Array.from(cells).forEach((cell, index) => {
+                            const header = headers[index] || `Column_${index + 1}`;
+                            rowData[header] = (cell.textContent || '').trim();
+                        });
+                        
+                        rows.push(rowData);
+                    });
+                    
+                    return rows;
+                }
+            ''', table_selector)
+
+            self.logger.debug("Table data extraction completed",
+                            table_selector=table_selector, rows_count=len(table_data))
+            return table_data
+
+        except Exception as e:
+            self.logger.error("Table data extraction failed", exception=e)
+            raise PageAnalysisError(f"Table extraction failed: {str(e)}") from e
+
+    async def extract_list_data(self, list_selector: str, item_selector: str) -> List[Dict[str, Any]]:
+        """提取列表数据"""
+        try:
+            await self._check_time_budget()
+
+            list_data = await self.page.evaluate('''
+                (listSelector, itemSelector) => {
+                    const listContainer = document.querySelector(listSelector);
+                    if (!listContainer) return [];
+                    
+                    const items = [];
+                    const itemElements = listContainer.querySelectorAll(itemSelector);
+                    
+                    itemElements.forEach((item, index) => {
+                        const rect = item.getBoundingClientRect();
+                        const attrs = {};
+                        for (const attr of item.attributes) {
+                            attrs[attr.name] = attr.value;
+                        }
+                        
+                        // 提取子元素信息
+                        const links = Array.from(item.querySelectorAll('a')).map(a => ({
+                            text: (a.textContent || '').trim(),
+                            href: a.href || ''
+                        }));
+                        
+                        const images = Array.from(item.querySelectorAll('img')).map(img => ({
+                            src: img.src || '',
+                            alt: img.alt || ''
+                        }));
+                        
+                        items.push({
+                            index: index,
+                            text: (item.textContent || '').trim(),
+                            html: item.innerHTML,
+                            attributes: attrs,
+                            bounds: {
+                                x: rect.x,
+                                y: rect.y,
+                                width: rect.width,
+                                height: rect.height
+                            },
+                            links: links,
+                            images: images,
+                            classes: item.className ? item.className.split(' ').filter(c => c.trim()) : []
+                        });
+                    });
+                    
+                    return items;
+                }
+            ''', list_selector, item_selector)
+
+            self.logger.debug("List data extraction completed",
+                            list_selector=list_selector, items_count=len(list_data))
+            return list_data
+
+        except Exception as e:
+            self.logger.error("List data extraction failed", exception=e)
+            raise PageAnalysisError(f"List extraction failed: {str(e)}") from e
+
+    async def extract_metadata(self) -> Dict[str, str]:
+        """提取页面元数据"""
+        try:
+            metadata = await self.page.evaluate('''
+                () => {
+                    const meta = {};
+                    
+                    // 基础元数据
+                    meta.title = document.title || '';
+                    meta.url = window.location.href;
+                    meta.domain = window.location.hostname;
+                    meta.protocol = window.location.protocol;
+                    
+                    // Meta标签
+                    const metaTags = document.querySelectorAll('meta');
+                    metaTags.forEach(tag => {
+                        const name = tag.getAttribute('name') || tag.getAttribute('property') || tag.getAttribute('http-equiv');
+                        const content = tag.getAttribute('content');
+                        if (name && content) {
+                            meta[name] = content;
+                        }
+                    });
+                    
+                    // Link标签
+                    const linkTags = document.querySelectorAll('link[rel]');
+                    linkTags.forEach(link => {
+                        const rel = link.getAttribute('rel');
+                        const href = link.getAttribute('href');
+                        if (rel && href) {
+                            meta[`link_${rel}`] = href;
+                        }
+                    });
+                    
+                    // 语言和字符集
+                    meta.lang = document.documentElement.lang || '';
+                    meta.charset = document.characterSet || document.charset || '';
+                    
+                    // Open Graph
+                    const ogTags = document.querySelectorAll('meta[property^="og:"]');
+                    ogTags.forEach(tag => {
+                        const property = tag.getAttribute('property');
+                        const content = tag.getAttribute('content');
+                        if (property && content) {
+                            meta[property] = content;
+                        }
+                    });
+                    
+                    // Twitter Cards
+                    const twitterTags = document.querySelectorAll('meta[name^="twitter:"]');
+                    twitterTags.forEach(tag => {
+                        const name = tag.getAttribute('name');
+                        const content = tag.getAttribute('content');
+                        if (name && content) {
+                            meta[name] = content;
+                        }
+                    });
+                    
+                    return meta;
+                }
+            ''')
+
+            self.logger.debug("Metadata extraction completed", metadata_count=len(metadata))
+            return metadata
+
+        except Exception as e:
+            self.logger.error("Metadata extraction failed", exception=e)
+            return {'error': str(e)}
+
+    async def extract_dynamic_content(self, wait_selector: Optional[str] = None, timeout: int = 10000) -> Dict[str, Any]:
+        """提取动态加载的内容"""
+        try:
+            if wait_selector:
+                await self.page.wait_for_selector(wait_selector, timeout=timeout)
+
+            return await self._extract_dynamic_content()
+
+        except Exception as e:
+            self.logger.warning("Dynamic content extraction failed", exception=e)
+            return {'error': str(e)}
 
     async def find_similar_elements(self, reference_element: PageElement, similarity_threshold: float = 0.8) -> List[PageElement]:
         """查找相似元素"""
         try:
-            if not self.page:
-                return []
+            await self._check_time_budget()
 
-            # 简化实现：基于标签名和属性查找相似元素
-            similar_elements = []
-
-            # 构建查找条件
-            criteria = {
-                'tag_name': reference_element.attributes.tag_name
-            }
+            # 获取参考元素的特征
+            ref_tag = reference_element.attributes.tag_name
+            ref_classes = reference_element.attributes.class_name.split() if reference_element.attributes.class_name else []
+            ref_text_length = len(reference_element.text_content)
 
             # 查找相同标签的元素
-            matched_elements = await self.match_elements(criteria)
+            if self.config.use_locator_api:
+                locator = self.page.locator(ref_tag)
+                count = await locator.count()
 
-            for element in matched_elements:
-                # 计算相似度（简化实现）
-                similarity = self._calculate_similarity(reference_element, element)
-                if similarity >= similarity_threshold:
-                    similar_elements.append(element)
+                similar_elements = []
+                for i in range(min(count, self.config.max_elements)):
+                    element_locator = locator.nth(i)
+                    element_data = await self._extract_element_from_locator(element_locator, f"{ref_tag}[{i}]")
 
-            return similar_elements
+                    if element_data:
+                        similarity = self._calculate_similarity(reference_element, element_data)
+                        if similarity >= similarity_threshold:
+                            similar_elements.append(element_data)
+
+                return similar_elements
+            else:
+                return []
 
         except Exception as e:
-            if self.debug_mode:
-                print(f"⚠️ 查找相似元素失败: {e}")
+            self.logger.error("Similar elements search failed", exception=e)
             return []
 
     async def match_by_pattern(self, pattern: Dict[str, Any]) -> List[PageElement]:
         """根据模式匹配元素"""
         try:
-            if not self.page:
-                return []
+            await self._check_time_budget()
 
-            # 根据模式类型进行匹配
             pattern_type = pattern.get('type', 'selector')
 
             if pattern_type == 'selector':
-                selector = pattern.get('selector')
-                if selector:
-                    elements = await self.page.query_selector_all(selector)
-                    matched_elements = []
-                    for i, element in enumerate(elements):
-                        page_element = await self._create_page_element(element, f"{selector}[{i}]")
-                        matched_elements.append(page_element)
-                    return matched_elements
+                selector = pattern.get('selector', '')
+                return await self.extract_elements(selector)
 
             elif pattern_type == 'text_pattern':
-                text_pattern = pattern.get('pattern')
-                if text_pattern:
-                    return await self.match_by_text(text_pattern, exact=False)
+                text_pattern = pattern.get('pattern', '')
+                exact = pattern.get('exact', False)
+                return await self.match_by_text(text_pattern, exact)
 
             elif pattern_type == 'attribute_pattern':
                 attributes = pattern.get('attributes', {})
-                return await self.match_by_attributes(attributes)
+                selector_parts = []
+                for attr, value in attributes.items():
+                    selector_parts.append(f'[{attr}="{value}"]')
+                selector = ''.join(selector_parts)
+                return await self.extract_elements(selector)
 
-            return []
+            elif pattern_type == 'css_class':
+                class_name = pattern.get('class_name', '')
+                selector = f'.{class_name}'
+                return await self.extract_elements(selector)
+
+            else:
+                self.logger.warning("Unknown pattern type", pattern_type=pattern_type)
+                return []
 
         except Exception as e:
-            if self.debug_mode:
-                print(f"⚠️ 模式匹配失败: {e}")
+            self.logger.error("Pattern matching failed", exception=e)
             return []
 
     async def classify_elements(self, elements: List[PageElement]) -> Dict[str, List[PageElement]]:
-        """分类元素"""
+        """对元素进行分类"""
         try:
             classification = {
                 'interactive': [],
@@ -1420,58 +1480,242 @@ class DOMElementMatcher(IElementMatcher):
                 tag_name = element.attributes.tag_name.lower()
 
                 # 交互元素
-                if tag_name in ['button', 'input', 'select', 'textarea', 'a']:
+                if tag_name in ['button', 'input', 'select', 'textarea', 'a'] or \
+                   any(attr.startswith('on') for attr in element.attributes.custom_attributes.keys()):
                     classification['interactive'].append(element)
+
                 # 文本元素
-                elif tag_name in ['p', 'span', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+                elif tag_name in ['p', 'span', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li'] and \
+                     element.text_content.strip():
                     classification['text'].append(element)
+
                 # 媒体元素
-                elif tag_name in ['img', 'video', 'audio', 'canvas']:
+                elif tag_name in ['img', 'video', 'audio', 'canvas', 'svg']:
                     classification['media'].append(element)
+
                 # 表单元素
                 elif tag_name in ['form', 'fieldset', 'legend', 'label']:
                     classification['form'].append(element)
+
                 # 导航元素
-                elif tag_name in ['nav', 'menu', 'menuitem']:
+                elif tag_name in ['nav', 'menu', 'menuitem'] or \
+                     'nav' in element.attributes.class_name.lower():
                     classification['navigation'].append(element)
+
                 # 容器元素
                 elif tag_name in ['div', 'section', 'article', 'aside', 'header', 'footer', 'main']:
                     classification['container'].append(element)
+
                 else:
                     classification['other'].append(element)
+
+            self.logger.debug("Element classification completed",
+                            total_elements=len(elements),
+                            interactive=len(classification['interactive']),
+                            text=len(classification['text']),
+                            media=len(classification['media']))
 
             return classification
 
         except Exception as e:
-            if self.debug_mode:
-                print(f"⚠️ 元素分类失败: {e}")
+            self.logger.error("Element classification failed", exception=e)
             return {}
 
-    async def detect_interactive_elements(self, page_elements: List[PageElement]) -> List[PageElement]:
-        """检测交互元素"""
+    async def detect_interactive_elements(self) -> List[PageElement]:
+        """检测可交互元素"""
         try:
-            interactive_elements = []
+            await self._check_time_budget()
 
-            for element in page_elements:
-                tag_name = element.attributes.tag_name.lower()
+            interactive_data = await self.page.evaluate(f'''
+                () => {{
+                    const interactiveElements = [];
+                    const selectors = [
+                        'button',
+                        'input[type="button"]',
+                        'input[type="submit"]',
+                        'input[type="reset"]',
+                        'a[href]',
+                        'select',
+                        'textarea',
+                        'input[type="text"]',
+                        'input[type="email"]',
+                        'input[type="password"]',
+                        'input[type="checkbox"]',
+                        'input[type="radio"]',
+                        '[onclick]',
+                        '[role="button"]',
+                        '[tabindex]'
+                    ];
+                    
+                    selectors.forEach(selector => {{
+                        const elements = Array.from(document.querySelectorAll(selector));
+                        elements.slice(0, {self.config.max_elements}).forEach((el, index) => {{
+                            const rect = el.getBoundingClientRect();
+                            
+                            // 检查是否真正可交互
+                            const isVisible = !!(rect.width || rect.height);
+                            const isEnabled = !el.disabled;
+                            const isClickable = isVisible && isEnabled;
+                            
+                            if (isClickable) {{
+                                const attrs = {{}};
+                                for (const attr of el.attributes) {{
+                                    attrs[attr.name] = attr.value;
+                                }}
+                                
+                                interactiveElements.push({{
+                                    selector: `${{el.tagName.toLowerCase()}}:nth-of-type(${{index + 1}})`,
+                                    tag_name: el.tagName.toLowerCase(),
+                                    text_content: (el.textContent || '').trim().slice(0, 100),
+                                    attributes: attrs,
+                                    bounds: {{
+                                        x: rect.x,
+                                        y: rect.y,
+                                        width: rect.width,
+                                        height: rect.height
+                                    }},
+                                    state: {{
+                                        visible: isVisible,
+                                        enabled: isEnabled,
+                                        focused: document.activeElement === el
+                                    }},
+                                    interaction_type: el.tagName.toLowerCase() === 'a' ? 'link' : 
+                                                    el.tagName.toLowerCase() === 'button' ? 'button' : 
+                                                    el.type || 'interactive'
+                                }});
+                            }}
+                        }});
+                    }});
+                    
+                    // 去重
+                    const unique = [];
+                    const seen = new Set();
+                    interactiveElements.forEach(el => {{
+                        const key = `${{el.tag_name}}-${{el.bounds.x}}-${{el.bounds.y}}`;
+                        if (!seen.has(key)) {{
+                            seen.add(key);
+                            unique.push(el);
+                        }}
+                    }});
+                    
+                    return unique.slice(0, {self.config.max_elements});
+                }}
+            ''')
 
-                # 检查是否为交互元素
-                if tag_name in ['button', 'input', 'select', 'textarea', 'a']:
-                    interactive_elements.append(element)
-                # 检查是否有点击事件属性
-                elif any(attr.startswith('on') for attr in element.attributes.attributes.keys()):
-                    interactive_elements.append(element)
-                # 检查是否有特定的CSS类或属性
-                elif any(keyword in str(element.attributes.attributes.get('class', '')).lower()
-                        for keyword in ['button', 'click', 'link', 'interactive']):
-                    interactive_elements.append(element)
+            elements = []
+            for interactive_info in interactive_data:
+                element = self._create_page_element_from_dict(interactive_info, interactive_info['selector'])
+                elements.append(element)
 
-            return interactive_elements
+            self.logger.debug("Interactive elements detection completed",
+                            interactive_count=len(elements))
+            return elements
 
         except Exception as e:
-            if self.debug_mode:
-                print(f"⚠️ 检测交互元素失败: {e}")
+            self.logger.error("Interactive elements detection failed", exception=e)
             return []
+
+    async def validate_element_state(self, element: PageElement, expected_states: List[str]) -> bool:
+        """验证元素状态"""
+        try:
+            # 将字符串状态转换为ElementState枚举
+            expected_state_enums = []
+            for state_str in expected_states:
+                try:
+                    state_enum = ElementState(state_str.lower())
+                    expected_state_enums.append(state_enum)
+                except ValueError:
+                    self.logger.warning("Unknown element state", state=state_str)
+                    continue
+
+            # 检查元素是否具有所有期望状态
+            for expected_state in expected_state_enums:
+                if not element.has_state(expected_state):
+                    return False
+
+            return True
+
+        except Exception as e:
+            self.logger.error("Element state validation failed", exception=e)
+            return False
+
+    async def validate_content(self, validation_rules: Dict[str, Any]) -> Dict[str, bool]:
+        """验证页面内容"""
+        try:
+            results = {}
+
+            for rule_name, rule_config in validation_rules.items():
+                try:
+                    rule_type = rule_config.get('type', 'exists')
+                    selector = rule_config.get('selector', '')
+
+                    if rule_type == 'exists':
+                        # 验证元素存在
+                        element_exists = await self.page.query_selector(selector) is not None
+                        results[rule_name] = element_exists
+
+                    elif rule_type == 'count':
+                        # 验证元素数量
+                        elements = await self.page.query_selector_all(selector)
+                        expected_count = rule_config.get('expected_count', 1)
+                        results[rule_name] = len(elements) == expected_count
+
+                    elif rule_type == 'text_contains':
+                        # 验证文本包含
+                        element = await self.page.query_selector(selector)
+                        if element:
+                            text = await element.text_content()
+                            expected_text = rule_config.get('expected_text', '')
+                            results[rule_name] = expected_text in (text or '')
+                        else:
+                            results[rule_name] = False
+
+                    elif rule_type == 'attribute_value':
+                        # 验证属性值
+                        element = await self.page.query_selector(selector)
+                        if element:
+                            attr_name = rule_config.get('attribute', '')
+                            expected_value = rule_config.get('expected_value', '')
+                            actual_value = await element.get_attribute(attr_name)
+                            results[rule_name] = actual_value == expected_value
+                        else:
+                            results[rule_name] = False
+
+                    else:
+                        self.logger.warning("Unknown validation rule type", rule_type=rule_type)
+                        results[rule_name] = False
+
+                except Exception as rule_error:
+                    self.logger.error("Validation rule failed",
+                                    rule_name=rule_name, exception=rule_error)
+                    results[rule_name] = False
+
+            self.logger.debug("Content validation completed",
+                            total_rules=len(validation_rules),
+                            passed_rules=sum(results.values()))
+            return results
+
+        except Exception as e:
+            self.logger.error("Content validation failed", exception=e)
+            return {}
+
+    async def check_accessibility(self) -> Dict[str, Any]:
+        """检查页面可访问性"""
+        return await self._extract_accessibility_info()
+
+    # 工具方法
+    def _is_valid_text(self, text: str) -> bool:
+        """验证文本是否有效"""
+        if not text or len(text.strip()) < 3:
+            return False
+
+        # 检查黑名单模式
+        import re
+        for pattern in self.config.text_blacklist_patterns:
+            if re.match(pattern, text.strip()):
+                return False
+
+        return True
 
     def _calculate_similarity(self, element1: PageElement, element2: PageElement) -> float:
         """计算元素相似度"""
@@ -1479,318 +1723,212 @@ class DOMElementMatcher(IElementMatcher):
             similarity_score = 0.0
             total_factors = 0
 
-            # 标签名相似度
+            # 标签名相似度 (30%)
             if element1.attributes.tag_name == element2.attributes.tag_name:
                 similarity_score += 0.3
             total_factors += 0.3
 
-            # 文本内容相似度
+            # 文本内容相似度 (40%)
             if element1.text_content and element2.text_content:
-                text_similarity = len(set(element1.text_content.split()) &
-                                    set(element2.text_content.split())) / max(
-                    len(element1.text_content.split()),
-                    len(element2.text_content.split()), 1)
-                similarity_score += text_similarity * 0.4
+                text1_words = set(element1.text_content.lower().split())
+                text2_words = set(element2.text_content.lower().split())
+                if text1_words or text2_words:
+                    text_similarity = len(text1_words & text2_words) / len(text1_words | text2_words)
+                    similarity_score += text_similarity * 0.4
             total_factors += 0.4
 
-            # 属性相似度
-            attrs1 = set(element1.attributes.attributes.keys())
-            attrs2 = set(element2.attributes.attributes.keys())
-            if attrs1 or attrs2:
-                attr_similarity = len(attrs1 & attrs2) / max(len(attrs1 | attrs2), 1)
-                similarity_score += attr_similarity * 0.3
-            total_factors += 0.3
+            # 类名相似度 (20%)
+            class1 = set(element1.attributes.class_name.split()) if element1.attributes.class_name else set()
+            class2 = set(element2.attributes.class_name.split()) if element2.attributes.class_name else set()
+            if class1 or class2:
+                class_similarity = len(class1 & class2) / len(class1 | class2) if (class1 | class2) else 0
+                similarity_score += class_similarity * 0.2
+            total_factors += 0.2
+
+            # 尺寸相似度 (10%)
+            if element1.bounds and element2.bounds:
+                size1 = element1.bounds.width * element1.bounds.height
+                size2 = element2.bounds.width * element2.bounds.height
+                if size1 > 0 and size2 > 0:
+                    size_ratio = min(size1, size2) / max(size1, size2)
+                    similarity_score += size_ratio * 0.1
+            total_factors += 0.1
 
             return similarity_score / total_factors if total_factors > 0 else 0.0
 
         except Exception as e:
-            if self.debug_mode:
-                print(f"⚠️ 计算相似度失败: {e}")
+            self.logger.warning("Similarity calculation failed", exception=e)
             return 0.0
 
-    async def _matches_criteria(self, element: PageElement, criteria: Dict[str, Any]) -> bool:
-        """检查元素是否匹配条件"""
+    def _calculate_max_depth(self, node: Dict[str, Any], current_depth: int = 0) -> int:
+        """计算层级结构的最大深度"""
+        max_depth = current_depth
+        for child in node.get('children', []):
+            child_depth = self._calculate_max_depth(child, current_depth + 1)
+            max_depth = max(max_depth, child_depth)
+        return max_depth
+
+    # 遗留方法（向后兼容）
+    async def _extract_elements_legacy(self) -> List[Dict[str, Any]]:
+        """遗留的元素提取方法（使用传统query_selector_all）"""
         try:
-            # 文本内容匹配
-            if 'text_contains' in criteria:
-                if criteria['text_contains'] not in element.text_content:
-                    return False
+            elements = await self.page.query_selector_all('*')
+            elements_data = []
 
-            if 'text_exact' in criteria:
-                if element.text_content.strip() != criteria['text_exact']:
-                    return False
+            for i, element in enumerate(elements[:self.config.max_elements]):
+                try:
+                    # 获取基本信息
+                    tag_name = await element.evaluate('el => el.tagName.toLowerCase()')
+                    text_content = await element.text_content() or ""
+                    inner_html = await element.inner_html()
 
-            # 标签名匹配
-            if 'tag_name' in criteria:
-                if element.attributes.tag_name != criteria['tag_name']:
-                    return False
+                    # 获取属性
+                    attributes = await element.evaluate('''
+                        el => {
+                            const attrs = {};
+                            for (const attr of el.attributes) {
+                                attrs[attr.name] = attr.value;
+                            }
+                            return attrs;
+                        }
+                    ''')
 
-            # 属性匹配
-            if 'attributes' in criteria:
-                for attr_name, attr_value in criteria['attributes'].items():
-                    element_attr_value = element.attributes.get_attribute(attr_name)
-                    if element_attr_value != attr_value:
-                        return False
+                    # 获取边界
+                    bounding_box = await element.bounding_box()
+                    bounds = {
+                        'x': bounding_box['x'] if bounding_box else 0,
+                        'y': bounding_box['y'] if bounding_box else 0,
+                        'width': bounding_box['width'] if bounding_box else 0,
+                        'height': bounding_box['height'] if bounding_box else 0
+                    }
 
-            # 状态匹配
-            if 'states' in criteria:
-                for state_name in criteria['states']:
-                    try:
-                        state_enum = ElementStateEnum(state_name)
-                        if not element.has_state(state_enum):
-                            return False
-                    except ValueError:
-                        # 未知状态，跳过
+                    # 获取状态
+                    is_visible = await element.is_visible()
+                    is_enabled = await element.is_enabled()
+
+                    elements_data.append({
+                        'selector': f"{tag_name}:nth-of-type({i+1})",
+                        'tag_name': tag_name,
+                        'text_content': text_content.strip()[:200],
+                        'inner_html': inner_html[:500] if inner_html else '',
+                        'attributes': attributes,
+                        'bounds': bounds,
+                        'state': {
+                            'visible': is_visible,
+                            'enabled': is_enabled
+                        }
+                    })
+
+                except Exception as element_error:
+                    self.logger.warning("Failed to extract element",
+                                      index=i, exception=element_error)
+                    continue
+
+            return elements_data
+
+        except Exception as e:
+            self.logger.error("Legacy element extraction failed", exception=e)
+            return []
+
+    async def _extract_elements_legacy_method(self, selector: str, element_type: Optional[str] = None) -> ElementCollection:
+        """遗留的元素提取方法"""
+        try:
+            elements = await self.page.query_selector_all(selector)
+            page_elements = []
+
+            for i, element in enumerate(elements[:self.config.max_elements]):
+                try:
+                    # 使用传统方法创建PageElement
+                    tag_name = await element.evaluate('el => el.tagName.toLowerCase()')
+                    text_content = await element.text_content() or ""
+
+                    # 创建基本的PageElement
+                    attributes = ElementAttributes(tag_name=tag_name)
+                    bounds = ElementBounds(x=0, y=0, width=0, height=0)
+
+                    page_element = PageElement(
+                        selector=f"{selector}[{i}]",
+                        attributes=attributes,
+                        text_content=text_content.strip(),
+                        bounds=bounds
+                    )
+
+                    # 过滤元素类型
+                    if element_type and page_element.element_type.value != element_type:
                         continue
 
-            # 元素类型匹配
-            if 'element_type' in criteria:
+                    page_elements.append(page_element)
+
+                except Exception as element_error:
+                    self.logger.warning("Failed to create PageElement",
+                                      index=i, exception=element_error)
+                    continue
+
+            return ElementCollection(
+                elements=page_elements,
+                selector=selector,
+                total_count=len(elements)
+            )
+
+        except Exception as e:
+            self.logger.error("Legacy element extraction method failed", exception=e)
+            return ElementCollection(elements=[], selector=selector)
+
+    async def _match_by_text_legacy(self, text: str, exact: bool = False) -> List[PageElement]:
+        """遗留的文本匹配方法（使用XPath）"""
+        try:
+            if exact:
+                xpath = f'//*[text()="{text}"]'
+            else:
+                xpath = f'//*[contains(text(), "{text}")]'
+
+            elements = await self.page.query_selector_all(f'xpath={xpath}')
+            page_elements = []
+
+            for i, element in enumerate(elements[:self.config.max_elements]):
                 try:
-                    expected_type = ElementType(criteria['element_type'])
-                    if element.element_type != expected_type:
-                        return False
-                except ValueError:
-                    # 未知类型，跳过
-                    pass
+                    tag_name = await element.evaluate('el => el.tagName.toLowerCase()')
+                    text_content = await element.text_content() or ""
 
-            # 位置匹配
-            if 'bounds' in criteria and element.bounds:
-                bounds_criteria = criteria['bounds']
-                if 'min_width' in bounds_criteria:
-                    if element.bounds.width < bounds_criteria['min_width']:
-                        return False
-                if 'min_height' in bounds_criteria:
-                    if element.bounds.height < bounds_criteria['min_height']:
-                        return False
-                if 'max_width' in bounds_criteria:
-                    if element.bounds.width > bounds_criteria['max_width']:
-                        return False
-                if 'max_height' in bounds_criteria:
-                    if element.bounds.height > bounds_criteria['max_height']:
-                        return False
+                    attributes = ElementAttributes(tag_name=tag_name)
+                    bounds = ElementBounds(x=0, y=0, width=0, height=0)
 
-            # 自定义匹配函数
-            if 'custom_matcher' in criteria:
-                custom_func = criteria['custom_matcher']
-                if callable(custom_func):
-                    return custom_func(element)
+                    page_element = PageElement(
+                        selector=f"xpath-text-match-{i}",
+                        attributes=attributes,
+                        text_content=text_content.strip(),
+                        bounds=bounds
+                    )
 
-            return True
+                    page_elements.append(page_element)
+
+                except Exception as element_error:
+                    self.logger.warning("Failed to create PageElement from text match",
+                                      index=i, exception=element_error)
+                    continue
+
+            return page_elements
 
         except Exception as e:
-            if self.debug_mode:
-                print(f"⚠️ 条件匹配失败: {e}")
-            return False
+            self.logger.error("Legacy text matching failed", exception=e)
+            return []
 
 
-class DOMPageValidator(IPageValidator):
-    """DOM页面验证器实现"""
-    
-    def __init__(self, page: Page = None, debug_mode: bool = False):
-        self.page = page
-        self.debug_mode = debug_mode
+# ========================================
+# 🔄 向后兼容别名
+# ========================================
 
-    async def validate_page(self, validation_rules: Dict[str, Any]) -> Dict[str, Any]:
-        """验证页面"""
-        try:
-            validation_results = {}
-            
-            for rule_name, rule_config in validation_rules.items():
-                try:
-                    result = await self._validate_by_rule(rule_config)
-                    validation_results[rule_name] = result
-                except Exception as e:
-                    if self.debug_mode:
-                        print(f"⚠️ 验证规则{rule_name}失败: {e}")
-                    validation_results[rule_name] = {
-                        'valid': False,
-                        'error': str(e)
-                    }
-            
-            return validation_results
-            
-        except Exception as e:
-            print(f"⚠️ 页面验证失败: {e}")
-            return {}
+# 为了保持向后兼容性，提供旧的类名别名
+DOMPageAnalyzer = OptimizedDOMPageAnalyzer
+DOMContentExtractor = OptimizedDOMPageAnalyzer  # 同一个类实现多个接口
+DOMElementMatcher = OptimizedDOMPageAnalyzer    # 同一个类实现多个接口
+DOMPageValidator = OptimizedDOMPageAnalyzer     # 同一个类实现多个接口
 
-    async def validate_page_structure(self) -> Dict[str, Any]:
-        """验证页面结构"""
-        try:
-            structure_validation = await self.page.evaluate('''
-                () => {
-                    const validation = {
-                        has_doctype: !!document.doctype,
-                        has_html_tag: !!document.documentElement,
-                        has_head_tag: !!document.head,
-                        has_body_tag: !!document.body,
-                        has_title: !!document.title && document.title.trim().length > 0,
-                        has_meta_charset: !!document.querySelector('meta[charset]'),
-                        has_viewport_meta: !!document.querySelector('meta[name="viewport"]'),
-                        total_elements: document.querySelectorAll('*').length,
-                        errors: []
-                    };
-                    
-                    // 检查常见问题
-                    if (!validation.has_title) {
-                        validation.errors.push('页面缺少标题');
-                    }
-                    
-                    if (!validation.has_meta_charset) {
-                        validation.errors.push('页面缺少字符集声明');
-                    }
-                    
-                    return validation;
-                }
-            ''')
-            
-            return {
-                'valid': len(structure_validation['errors']) == 0,
-                'details': structure_validation
-            }
-            
-        except Exception as e:
-            print(f"⚠️ 页面结构验证失败: {e}")
-            return {'valid': False, 'error': str(e)}
-
-    async def validate_accessibility(self) -> Dict[str, Any]:
-        """验证可访问性"""
-        try:
-            accessibility_validation = await self.page.evaluate('''
-                () => {
-                    const validation = {
-                        images_with_alt: 0,
-                        images_without_alt: 0,
-                        links_with_text: 0,
-                        links_without_text: 0,
-                        form_inputs_with_labels: 0,
-                        form_inputs_without_labels: 0,
-                        errors: []
-                    };
-                    
-                    // 检查图片alt属性
-                    document.querySelectorAll('img').forEach(img => {
-                        if (img.alt && img.alt.trim()) {
-                            validation.images_with_alt++;
-                        } else {
-                            validation.images_without_alt++;
-                        }
-                    });
-                    
-                    // 检查链接文本
-                    document.querySelectorAll('a').forEach(link => {
-                        if (link.textContent && link.textContent.trim()) {
-                            validation.links_with_text++;
-                        } else {
-                            validation.links_without_text++;
-                        }
-                    });
-                    
-                    // 检查表单标签
-                    document.querySelectorAll('input, textarea, select').forEach(input => {
-                        const id = input.id;
-                        const hasLabel = id && document.querySelector(`label[for="${id}"]`);
-                        if (hasLabel) {
-                            validation.form_inputs_with_labels++;
-                        } else {
-                            validation.form_inputs_without_labels++;
-                        }
-                    });
-                    
-                    return validation;
-                }
-            ''')
-            
-            return {
-                'valid': True,  # 可访问性问题通常不是致命的
-                'details': accessibility_validation
-            }
-            
-        except Exception as e:
-            print(f"⚠️ 可访问性验证失败: {e}")
-            return {'valid': False, 'error': str(e)}
-
-    async def validate_content(self, validation_rules: Dict[str, Any]) -> Dict[str, Any]:
-        """验证内容"""
-        return await self.validate_page(validation_rules)
-
-    async def validate_element_state(self, element_selector: str, expected_states: List[str]) -> Dict[str, Any]:
-        """验证元素状态"""
-        try:
-            if not self.page:
-                return {'valid': False, 'error': 'Page not available'}
-
-            element = await self.page.query_selector(element_selector)
-            if not element:
-                return {'valid': False, 'message': f'Element {element_selector} not found'}
-
-            # 检查元素状态
-            actual_states = []
-            if await element.is_visible():
-                actual_states.append('visible')
-            if await element.is_enabled():
-                actual_states.append('enabled')
-
-            # 验证期望状态
-            missing_states = [state for state in expected_states if state not in actual_states]
-
-            return {
-                'valid': len(missing_states) == 0,
-                'actual_states': actual_states,
-                'expected_states': expected_states,
-                'missing_states': missing_states
-            }
-
-        except Exception as e:
-            return {'valid': False, 'error': str(e)}
-
-    async def validate_page_load(self, timeout: int = 30) -> Dict[str, Any]:
-        """验证页面加载"""
-        try:
-            if not self.page:
-                return {'valid': False, 'error': 'Page not available'}
-
-            # 等待页面加载完成
-            await self.page.wait_for_load_state('networkidle', timeout=timeout * 1000)
-
-            # 检查页面基本结构
-            title = await self.page.title()
-            url = self.page.url
-
-            return {
-                'valid': True,
-                'title': title,
-                'url': url,
-                'load_time': timeout  # 简化实现
-            }
-
-        except Exception as e:
-            return {'valid': False, 'error': str(e)}
-
-    async def check_accessibility(self) -> Dict[str, Any]:
-        """检查可访问性"""
-        return await self.validate_accessibility()
-
-    async def _validate_by_rule(self, rule_config: Dict[str, Any]) -> Dict[str, Any]:
-        """根据规则验证"""
-        if not self.page:
-            return {'valid': False, 'error': 'Page not available'}
-
-        rule_type = rule_config.get('type', 'exists')
-        selector = rule_config.get('selector')
-        
-        if rule_type == 'exists':
-            element = await self.page.query_selector(selector)
-            return {
-                'valid': element is not None,
-                'message': f"元素 {selector} {'存在' if element else '不存在'}"
-            }
-        elif rule_type == 'count':
-            elements = await self.page.query_selector_all(selector)
-            expected_count = rule_config.get('expected_count', 1)
-            actual_count = len(elements)
-            return {
-                'valid': actual_count == expected_count,
-                'message': f"元素 {selector} 期望数量: {expected_count}, 实际数量: {actual_count}"
-            }
-        else:
-            return {'valid': False, 'message': f"未知验证类型: {rule_type}"}
+__all__ = [
+    'OptimizedDOMPageAnalyzer',
+    'AnalysisConfig',
+    'DOMPageAnalyzer',
+    'DOMContentExtractor',
+    'DOMElementMatcher',
+    'DOMPageValidator'
+]

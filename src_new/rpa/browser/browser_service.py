@@ -1,336 +1,107 @@
 """
-🎯 BrowserService 优化版本
-根据五个维度进行全面重构：功能对等、性能优化、编码规范、稳定性、可维护性
+浏览器服务门面
 
-主要改进：
-1. 统一 Edge/Chrome 支持和持久化上下文策略
-2. 去掉高风险启动参数，确保硬件加速
-3. 异步接口一致化，统一日志系统
-4. Profile 锁冲突检测和优雅处理
-5. 跨平台兼容性和资源管理
+本模块提供统一的浏览器服务入口，作为门面模式集成：
+- 浏览器驱动能力（委托给具体实现）
+- 页面管理能力
+- 资源管理能力
+- 日志记录能力
+- 配置管理能力
+
+BrowserService 不直接实现任何 Playwright 操作，而是作为门面协调各个组件。
 """
 
 import asyncio
-import json
-import locale as system_locale
-import os
-import platform
-import signal
-import subprocess
-import time
-from pathlib import Path
-from typing import Any, Dict, Optional, Union, List
 from concurrent.futures import ThreadPoolExecutor
-
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 from .core.interfaces.browser_driver import IBrowserDriver
-from .implementations.logger_system import LoggerSystem
-from .implementations.config_manager import ConfigManager
+from .core.interfaces.config_manager import IConfigManager
+from .core.interfaces.page_analyzer import IPageAnalyzer, IContentExtractor, IElementMatcher, IPageValidator
+from .core.interfaces.paginator import IPaginator, IDataExtractor, IPaginationStrategy, IScrollPaginator, ILoadMorePaginator, PaginationType, PaginationDirection
+from .core.models.page_element import PageElement, ElementCollection
+from .core.exceptions.browser_exceptions import PageAnalysisError
 
 
 class BrowserService:
     """
-    🎯 优化的浏览器服务类
+    浏览器服务门面
     
-    统一支持 Edge 和 Chrome，提供一致的持久化上下文策略
+    作为统一入口协调各个组件：
+    - 浏览器驱动：委托给 PlaywrightBrowserDriver
+    - 页面管理：委托给 PageManager
+    - 资源管理：委托给 ResourceManager
+    - 配置管理：集成 ConfigManager
+    - 日志记录：集成 LoggerSystem
     """
 
-    def __init__(self, config: Optional[Dict] = None):
-        """初始化浏览器服务"""
-        self._logger = LoggerSystem()
-        self._config_manager = ConfigManager()
-        self._executor = ThreadPoolExecutor(max_workers=2)
+    def __init__(self,
+                 config_manager: Optional[IConfigManager] = None,
+                 browser_driver: Optional[IBrowserDriver] = None,
+                 page_analyzer: Optional[IPageAnalyzer] = None,
+                 content_extractor: Optional[IContentExtractor] = None,
+                 element_matcher: Optional[IElementMatcher] = None,
+                 page_validator: Optional[IPageValidator] = None,
+                 paginator: Optional[IPaginator] = None,
+                 data_extractor: Optional[IDataExtractor] = None,
+                 pagination_strategy: Optional[IPaginationStrategy] = None):
+        """
+        初始化浏览器服务门面（支持完整的依赖注入）
+
+        Args:
+            config_manager: 配置管理器实例
+            browser_driver: 浏览器驱动实例
+            page_analyzer: 页面分析器实例
+            content_extractor: 内容提取器实例
+            element_matcher: 元素匹配器实例
+            page_validator: 页面验证器实例
+            paginator: 分页器实例
+            data_extractor: 数据提取器实例
+            pagination_strategy: 分页策略实例
+        """
+        # 配置和日志
+        if config_manager is None:
+            # 动态导入具体实现，避免循环依赖
+            from .implementations.config_manager import ConfigManager
+            self.config_manager = ConfigManager()
+        else:
+            self.config_manager = config_manager
+
+        # 配置将在initialize方法中异步加载
+        self.config = {}
+
+        # 动态导入日志系统，避免循环依赖
+        from .implementations.logger_system import get_logger
+        self._logger = get_logger("BrowserService")
         
-        # 配置参数
-        self.config = config or {}
+        # 浏览器驱动（依赖接口抽象，支持依赖注入）
+        self._browser_driver: Optional[IBrowserDriver] = browser_driver
         
-        # Playwright 相关
-        self.playwright: Optional[Playwright] = None
-        self.browser: Optional[Browser] = None
-        self.context: Optional[BrowserContext] = None
-        self.page: Optional[Page] = None
-        
+        # 页面分析器（依赖接口抽象，支持依赖注入）
+        self._page_analyzer: Optional[IPageAnalyzer] = page_analyzer
+        self._content_extractor: Optional[IContentExtractor] = content_extractor
+        self._element_matcher: Optional[IElementMatcher] = element_matcher
+        self._page_validator: Optional[IPageValidator] = page_validator
+
+        # 分页器接口（支持依赖注入）
+        self._paginator: Optional[IPaginator] = paginator
+        self._data_extractor: Optional[IDataExtractor] = data_extractor
+        self._pagination_strategy: Optional[IPaginationStrategy] = pagination_strategy
+
         # 状态管理
         self._initialized = False
-        self._is_persistent_context = False
-        self._main_loop = None  # 记录主事件循环
-
-        # 日志器
-        self._logger_instance = self._logger.get_logger()
+        self._executor = ThreadPoolExecutor(max_workers=2)
+        
+        self._logger.info("BrowserService facade initialized")
 
     # ========================================
-    # 🔧 跨平台用户目录获取（统一 Edge/Chrome）
-    # ========================================
-
-    @staticmethod
-    def get_browser_user_data_dir(browser_type: str) -> str:
-        """
-        获取浏览器用户数据根目录
-        
-        Args:
-            browser_type: 'edge' 或 'chrome'
-            
-        Returns:
-            str: 用户数据根目录路径
-        """
-        system = platform.system().lower()
-        
-        if browser_type == 'edge':
-            if system == 'windows':
-                return os.path.expanduser('~/AppData/Local/Microsoft/Edge/User Data')
-            elif system == 'darwin':  # macOS
-                return os.path.expanduser('~/Library/Application Support/Microsoft Edge')
-            elif system == 'linux':
-                return os.path.expanduser('~/.config/microsoft-edge')
-        
-        elif browser_type == 'chrome':
-            if system == 'windows':
-                return os.path.expanduser('~/AppData/Local/Google/Chrome/User Data')
-            elif system == 'darwin':  # macOS
-                return os.path.expanduser('~/Library/Application Support/Google/Chrome')
-            elif system == 'linux':
-                return os.path.expanduser('~/.config/google-chrome')
-        
-        raise ValueError(f"Unsupported browser type: {browser_type}")
-
-    @staticmethod
-    def get_last_used_profile(base_dir: str) -> str:
-        """
-        从 Local State 文件读取最近使用的 Profile
-
-        Args:
-            base_dir: 浏览器用户数据根目录
-
-        Returns:
-            str: 最近使用的 Profile 名称，失败时返回 "Default"
-        """
-        try:
-            local_state_path = Path(base_dir) / "Local State"
-            if local_state_path.exists():
-                data = json.loads(local_state_path.read_text(encoding="utf-8"))
-                return data.get("profile", {}).get("last_used", "Default")
-        except Exception:
-            pass
-        return "Default"
-
-    @staticmethod
-    def get_browser_profile_dir(browser_type: str, profile_name: str = "Default") -> str:
-        """
-        获取浏览器具体 Profile 目录
-        
-        Args:
-            browser_type: 'edge' 或 'chrome'
-            profile_name: Profile 名称，默认 "Default"
-            
-        Returns:
-            str: 具体 Profile 目录路径
-        """
-        base_dir = BrowserService.get_browser_user_data_dir(browser_type)
-        return str(Path(base_dir) / profile_name)
-
-    @staticmethod
-    def get_browser_channel(browser_type: str) -> Optional[str]:
-        """
-        获取浏览器 channel 参数
-        
-        Args:
-            browser_type: 'edge' 或 'chrome'
-            
-        Returns:
-            Optional[str]: channel 参数，Linux 上可能返回 None
-        """
-        system = platform.system().lower()
-        
-        if browser_type == 'edge':
-            if system in ['windows', 'darwin']:
-                return 'msedge'
-            else:  # Linux
-                return None  # 回退到 chromium
-        
-        elif browser_type == 'chrome':
-            if system in ['windows', 'darwin']:
-                return 'chrome'
-            else:  # Linux
-                return None  # 回退到 chromium
-        
-        return None
-
-    # ========================================
-    # 🔧 启动参数优化（去掉高风险参数）
-    # ========================================
-
-    @staticmethod
-    def get_minimal_launch_args(profile_name: str = "Default", enable_extensions: bool = True) -> List[str]:
-        """
-        获取最小稳定启动参数
-        
-        Args:
-            profile_name: Profile 名称
-            enable_extensions: 是否启用扩展
-            
-        Returns:
-            List[str]: 启动参数列表
-        """
-        args = [
-            "--no-first-run",
-            "--no-default-browser-check", 
-            "--disable-default-apps",
-            f"--profile-directory={profile_name}"
-        ]
-        
-        # 仅在明确需要时启用扩展
-        if enable_extensions:
-            args.extend([
-                "--enable-extensions",
-                "--disable-extensions-file-access-check"
-            ])
-        
-        return args
-
-    # ========================================
-    # 🔧 Profile 锁冲突检测和处理
-    # ========================================
-
-    def _check_profile_locks(self, profile_dir: str) -> List[str]:
-        """
-        检查 Profile 目录的锁文件
-        
-        Args:
-            profile_dir: Profile 目录路径
-            
-        Returns:
-            List[str]: 发现的锁文件列表
-        """
-        lock_files = [
-            "SingletonLock",
-            "SingletonCookie", 
-            "DevToolsActivePort",
-            "lockfile"
-        ]
-        
-        found_locks = []
-        profile_path = Path(profile_dir)
-        
-        for lock_file in lock_files:
-            lock_path = profile_path / lock_file
-            if lock_path.exists():
-                found_locks.append(str(lock_path))
-        
-        return found_locks
-
-    async def _wait_for_lock_release(self, profile_dir: str, timeout: int = 10) -> bool:
-        """
-        等待 Profile 锁文件释放
-        
-        Args:
-            profile_dir: Profile 目录路径
-            timeout: 超时时间（秒）
-            
-        Returns:
-            bool: 锁文件是否已释放
-        """
-        start_time = time.time()
-        
-        while time.time() - start_time < timeout:
-            locks = self._check_profile_locks(profile_dir)
-            if not locks:
-                return True
-            
-            self._logger_instance.info(f"Waiting for profile locks to release: {locks}")
-            await asyncio.sleep(1)
-        
-        return False
-
-    def _get_browser_processes(self, browser_type: str) -> List[int]:
-        """
-        获取浏览器进程 PID 列表
-        
-        Args:
-            browser_type: 'edge' 或 'chrome'
-            
-        Returns:
-            List[int]: 进程 PID 列表
-        """
-        pids = []
-        system = platform.system().lower()
-        
-        try:
-            if browser_type == 'edge':
-                if system == "windows":
-                    result = subprocess.run(
-                        ['tasklist', '/FI', 'IMAGENAME eq msedge.exe', '/FO', 'CSV'],
-                        capture_output=True, text=True, check=False
-                    )
-                    if result.returncode == 0:
-                        lines = result.stdout.strip().split('\n')
-                        for line in lines[1:]:
-                            if 'msedge.exe' in line:
-                                parts = line.split(',')
-                                if len(parts) >= 2:
-                                    pid = parts[1].strip('"')
-                                    if pid.isdigit():
-                                        pids.append(int(pid))
-                
-                elif system == "darwin":
-                    result = subprocess.run(
-                        ['pgrep', '-f', 'Microsoft Edge'],
-                        capture_output=True, text=True, check=False
-                    )
-                    if result.returncode == 0:
-                        for pid in result.stdout.strip().split('\n'):
-                            if pid.strip().isdigit():
-                                pids.append(int(pid.strip()))
-                
-                elif system == "linux":
-                    result = subprocess.run(
-                        ['pgrep', '-f', 'microsoft-edge'],
-                        capture_output=True, text=True, check=False
-                    )
-                    if result.returncode == 0:
-                        for pid in result.stdout.strip().split('\n'):
-                            if pid.strip().isdigit():
-                                pids.append(int(pid.strip()))
-            
-            elif browser_type == 'chrome':
-                if system == "windows":
-                    result = subprocess.run(
-                        ['tasklist', '/FI', 'IMAGENAME eq chrome.exe', '/FO', 'CSV'],
-                        capture_output=True, text=True, check=False
-                    )
-                    if result.returncode == 0:
-                        lines = result.stdout.strip().split('\n')
-                        for line in lines[1:]:
-                            if 'chrome.exe' in line:
-                                parts = line.split(',')
-                                if len(parts) >= 2:
-                                    pid = parts[1].strip('"')
-                                    if pid.isdigit():
-                                        pids.append(int(pid))
-                
-                elif system in ["darwin", "linux"]:
-                    process_name = 'Google Chrome' if system == "darwin" else 'chrome'
-                    result = subprocess.run(
-                        ['pgrep', '-f', process_name],
-                        capture_output=True, text=True, check=False
-                    )
-                    if result.returncode == 0:
-                        for pid in result.stdout.strip().split('\n'):
-                            if pid.strip().isdigit():
-                                pids.append(int(pid.strip()))
-        
-        except Exception as e:
-            self._logger_instance.error(f"Failed to get {browser_type} processes: {e}")
-        
-        return pids
-
-    # ========================================
-    # 🚀 统一初始化方法
+    # 🚀 门面初始化和生命周期管理
     # ========================================
 
     async def initialize(self) -> bool:
         """
-        异步初始化浏览器服务
+        初始化浏览器服务门面
         
         Returns:
             bool: 初始化是否成功
@@ -339,262 +110,77 @@ class BrowserService:
             return True
         
         try:
-            self._logger_instance.info("Initializing browser service...")
+            self._logger.info("Initializing browser service facade...")
             
-            # 启动 Playwright
-            self.playwright = await async_playwright().start()
+            # 异步加载配置
+            self.config = await self.config_manager.get_config()
+            if not self.config:
+                self.config = {}
+
+            # 创建浏览器驱动实例（如果没有注入的话）
+            if not self._browser_driver:
+                # 动态导入具体实现，避免循环依赖
+                from .implementations.playwright_browser_driver import PlaywrightBrowserDriver
+                self._browser_driver = PlaywrightBrowserDriver(self.config_manager)
             
-            # 记录主事件循环
-            self._main_loop = asyncio.get_event_loop()
-
-            # 获取配置
-            browser_type = self.config.get('browser_type', 'edge')
-            headless = self.config.get('headless', False)  # 默认 headful
-            enable_extensions = self.config.get('enable_extensions', True)
-            user_data_dir = self.config.get('user_data_dir')
-
-            # 智能 Profile 选择
-            if user_data_dir:
-                profile_dir = user_data_dir
-            else:
-                base_dir = self.get_browser_user_data_dir(browser_type)
-                profile_name = self.config.get('profile_name') or self.get_last_used_profile(base_dir)
-                profile_dir = str(Path(base_dir) / profile_name)
+            # 初始化浏览器驱动
+            success = await self._browser_driver.initialize()
+            if not success:
+                self._logger.error("Failed to initialize browser driver")
+                return False
             
-            # 检查 Profile 锁冲突
-            locks = self._check_profile_locks(profile_dir)
-            if locks:
-                self._logger_instance.warning(f"Profile directory has locks: {locks}")
-                
-                # 尝试等待锁释放
-                if not await self._wait_for_lock_release(profile_dir, timeout=5):
-                    self._logger_instance.error("Profile directory is locked, please close existing browser instances")
-                    return False
-            
-            # 获取启动参数和 channel
-            launch_args = self.get_minimal_launch_args(profile_name, enable_extensions)
-            channel = self.get_browser_channel(browser_type)
-            
-            # 启动浏览器
-            success = await self._launch_browser(
-                browser_type=browser_type,
-                profile_dir=profile_dir,
-                headless=headless,
-                channel=channel,
-                launch_args=launch_args
-            )
-            
-            if success:
-                # 创建页面
-                self.page = await self.context.new_page()
-                self._initialized = True
+            # 初始化页面分析器（如果没有注入的话）
+            await self._initialize_page_analyzers()
 
-                # 结构化日志输出
-                self._logger_instance.info("Browser service initialized successfully", extra={
-                    'browser_type': browser_type,
-                    'channel': channel,
-                    'profile_dir': profile_dir,
-                    'headless': headless,
-                    'launch_args': launch_args,
-                    'is_persistent_context': self._is_persistent_context,
-                    'locale': self.config.get('locale', 'en-US')
-                })
+            # 初始化分页器（如果没有注入的话）
+            await self._initialize_paginators()
 
-                # 可选的登录状态验证
-                verify_domain = self.config.get('verify_domain')
-                if verify_domain:
-                    login_result = await self.verify_login_state(verify_domain)
-                    self._logger_instance.info(f"Login state verification: {login_result['message']}")
-
-                return True
-
-            return False
-
-        except Exception as e:
-            self._logger_instance.error(f"Failed to initialize browser service: {e}")
-            return False
-
-    async def _launch_browser(self, browser_type: str, profile_dir: str,
-                            headless: bool, channel: Optional[str],
-                            launch_args: List[str]) -> bool:
-        """
-        启动浏览器（统一 Edge/Chrome 逻辑）
-
-        Args:
-            browser_type: 浏览器类型
-            profile_dir: Profile 目录
-            headless: 是否无头模式
-            channel: channel 参数
-            launch_args: 启动参数
-
-        Returns:
-            bool: 启动是否成功
-        """
-        try:
-            # 获取系统 locale
-            try:
-                system_locale_name = system_locale.getdefaultlocale()[0] or 'en-US'
-                if '_' in system_locale_name:
-                    system_locale_name = system_locale_name.replace('_', '-')
-            except:
-                system_locale_name = 'en-US'
-
-            # 持久化上下文配置
-            context_options = {
-                'headless': headless,
-                'viewport': {'width': 1280, 'height': 800},
-                'locale': self.config.get('locale', 'en-US'),
-                'args': launch_args
-                # 不覆盖 user_agent，使用真实浏览器 UA
-            }
-            
-            self._logger_instance.info(f"Launching {browser_type} with persistent context")
-            self._logger_instance.info(f"Profile directory: {profile_dir}")
-            self._logger_instance.info(f"Headless mode: {headless}")
-            self._logger_instance.info(f"Launch args: {launch_args}")
-            
-            if channel:
-                # 使用系统浏览器
-                self.context = await self.playwright.chromium.launch_persistent_context(
-                    user_data_dir=profile_dir,
-                    channel=channel,
-                    **context_options
-                )
-                self.browser = None  # 持久化上下文不需要单独的 browser 对象
-                self._is_persistent_context = True
-                
-            else:
-                # Linux/无channel：仍使用持久化上下文
-                self._logger_instance.warning("Channel not available; launching Chromium persistent context")
-                self.context = await self.playwright.chromium.launch_persistent_context(
-                    user_data_dir=profile_dir,
-                    **context_options
-                )
-                self.browser = None  # 持久化上下文不需要单独的 browser 对象
-                self._is_persistent_context = True
-            
-            self._logger_instance.info(f"{browser_type} launched successfully")
+            self._initialized = True
+            self._logger.info("Browser service facade initialized successfully")
             return True
             
         except Exception as e:
-            self._logger_instance.error(f"Failed to launch {browser_type}: {e}")
+            self._logger.error(f"Failed to initialize browser service facade: {e}")
             return False
 
-    # ========================================
-    # 🔧 登录状态验证和管理（统一接口）
-    # ========================================
-
-    async def verify_login_state(self, domain: str) -> Dict[str, Any]:
+    async def shutdown(self) -> bool:
         """
-        验证指定域名的登录状态
+        关闭浏览器服务门面
         
-        Args:
-            domain: 要验证的域名（如 "https://example.com"）
-            
         Returns:
-            Dict[str, Any]: 验证结果
+            bool: 关闭是否成功
         """
-        result = {
-            'success': False,
-            'cookie_count': 0,
-            'cookies': [],
-            'message': ''
-        }
+        if not self._initialized:
+            return True
         
         try:
-            if not self.context:
-                result['message'] = 'Browser context not available'
-                return result
+            self._logger.info("Shutting down browser service facade...")
             
-            cookies = await self.context.cookies(domain)
-            result['cookie_count'] = len(cookies)
-            result['cookies'] = [{'name': c['name'], 'domain': c['domain']} for c in cookies]
+            # 关闭浏览器驱动
+            if self._browser_driver:
+                await self._browser_driver.shutdown()
+                self._browser_driver = None
             
-            if cookies:
-                result['success'] = True
-                result['message'] = f'Found {len(cookies)} cookies for {domain}'
-                self._logger_instance.info(f"Login state verified for {domain}: {len(cookies)} cookies")
-            else:
-                result['message'] = f'No cookies found for {domain}'
-                self._logger_instance.warning(f"No login cookies found for {domain}")
+            # 关闭线程池
+            self._executor.shutdown(wait=True)
             
-            return result
-            
-        except Exception as e:
-            result['message'] = f'Failed to verify login state: {e}'
-            self._logger_instance.error(f"Failed to verify login state for {domain}: {e}")
-            return result
-
-    async def save_storage_state(self, file_path: str) -> bool:
-        """
-        保存浏览器存储状态到文件
-        
-        Args:
-            file_path: 保存路径
-            
-        Returns:
-            bool: 保存是否成功
-        """
-        try:
-            if not self.context:
-                self._logger_instance.error("Browser context not available")
-                return False
-            
-            await self.context.storage_state(path=file_path)
-            self._logger_instance.info(f"Storage state saved to: {file_path}")
+            self._initialized = False
+            self._logger.info("Browser service facade shutdown successfully")
             return True
             
         except Exception as e:
-            self._logger_instance.error(f"Failed to save storage state: {e}")
+            self._logger.error(f"Failed to shutdown browser service facade: {e}")
             return False
 
-    async def load_storage_state(self, file_path: str) -> bool:
-        """
-        从文件加载浏览器存储状态
-        
-        Args:
-            file_path: 文件路径
-            
-        Returns:
-            bool: 加载是否成功
-        """
-        try:
-            if not os.path.exists(file_path):
-                self._logger_instance.error(f"Storage state file not found: {file_path}")
-                return False
-            
-            if not self.browser:
-                self._logger_instance.error("Browser not available for loading storage state")
-                return False
-            
-            # 创建新上下文并加载存储状态
-            new_context = await self.browser.new_context(storage_state=file_path)
-            
-            # 关闭旧上下文
-            if self.context:
-                await self.context.close()
-            
-            self.context = new_context
-            
-            # 重新创建页面
-            if self.page:
-                await self.page.close()
-            self.page = await self.context.new_page()
-            
-            self._logger_instance.info(f"Storage state loaded from: {file_path}")
-            return True
-            
-        except Exception as e:
-            self._logger_instance.error(f"Failed to load storage state: {e}")
-            return False
+
 
     # ========================================
-    # 🚀 异步页面操作方法
+    # 🔄 门面模式 - 浏览器操作委托
     # ========================================
 
     async def open_page(self, url: str, wait_until: str = 'networkidle') -> bool:
         """
-        打开指定URL的页面
+        打开指定URL的页面（委托给浏览器驱动）
         
         Args:
             url: 要打开的URL
@@ -603,22 +189,15 @@ class BrowserService:
         Returns:
             bool: 操作是否成功
         """
-        if not self._initialized or not self.page:
-            self._logger_instance.error("Browser service not initialized")
+        if not self._browser_driver:
+            self._logger.error("Browser driver not available")
             return False
         
-        try:
-            await self.page.goto(url, wait_until=wait_until)
-            self._logger_instance.info(f"Successfully opened page: {url}")
-            return True
-            
-        except Exception as e:
-            self._logger_instance.error(f"Failed to open page {url}: {e}")
-            return False
+        return await self._browser_driver.open_page(url, wait_until)
 
     async def screenshot_async(self, file_path: Union[str, Path]) -> Optional[Path]:
         """
-        异步截取当前页面的截图
+        异步截取当前页面的截图（委托给浏览器驱动）
         
         Args:
             file_path: 截图保存路径
@@ -626,40 +205,39 @@ class BrowserService:
         Returns:
             Optional[Path]: 截图文件路径，失败时返回 None
         """
-        if not self._initialized or not self.page:
-            self._logger_instance.error("Browser service not initialized")
+        if not self._browser_driver:
+            self._logger.error("Browser driver not available")
             return None
         
-        try:
-            path = Path(file_path)
-            await self.page.screenshot(path=str(path))
-            self._logger_instance.info(f"Screenshot saved to: {path}")
-            return path
-            
-        except Exception as e:
-            self._logger_instance.error(f"Failed to take screenshot: {e}")
-            return None
+        return await self._browser_driver.screenshot_async(file_path)
 
     async def get_page_title_async(self) -> Optional[str]:
         """
-        异步获取当前页面标题
+        异步获取当前页面标题（委托给浏览器驱动）
         
         Returns:
             Optional[str]: 页面标题，失败时返回 None
         """
-        if not self._initialized or not self.page:
+        if not self._browser_driver:
             return None
         
-        try:
-            title = await self.page.title()
-            return title
-        except Exception as e:
-            self._logger_instance.error(f"Failed to get page title: {e}")
+        return await self._browser_driver.get_page_title_async()
+
+    def get_page_url(self) -> Optional[str]:
+        """
+        获取当前页面URL（委托给浏览器驱动）
+        
+        Returns:
+            Optional[str]: 页面URL
+        """
+        if not self._browser_driver:
             return None
+        
+        return self._browser_driver.get_page_url()
 
     async def wait_for_element(self, selector: str, timeout: int = 30000) -> bool:
         """
-        等待元素出现
+        等待元素出现（委托给浏览器驱动）
         
         Args:
             selector: 元素选择器
@@ -668,19 +246,14 @@ class BrowserService:
         Returns:
             bool: 元素是否出现
         """
-        if not self._initialized or not self.page:
+        if not self._browser_driver:
             return False
         
-        try:
-            await self.page.wait_for_selector(selector, timeout=timeout)
-            return True
-        except Exception as e:
-            self._logger_instance.error(f"Failed to wait for element {selector}: {e}")
-            return False
+        return await self._browser_driver.wait_for_element(selector, timeout)
 
     async def click_element(self, selector: str) -> bool:
         """
-        点击指定元素
+        点击指定元素（委托给浏览器驱动）
         
         Args:
             selector: 元素选择器
@@ -688,20 +261,14 @@ class BrowserService:
         Returns:
             bool: 操作是否成功
         """
-        if not self._initialized or not self.page:
+        if not self._browser_driver:
             return False
         
-        try:
-            await self.page.click(selector)
-            self._logger_instance.info(f"Successfully clicked element: {selector}")
-            return True
-        except Exception as e:
-            self._logger_instance.error(f"Failed to click element {selector}: {e}")
-            return False
+        return await self._browser_driver.click_element(selector)
 
     async def fill_input(self, selector: str, text: str) -> bool:
         """
-        填充输入框
+        填充输入框（委托给浏览器驱动）
         
         Args:
             selector: 输入框选择器
@@ -710,20 +277,14 @@ class BrowserService:
         Returns:
             bool: 操作是否成功
         """
-        if not self._initialized or not self.page:
+        if not self._browser_driver:
             return False
         
-        try:
-            await self.page.fill(selector, text)
-            self._logger_instance.info(f"Successfully filled input {selector}")
-            return True
-        except Exception as e:
-            self._logger_instance.error(f"Failed to fill input {selector}: {e}")
-            return False
+        return await self._browser_driver.fill_input(selector, text)
 
     async def get_element_text(self, selector: str) -> Optional[str]:
         """
-        异步获取元素文本内容
+        异步获取元素文本内容（委托给浏览器驱动）
         
         Args:
             selector: 元素选择器
@@ -731,19 +292,14 @@ class BrowserService:
         Returns:
             Optional[str]: 元素文本内容，失败时返回 None
         """
-        if not self._initialized or not self.page:
+        if not self._browser_driver:
             return None
         
-        try:
-            text = await self.page.text_content(selector)
-            return text
-        except Exception as e:
-            self._logger_instance.error(f"Failed to get element text {selector}: {e}")
-            return None
+        return await self._browser_driver.get_element_text(selector)
 
     async def execute_script(self, script: str) -> Any:
         """
-        异步执行JavaScript脚本
+        异步执行JavaScript脚本（委托给浏览器驱动）
         
         Args:
             script: JavaScript代码
@@ -751,15 +307,10 @@ class BrowserService:
         Returns:
             Any: 脚本执行结果
         """
-        if not self._initialized or not self.page:
+        if not self._browser_driver:
             return None
         
-        try:
-            result = await self.page.evaluate(script)
-            return result
-        except Exception as e:
-            self._logger_instance.error(f"Failed to execute script: {e}")
-            return None
+        return await self._browser_driver.execute_script(script)
 
     # ========================================
     # 🔄 同步包装方法（向后兼容）
@@ -793,104 +344,51 @@ class BrowserService:
         Returns:
             Optional[str]: 页面标题
         """
-        if asyncio.get_event_loop().is_running():
-            # 在已有事件循环中使用线程池
-            future = self._executor.submit(
-                asyncio.run, 
-                self.get_page_title_async()
-            )
+        try:
+            # 检查是否在异步上下文中
+            loop = asyncio.get_running_loop()
+            # 如果在运行的事件循环中，使用线程池执行
+            future = self._executor.submit(self._sync_get_page_title)
             return future.result()
-        else:
-            # 没有事件循环时直接运行
+        except RuntimeError:
+            # 没有运行的事件循环，可以直接使用 asyncio.run
             return asyncio.run(self.get_page_title_async())
 
-    def get_page_url(self) -> Optional[str]:
-        """
-        获取当前页面URL
-        
-        Returns:
-            Optional[str]: 页面URL
-        """
-        if not self._initialized or not self.page:
+    def _sync_get_page_title(self) -> Optional[str]:
+        """在新的事件循环中同步获取页面标题"""
+        return asyncio.run(self.get_page_title_async())
+
+    # ========================================
+    # 🔍 访问器方法（委托给浏览器驱动）
+    # ========================================
+
+    def get_page(self):
+        """获取 Playwright 页面对象（委托给浏览器驱动）"""
+        if not self._browser_driver:
             return None
-        
-        try:
-            return self.page.url
-        except Exception as e:
-            self._logger_instance.error(f"Failed to get page URL: {e}")
+        return self._browser_driver.get_page()
+
+    def get_context(self):
+        """获取 Playwright 浏览器上下文（委托给浏览器驱动）"""
+        if not self._browser_driver:
             return None
+        return self._browser_driver.get_context()
 
-    # ========================================
-    # 🧹 资源清理和关闭
-    # ========================================
-
-    async def shutdown(self) -> bool:
-        """
-        异步关闭浏览器服务
-        
-        Returns:
-            bool: 关闭是否成功
-        """
-        if not self._initialized:
-            return True
-        
-        try:
-            self._logger_instance.info("Shutting down browser service...")
-            
-            # 关闭页面
-            if self.page:
-                await self.page.close()
-                self.page = None
-            
-            # 关闭上下文
-            if self.context:
-                await self.context.close()
-                self.context = None
-            
-            # 关闭浏览器（仅非持久化上下文）
-            if self.browser and not self._is_persistent_context:
-                await self.browser.close()
-                self.browser = None
-            
-            # 关闭 Playwright
-            if self.playwright:
-                await self.playwright.stop()
-                self.playwright = None
-            
-            # 关闭线程池
-            self._executor.shutdown(wait=True)
-            
-            self._initialized = False
-            self._logger_instance.info("Browser service shutdown successfully")
-            return True
-            
-        except Exception as e:
-            self._logger_instance.error(f"Failed to shutdown browser service: {e}")
-            return False
-
-    # ========================================
-    # 🔍 访问器方法
-    # ========================================
-
-    def get_page(self) -> Optional[Page]:
-        """获取 Playwright 页面对象"""
-        return self.page
-
-    def get_context(self) -> Optional[BrowserContext]:
-        """获取 Playwright 浏览器上下文"""
-        return self.context
-
-    def get_browser(self) -> Optional[Browser]:
-        """获取 Playwright 浏览器实例"""
-        return self.browser
+    def get_browser(self):
+        """获取 Playwright 浏览器实例（委托给浏览器驱动）"""
+        if not self._browser_driver:
+            return None
+        return self._browser_driver.get_browser()
 
     def is_initialized(self) -> bool:
         """检查服务是否已初始化"""
         return self._initialized
 
     def is_persistent_context(self) -> bool:
-        """检查是否使用持久化上下文"""
-        return self._is_persistent_context
+        """检查是否使用持久化上下文（委托给浏览器驱动）"""
+        if not self._browser_driver:
+            return False
+        return getattr(self._browser_driver, '_is_persistent_context', False)
 
     # ========================================
     # 🔄 上下文管理器支持
@@ -907,21 +405,1042 @@ class BrowserService:
 
 
 # ========================================
-# 🔧 便利函数
+# 📊 页面分析器初始化和管理
 # ========================================
+
+    async def _initialize_page_analyzers(self):
+        """初始化页面分析器（如果没有注入的话）"""
+        try:
+            if not self._page_analyzer:
+                # 动态导入具体实现，避免循环依赖
+                from .implementations.dom_page_analyzer import OptimizedDOMPageAnalyzer, AnalysisConfig
+
+                page = self.get_page()
+                if page:
+                    # 从配置中读取分析配置
+                    analysis_config = self._create_analysis_config()
+
+                    # 创建优化的分析器实例
+                    analyzer = OptimizedDOMPageAnalyzer(page, analysis_config, self._logger)
+
+                    # 设置接口引用（一个实例实现多个接口）
+                    self._page_analyzer = analyzer
+                    self._content_extractor = analyzer
+                    self._element_matcher = analyzer
+                    self._page_validator = analyzer
+
+                    self._logger.info("Page analyzers initialized successfully")
+                else:
+                    self._logger.warning("Cannot initialize page analyzers: no page available")
+
+        except Exception as e:
+            self._logger.error("Failed to initialize page analyzers", exception=e)
+
+    def _create_analysis_config(self) -> Dict[str, Any]:
+        """从配置管理器创建分析配置"""
+
+        # 从配置中读取分析相关设置
+        config = self.config.get('page_analysis', {})
+
+        return {
+            'max_elements': config.get('max_elements', 300),
+            'max_texts': config.get('max_texts', 100),
+            'max_links': config.get('max_links', 50),
+            'max_depth': config.get('max_depth', 5),
+            'time_budget_ms': config.get('time_budget_ms', 30000),
+            'max_concurrent': config.get('max_concurrent', 15),
+            'enable_dynamic_content': config.get('enable_dynamic_content', True),
+            'enable_network_monitoring': config.get('enable_network_monitoring', True),
+            'enable_shadow_dom': config.get('enable_shadow_dom', False),
+            'enable_accessibility': config.get('enable_accessibility', False),
+            'wait_strategy': config.get('wait_strategy', 'domcontentloaded'),
+            'use_batch_js': config.get('use_batch_js', True),
+            'use_locator_api': config.get('use_locator_api', True)
+        }
+
+    # ========================================
+    # 💉 依赖注入方法
+    # ========================================
+
+    def set_config_manager(self, config_manager: IConfigManager):
+        """设置配置管理器（依赖注入）"""
+        self.config_manager = config_manager
+        self.config = self.config_manager.get_config()
+        self._logger.info("Config manager injected successfully")
+
+    def set_browser_driver(self, driver: IBrowserDriver):
+        """设置浏览器驱动（依赖注入）"""
+        self._browser_driver = driver
+        self._logger.info("Browser driver injected successfully")
+
+    def set_page_analyzer(self, analyzer: IPageAnalyzer):
+        """设置页面分析器（依赖注入）"""
+        self._page_analyzer = analyzer
+        # 如果分析器同时实现了其他接口，也设置相应的引用
+        if isinstance(analyzer, IContentExtractor):
+            self._content_extractor = analyzer
+        if isinstance(analyzer, IElementMatcher):
+            self._element_matcher = analyzer
+        if isinstance(analyzer, IPageValidator):
+            self._page_validator = analyzer
+
+        self._logger.info("Page analyzer injected successfully")
+
+    def set_content_extractor(self, extractor: IContentExtractor):
+        """设置内容提取器（依赖注入）"""
+        self._content_extractor = extractor
+        self._logger.info("Content extractor injected successfully")
+
+    def set_element_matcher(self, matcher: IElementMatcher):
+        """设置元素匹配器（依赖注入）"""
+        self._element_matcher = matcher
+        self._logger.info("Element matcher injected successfully")
+
+    def set_page_validator(self, validator: IPageValidator):
+        """设置页面验证器（依赖注入）"""
+        self._page_validator = validator
+        self._logger.info("Page validator injected successfully")
+
+    # ========================================
+    # 💉 批量依赖注入方法
+    # ========================================
+
+    def inject_all_dependencies(self,
+                               config_manager: Optional[IConfigManager] = None,
+                               browser_driver: Optional[IBrowserDriver] = None,
+                               page_analyzer: Optional[IPageAnalyzer] = None,
+                               content_extractor: Optional[IContentExtractor] = None,
+                               element_matcher: Optional[IElementMatcher] = None,
+                               page_validator: Optional[IPageValidator] = None,
+                               paginator: Optional[IPaginator] = None,
+                               data_extractor: Optional[IDataExtractor] = None,
+                               pagination_strategy: Optional[IPaginationStrategy] = None):
+        """
+        批量注入所有依赖（便利方法）
+
+        Args:
+            config_manager: 配置管理器实例
+            browser_driver: 浏览器驱动实例
+            page_analyzer: 页面分析器实例
+            content_extractor: 内容提取器实例
+            element_matcher: 元素匹配器实例
+            page_validator: 页面验证器实例
+            paginator: 分页器实例
+            data_extractor: 数据提取器实例
+            pagination_strategy: 分页策略实例
+        """
+        if config_manager:
+            self.set_config_manager(config_manager)
+        if browser_driver:
+            self.set_browser_driver(browser_driver)
+        if page_analyzer:
+            self.set_page_analyzer(page_analyzer)
+        if content_extractor:
+            self.set_content_extractor(content_extractor)
+        if element_matcher:
+            self.set_element_matcher(element_matcher)
+        if page_validator:
+            self.set_page_validator(page_validator)
+        if paginator:
+            self.set_paginator(paginator)
+        if data_extractor:
+            self.set_data_extractor(data_extractor)
+        if pagination_strategy:
+            self.set_pagination_strategy(pagination_strategy)
+
+        self._logger.info("Batch dependency injection completed")
+
+    def get_injected_dependencies(self) -> Dict[str, bool]:
+        """
+        获取已注入的依赖状态
+
+        Returns:
+            Dict[str, bool]: 各依赖的注入状态
+        """
+        return {
+            'config_manager': self.config_manager is not None,
+            'browser_driver': self._browser_driver is not None,
+            'page_analyzer': self._page_analyzer is not None,
+            'content_extractor': self._content_extractor is not None,
+            'element_matcher': self._element_matcher is not None,
+            'page_validator': self._page_validator is not None,
+            'paginator': self._paginator is not None,
+            'data_extractor': self._data_extractor is not None,
+            'pagination_strategy': self._pagination_strategy is not None
+        }
+
+    def validate_dependencies(self) -> Dict[str, str]:
+        """
+        验证依赖注入状态
+
+        Returns:
+            Dict[str, str]: 依赖验证结果和建议
+        """
+        results = {}
+        dependencies = self.get_injected_dependencies()
+
+        # 核心依赖检查
+        if not dependencies['config_manager']:
+            results['config_manager'] = "WARNING: Config manager not injected, using default implementation"
+        else:
+            results['config_manager'] = "OK: Config manager properly injected"
+
+        if not dependencies['browser_driver']:
+            results['browser_driver'] = "WARNING: Browser driver not injected, will auto-initialize"
+        else:
+            results['browser_driver'] = "OK: Browser driver properly injected"
+
+        # 页面分析依赖检查
+        page_analysis_deps = ['page_analyzer', 'content_extractor', 'element_matcher', 'page_validator']
+        missing_analysis_deps = [dep for dep in page_analysis_deps if not dependencies[dep]]
+
+        if missing_analysis_deps:
+            results['page_analysis'] = f"WARNING: Missing page analysis dependencies: {', '.join(missing_analysis_deps)}"
+        else:
+            results['page_analysis'] = "OK: All page analysis dependencies injected"
+
+        # 分页依赖检查
+        pagination_deps = ['paginator', 'data_extractor', 'pagination_strategy']
+        missing_pagination_deps = [dep for dep in pagination_deps if not dependencies[dep]]
+
+        if missing_pagination_deps:
+            results['pagination'] = f"WARNING: Missing pagination dependencies: {', '.join(missing_pagination_deps)}"
+        else:
+            results['pagination'] = "OK: All pagination dependencies injected"
+
+        return results
+
+    async def _initialize_paginators(self):
+        """初始化分页器（如果没有注入的话）"""
+        try:
+            if not self._paginator:
+                # 动态导入具体实现，避免循环依赖
+                from .implementations.universal_paginator import UniversalPaginator, UniversalDataExtractor, SequentialPaginationStrategy
+
+                page = self.get_page()
+                if page:
+                    # 从配置中读取分页配置
+                    pagination_config = self._create_pagination_config()
+
+                    # 创建分页器实例
+                    paginator = UniversalPaginator(page, pagination_config.get('debug_mode', False))
+                    data_extractor = UniversalDataExtractor(page, pagination_config.get('debug_mode', False))
+                    pagination_strategy = SequentialPaginationStrategy()
+
+                    # 设置接口引用
+                    self._paginator = paginator
+                    self._data_extractor = data_extractor
+                    self._pagination_strategy = pagination_strategy
+
+                    self._logger.info("Paginators initialized successfully")
+                else:
+                    self._logger.warning("Cannot initialize paginators: no page available")
+
+        except Exception as e:
+            self._logger.error("Failed to initialize paginators", exception=e)
+
+    def _create_pagination_config(self) -> Dict[str, Any]:
+        """从配置管理器创建分页配置"""
+        # 从配置中读取分页相关设置
+        config = self.config.get('pagination', {})
+
+        return {
+            'debug_mode': config.get('debug_mode', False),
+            'max_pages': config.get('max_pages', None),
+            'wait_api_substr': config.get('wait_api_substr', None),
+            'timeout_ms': config.get('timeout_ms', 15000),
+            'retry_count': config.get('retry_count', 3),
+            'delay_between_pages': config.get('delay_between_pages', 0.5)
+        }
+
+    def set_paginator(self, paginator: IPaginator):
+        """设置分页器（依赖注入）"""
+        self._paginator = paginator
+        self._logger.info("Paginator injected successfully")
+
+    def set_data_extractor(self, extractor: IDataExtractor):
+        """设置数据提取器（依赖注入）"""
+        self._data_extractor = extractor
+        self._logger.info("Data extractor injected successfully")
+
+    def set_pagination_strategy(self, strategy: IPaginationStrategy):
+        """设置分页策略（依赖注入）"""
+        self._pagination_strategy = strategy
+        self._logger.info("Pagination strategy injected successfully")
+
+    # ========================================
+    # 📊 页面分析门面方法（委托给页面分析器）
+    # ========================================
+
+    async def analyze_page(self, url: Optional[str] = None, allow_navigation: bool = False) -> Dict[str, Any]:
+        """
+        分析整个页面结构（委托给页面分析器）
+
+        Args:
+            url: 页面URL，如果为None则分析当前页面
+            allow_navigation: 是否允许导航到指定URL
+
+        Returns:
+            Dict[str, Any]: 页面分析结果
+        """
+        if not self._page_analyzer:
+            raise PageAnalysisError("Page analyzer not available")
+
+        return await self._page_analyzer.analyze_page(url, allow_navigation)
+
+    async def extract_elements(self, selector: str, element_type: Optional[str] = None) -> ElementCollection:
+        """
+        提取页面元素（委托给页面分析器）
+
+        Args:
+            selector: 元素选择器
+            element_type: 元素类型过滤
+
+        Returns:
+            ElementCollection: 元素集合
+        """
+        if not self._page_analyzer:
+            raise PageAnalysisError("Page analyzer not available")
+
+        return await self._page_analyzer.extract_elements(selector, element_type)
+
+    async def extract_links(self, filter_pattern: Optional[str] = None) -> List[PageElement]:
+        """
+        提取页面链接（委托给页面分析器）
+
+        Args:
+            filter_pattern: 链接过滤模式
+
+        Returns:
+            List[PageElement]: 链接元素列表
+        """
+        if not self._page_analyzer:
+            raise PageAnalysisError("Page analyzer not available")
+
+        return await self._page_analyzer.extract_links(filter_pattern)
+
+    async def extract_text_content(self, selector: Optional[str] = None) -> List[str]:
+        """
+        提取文本内容（委托给页面分析器）
+
+        Args:
+            selector: 选择器，如果为None则提取所有文本
+
+        Returns:
+            List[str]: 文本内容列表
+        """
+        if not self._page_analyzer:
+            raise PageAnalysisError("Page analyzer not available")
+
+        return await self._page_analyzer.extract_text_content(selector)
+
+    async def extract_images(self, include_data_urls: bool = False) -> List[PageElement]:
+        """
+        提取页面图片（委托给页面分析器）
+
+        Args:
+            include_data_urls: 是否包含data URL图片
+
+        Returns:
+            List[PageElement]: 图片元素列表
+        """
+        if not self._page_analyzer:
+            raise PageAnalysisError("Page analyzer not available")
+
+        return await self._page_analyzer.extract_images(include_data_urls)
+
+    async def extract_forms(self) -> List[PageElement]:
+        """
+        提取页面表单（委托给页面分析器）
+
+        Returns:
+            List[PageElement]: 表单元素列表
+        """
+        if not self._page_analyzer:
+            raise PageAnalysisError("Page analyzer not available")
+
+        return await self._page_analyzer.extract_forms()
+
+    async def analyze_element_hierarchy(self, root_selector: str) -> Dict[str, Any]:
+        """
+        分析元素层级结构（委托给页面分析器）
+
+        Args:
+            root_selector: 根元素选择器
+
+        Returns:
+            Dict[str, Any]: 层级结构信息
+        """
+        if not self._page_analyzer:
+            raise PageAnalysisError("Page analyzer not available")
+
+        return await self._page_analyzer.analyze_element_hierarchy(root_selector)
+
+    # ========================================
+    # 🔍 内容提取门面方法（委托给内容提取器）
+    # ========================================
+
+    async def extract_structured_data(self, schema_type: str) -> Dict[str, Any]:
+        """
+        提取结构化数据（委托给内容提取器）
+
+        Args:
+            schema_type: 数据模式类型 (json-ld, microdata, rdfa等)
+
+        Returns:
+            Dict[str, Any]: 结构化数据
+        """
+        if not self._content_extractor:
+            raise PageAnalysisError("Content extractor not available")
+
+        return await self._content_extractor.extract_structured_data(schema_type)
+
+    async def extract_table_data(self, table_selector: str) -> List[Dict[str, str]]:
+        """
+        提取表格数据（委托给内容提取器）
+
+        Args:
+            table_selector: 表格选择器
+
+        Returns:
+            List[Dict[str, str]]: 表格数据，每行为一个字典
+        """
+        if not self._content_extractor:
+            raise PageAnalysisError("Content extractor not available")
+
+        return await self._content_extractor.extract_table_data(table_selector)
+
+    async def extract_list_data(self, list_selector: str, item_selector: str) -> List[Dict[str, Any]]:
+        """
+        提取列表数据（委托给内容提取器）
+
+        Args:
+            list_selector: 列表容器选择器
+            item_selector: 列表项选择器
+
+        Returns:
+            List[Dict[str, Any]]: 列表数据
+        """
+        if not self._content_extractor:
+            raise PageAnalysisError("Content extractor not available")
+
+        return await self._content_extractor.extract_list_data(list_selector, item_selector)
+
+    async def extract_metadata(self) -> Dict[str, str]:
+        """
+        提取页面元数据（委托给内容提取器）
+
+        Returns:
+            Dict[str, str]: 元数据字典
+        """
+        if not self._content_extractor:
+            raise PageAnalysisError("Content extractor not available")
+
+        return await self._content_extractor.extract_metadata()
+
+    async def extract_dynamic_content(self, wait_selector: Optional[str] = None, timeout: int = 10000) -> Dict[str, Any]:
+        """
+        提取动态加载的内容（委托给内容提取器）
+
+        Args:
+            wait_selector: 等待出现的选择器
+            timeout: 超时时间(毫秒)
+
+        Returns:
+            Dict[str, Any]: 动态内容
+        """
+        if not self._content_extractor:
+            raise PageAnalysisError("Content extractor not available")
+
+        return await self._content_extractor.extract_dynamic_content(wait_selector, timeout)
+
+    # ========================================
+    # 🎯 元素匹配门面方法（委托给元素匹配器）
+    # ========================================
+
+    async def find_similar_elements(self, reference_element: PageElement, similarity_threshold: float = 0.8) -> List[PageElement]:
+        """
+        查找相似元素（委托给元素匹配器）
+
+        Args:
+            reference_element: 参考元素
+            similarity_threshold: 相似度阈值
+
+        Returns:
+            List[PageElement]: 相似元素列表
+        """
+        if not self._element_matcher:
+            raise PageAnalysisError("Element matcher not available")
+
+        return await self._element_matcher.find_similar_elements(reference_element, similarity_threshold)
+
+    async def match_by_pattern(self, pattern: Dict[str, Any]) -> List[PageElement]:
+        """
+        根据模式匹配元素（委托给元素匹配器）
+
+        Args:
+            pattern: 匹配模式
+
+        Returns:
+            List[PageElement]: 匹配的元素列表
+        """
+        if not self._element_matcher:
+            raise PageAnalysisError("Element matcher not available")
+
+        return await self._element_matcher.match_by_pattern(pattern)
+
+    async def classify_elements(self, elements: List[PageElement]) -> Dict[str, List[PageElement]]:
+        """
+        对元素进行分类（委托给元素匹配器）
+
+        Args:
+            elements: 要分类的元素列表
+
+        Returns:
+            Dict[str, List[PageElement]]: 分类结果
+        """
+        if not self._element_matcher:
+            raise PageAnalysisError("Element matcher not available")
+
+        return await self._element_matcher.classify_elements(elements)
+
+    async def detect_interactive_elements(self) -> List[PageElement]:
+        """
+        检测可交互元素（委托给元素匹配器）
+
+        Returns:
+            List[PageElement]: 可交互元素列表
+        """
+        if not self._element_matcher:
+            raise PageAnalysisError("Element matcher not available")
+
+        return await self._element_matcher.detect_interactive_elements()
+
+    # ========================================
+    # ✅ 页面验证门面方法（委托给页面验证器）
+    # ========================================
+
+    async def validate_page_load(self, expected_elements: List[str]) -> bool:
+        """
+        验证页面是否完全加载（委托给页面验证器）
+
+        Args:
+            expected_elements: 期望存在的元素选择器列表
+
+        Returns:
+            bool: 页面是否完全加载
+        """
+        if not self._page_validator:
+            raise PageAnalysisError("Page validator not available")
+
+        return await self._page_validator.validate_page_load(expected_elements)
+
+    async def validate_element_state(self, element: PageElement, expected_states: List[str]) -> bool:
+        """
+        验证元素状态（委托给页面验证器）
+
+        Args:
+            element: 要验证的元素
+            expected_states: 期望的状态列表
+
+        Returns:
+            bool: 元素状态是否符合期望
+        """
+        if not self._page_validator:
+            raise PageAnalysisError("Page validator not available")
+
+        return await self._page_validator.validate_element_state(element, expected_states)
+
+    async def validate_content(self, validation_rules: Dict[str, Any]) -> Dict[str, bool]:
+        """
+        验证页面内容（委托给页面验证器）
+
+        Args:
+            validation_rules: 验证规则
+
+        Returns:
+            Dict[str, bool]: 验证结果
+        """
+        if not self._page_validator:
+            raise PageAnalysisError("Page validator not available")
+
+        return await self._page_validator.validate_content(validation_rules)
+
+    async def check_accessibility(self) -> Dict[str, Any]:
+        """
+        检查页面可访问性（委托给页面验证器）
+
+        Returns:
+            Dict[str, Any]: 可访问性检查结果
+        """
+        if not self._page_validator:
+            raise PageAnalysisError("Page validator not available")
+
+        return await self._page_validator.check_accessibility()
+
+    # ========================================
+    # 📄 分页器门面方法（委托给分页器）
+    # ========================================
+
+    async def initialize_paginator(self, root_selector: str, config: Dict[str, Any]) -> bool:
+        """
+        初始化分页器（委托给分页器）
+
+        Args:
+            root_selector: 分页容器选择器
+            config: 分页配置
+
+        Returns:
+            bool: 初始化是否成功
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        return await self._paginator.initialize(root_selector, config)
+
+    async def detect_pagination_type(self) -> PaginationType:
+        """
+        检测分页类型（委托给分页器）
+
+        Returns:
+            PaginationType: 检测到的分页类型
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        return await self._paginator.detect_pagination_type()
+
+    async def get_current_page_number(self) -> int:
+        """
+        获取当前页码（委托给分页器）
+
+        Returns:
+            int: 当前页码，如果无法确定返回-1
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        return await self._paginator.get_current_page()
+
+    async def get_total_pages_count(self) -> Optional[int]:
+        """
+        获取总页数（委托给分页器）
+
+        Returns:
+            Optional[int]: 总页数，如果无法确定返回None
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        return await self._paginator.get_total_pages()
+
+    async def has_next_page_available(self) -> bool:
+        """
+        检查是否有下一页（委托给分页器）
+
+        Returns:
+            bool: 是否有下一页
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        return await self._paginator.has_next_page()
+
+    async def has_next_page(self) -> bool:
+        """
+        检查是否有下一页（委托给分页器）- 简化版本
+
+        Returns:
+            bool: 是否有下一页
+        """
+        if not self._paginator:
+            await self._initialize_paginators()
+
+        if self._paginator:
+            return await self._paginator.has_next_page()
+        else:
+            raise RuntimeError("Paginator not available")
+
+    async def has_previous_page_available(self) -> bool:
+        """
+        检查是否有上一页（委托给分页器）
+
+        Returns:
+            bool: 是否有上一页
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        return await self._paginator.has_previous_page()
+
+    async def navigate_to_next_page(self, wait_for_load: bool = True) -> bool:
+        """
+        跳转到下一页（委托给分页器）
+
+        Args:
+            wait_for_load: 是否等待页面加载完成
+
+        Returns:
+            bool: 跳转是否成功
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        return await self._paginator.go_to_next_page(wait_for_load)
+
+    async def navigate_to_previous_page(self, wait_for_load: bool = True) -> bool:
+        """
+        跳转到上一页（委托给分页器）
+
+        Args:
+            wait_for_load: 是否等待页面加载完成
+
+        Returns:
+            bool: 跳转是否成功
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        return await self._paginator.go_to_previous_page(wait_for_load)
+
+    async def navigate_to_page(self, page_number: int, wait_for_load: bool = True) -> bool:
+        """
+        跳转到指定页（委托给分页器）
+
+        Args:
+            page_number: 目标页码
+            wait_for_load: 是否等待页面加载完成
+
+        Returns:
+            bool: 跳转是否成功
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        return await self._paginator.go_to_page(page_number, wait_for_load)
+
+    async def iterate_all_pages(self,
+                              max_pages: Optional[int] = None,
+                              direction: PaginationDirection = PaginationDirection.FORWARD):
+        """
+        迭代所有页面（委托给分页器）
+
+        Args:
+            max_pages: 最大页数限制
+            direction: 分页方向
+
+        Yields:
+            int: 当前页码
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        async for page_number in self._paginator.iterate_pages(max_pages, direction):
+            yield page_number
+
+    # ========================================
+    # 📊 数据提取门面方法（委托给数据提取器）
+    # ========================================
+
+    async def extract_current_page_data(self, page_number: int) -> List[Dict[str, Any]]:
+        """
+        提取当前页数据（委托给数据提取器）
+
+        Args:
+            page_number: 页码
+
+        Returns:
+            List[Dict[str, Any]]: 页面数据列表
+        """
+        if not self._data_extractor:
+            raise PageAnalysisError("Data extractor not available")
+
+        return await self._data_extractor.extract_page_data(page_number)
+
+    async def extract_item_data_by_selector(self, item_selector: str, item_index: int) -> Dict[str, Any]:
+        """
+        提取单个项目数据（委托给数据提取器）
+
+        Args:
+            item_selector: 项目选择器
+            item_index: 项目索引
+
+        Returns:
+            Dict[str, Any]: 项目数据
+        """
+        if not self._data_extractor:
+            raise PageAnalysisError("Data extractor not available")
+
+        return await self._data_extractor.extract_item_data(item_selector, item_index)
+
+    async def validate_extracted_data(self, data: List[Dict[str, Any]]) -> bool:
+        """
+        验证数据完整性（委托给数据提取器）
+
+        Args:
+            data: 要验证的数据
+
+        Returns:
+            bool: 数据是否完整
+        """
+        if not self._data_extractor:
+            raise PageAnalysisError("Data extractor not available")
+
+        return await self._data_extractor.validate_data_completeness(data)
+
+    # ========================================
+    # 🔄 分页策略门面方法（委托给分页策略）
+    # ========================================
+
+    async def execute_pagination_strategy(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        执行分页策略（委托给分页策略）
+
+        Args:
+            config: 配置参数
+
+        Returns:
+            List[Dict[str, Any]]: 所有页面的数据
+        """
+        if not self._pagination_strategy or not self._paginator or not self._data_extractor:
+            raise PageAnalysisError("Pagination components not available")
+
+        return await self._pagination_strategy.execute_pagination(
+            self._paginator,
+            self._data_extractor,
+            config
+        )
+
+    async def handle_pagination_error_with_strategy(self, error: Exception, context: Dict[str, Any]) -> bool:
+        """
+        处理分页错误（委托给分页策略）
+
+        Args:
+            error: 发生的错误
+            context: 错误上下文
+
+        Returns:
+            bool: 是否应该继续分页
+        """
+        if not self._pagination_strategy:
+            raise PageAnalysisError("Pagination strategy not available")
+
+        return await self._pagination_strategy.handle_pagination_error(error, context)
+
+    # ========================================
+    # 📜 滚动分页专用方法（如果分页器支持滚动）
+    # ========================================
+
+    async def scroll_to_bottom_of_page(self, smooth: bool = True) -> bool:
+        """
+        滚动到页面底部（如果分页器支持滚动）
+
+        Args:
+            smooth: 是否平滑滚动
+
+        Returns:
+            bool: 滚动是否成功
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        if isinstance(self._paginator, IScrollPaginator):
+            return await self._paginator.scroll_to_bottom(smooth)
+        else:
+            raise PageAnalysisError("Current paginator does not support scrolling")
+
+    async def scroll_by_pixels_amount(self, pixels: int, direction: str = "down") -> bool:
+        """
+        按像素滚动（如果分页器支持滚动）
+
+        Args:
+            pixels: 滚动像素数
+            direction: 滚动方向
+
+        Returns:
+            bool: 滚动是否成功
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        if isinstance(self._paginator, IScrollPaginator):
+            return await self._paginator.scroll_by_pixels(pixels, direction)
+        else:
+            raise PageAnalysisError("Current paginator does not support scrolling")
+
+    async def wait_for_new_content_load(self, timeout: int = 10000) -> bool:
+        """
+        等待新内容加载（如果分页器支持滚动）
+
+        Args:
+            timeout: 超时时间(毫秒)
+
+        Returns:
+            bool: 是否有新内容加载
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        if isinstance(self._paginator, IScrollPaginator):
+            return await self._paginator.wait_for_new_content(timeout)
+        else:
+            raise PageAnalysisError("Current paginator does not support scrolling")
+
+    async def detect_if_scroll_end(self) -> bool:
+        """
+        检测是否滚动到底部（如果分页器支持滚动）
+
+        Returns:
+            bool: 是否已滚动到底部
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        if isinstance(self._paginator, IScrollPaginator):
+            return await self._paginator.detect_scroll_end()
+        else:
+            raise PageAnalysisError("Current paginator does not support scrolling")
+
+    # ========================================
+    # 🔧 缺失的委托方法
+    # ========================================
+
+    async def validate_page_structure(self, expected_elements: List[str]) -> Dict[str, bool]:
+        """验证页面结构（委托给页面验证器）"""
+        if not self._page_validator:
+            await self._initialize_page_analyzers()
+
+        if self._page_validator:
+            return await self._page_validator.validate_page_structure(expected_elements)
+        else:
+            raise RuntimeError("Page validator not available")
+
+    async def paginate_and_extract(self, selectors: Dict[str, str]) -> List[Dict[str, Any]]:
+        """分页并提取数据（委托给分页策略）"""
+        if not self._pagination_strategy or not self._paginator or not self._data_extractor:
+            await self._initialize_paginators()
+
+        if self._pagination_strategy and self._paginator and self._data_extractor:
+            return await self._pagination_strategy.execute_pagination(
+                self._paginator, self._data_extractor, selectors
+            )
+        else:
+            raise RuntimeError("Pagination components not available")
+
+    async def go_to_next_page(self) -> bool:
+        """跳转到下一页（委托给分页器）"""
+        if not self._paginator:
+            await self._initialize_paginators()
+
+        if self._paginator:
+            return await self._paginator.go_to_next_page()
+        else:
+            raise RuntimeError("Paginator not available")
+
+    async def get_total_pages(self) -> Optional[int]:
+        """获取总页数（委托给分页器）"""
+        if not self._paginator:
+            await self._initialize_paginators()
+
+        if self._paginator:
+            return await self._paginator.get_total_pages()
+        else:
+            raise RuntimeError("Paginator not available")
+
+    async def extract_page_data(self, selectors: Dict[str, str]) -> Dict[str, Any]:
+        """提取页面数据（委托给数据提取器）"""
+        if not self._data_extractor:
+            await self._initialize_paginators()
+
+        if self._data_extractor:
+            # IDataExtractor.extract_page_data 接受 page_number 参数，返回 List[Dict[str, Any]]
+            # 但门面方法需要返回 Dict[str, Any]，所以我们使用页码1并取第一个结果
+            page_data_list = await self._data_extractor.extract_page_data(1)
+            if page_data_list and isinstance(page_data_list, list):
+                return page_data_list[0]
+            else:
+                return {}
+        else:
+            raise RuntimeError("Data extractor not available")
+
+    # ========================================
+    # 🔘 加载更多分页专用方法（如果分页器支持加载更多）
+    # ========================================
+
+    async def find_load_more_button_element(self) -> Optional[PageElement]:
+        """
+        查找"加载更多"按钮（如果分页器支持加载更多）
+
+        Returns:
+            Optional[PageElement]: 找到的按钮元素，未找到返回None
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        if isinstance(self._paginator, ILoadMorePaginator):
+            return await self._paginator.find_load_more_button()
+        else:
+            raise PageAnalysisError("Current paginator does not support load more")
+
+    async def click_load_more_button(self, wait_for_content: bool = True) -> bool:
+        """
+        点击"加载更多"按钮（如果分页器支持加载更多）
+
+        Args:
+            wait_for_content: 是否等待内容加载
+
+        Returns:
+            bool: 点击是否成功
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        if isinstance(self._paginator, ILoadMorePaginator):
+            return await self._paginator.click_load_more(wait_for_content)
+        else:
+            raise PageAnalysisError("Current paginator does not support load more")
+
+    async def is_load_more_button_available(self) -> bool:
+        """
+        检查"加载更多"按钮是否可用（如果分页器支持加载更多）
+
+        Returns:
+            bool: 按钮是否可用
+        """
+        if not self._paginator:
+            raise PageAnalysisError("Paginator not available")
+
+        if isinstance(self._paginator, ILoadMorePaginator):
+            return await self._paginator.is_load_more_available()
+        else:
+            raise PageAnalysisError("Current paginator does not support load more")
+
+    # ========================================
+    # 🔧 便利函数（保持向后兼容）
+    # ========================================
 
 def get_edge_profile_dir(profile_name: str = "Default") -> str:
     """获取 Edge Profile 目录（向后兼容）"""
-    return BrowserService.get_browser_profile_dir('edge', profile_name)
+    from .implementations.playwright_browser_driver import PlaywrightBrowserDriver
+    driver = PlaywrightBrowserDriver()
+    base_dir = driver._get_browser_user_data_dir('edge')
+    return str(Path(base_dir) / profile_name)
 
 def get_chrome_profile_dir(profile_name: str = "Default") -> str:
     """获取 Chrome Profile 目录"""
-    return BrowserService.get_browser_profile_dir('chrome', profile_name)
+    from .implementations.playwright_browser_driver import PlaywrightBrowserDriver
+    driver = PlaywrightBrowserDriver()
+    base_dir = driver._get_browser_user_data_dir('chrome')
+    return str(Path(base_dir) / profile_name)
 
 def get_edge_user_data_dir() -> str:
     """获取 Edge 用户数据根目录（向后兼容）"""
-    return BrowserService.get_browser_user_data_dir('edge')
+    from .implementations.playwright_browser_driver import PlaywrightBrowserDriver
+    driver = PlaywrightBrowserDriver()
+    return driver._get_browser_user_data_dir('edge')
 
 def get_chrome_user_data_dir() -> str:
     """获取 Chrome 用户数据根目录"""
-    return BrowserService.get_browser_user_data_dir('chrome')
+    from .implementations.playwright_browser_driver import PlaywrightBrowserDriver
+    driver = PlaywrightBrowserDriver()
+    return driver._get_browser_user_data_dir('chrome')

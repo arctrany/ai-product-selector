@@ -5,11 +5,7 @@ RPA Browser Core Module
 """
 
 # 导入所有核心接口
-from .interfaces.browser_driver import (
-    IBrowserDriver,
-    IPageManager,
-    IResourceManager as IBrowserResourceManager
-)
+from .interfaces.browser_driver import IBrowserDriver
 
 from .interfaces.page_analyzer import (
     IPageAnalyzer,
@@ -28,25 +24,9 @@ from .interfaces.paginator import (
     PaginationDirection
 )
 
-from .interfaces.runner import (
-    IRunner,
-    IRunnerStep,
-    IRunnerOrchestrator,
-    IActionExecutor,
-    IRunnerValidator,
-    RunnerStatus,
-    ActionType
-)
 
-from .interfaces.resource_manager import (
-    IResourceManager,
-    IConnectionPool,
-    ICacheManager,
-    IMemoryManager,
-    IFileManager,
-    ResourceType,
-    ResourceStatus
-)
+
+
 
 from .interfaces.config_manager import (
     IConfigManager,
@@ -98,15 +78,13 @@ from .exceptions.browser_exceptions import (
 __all__ = [
     # 浏览器驱动接口
     'IBrowserDriver',
-    'IPageManager',
-    'IBrowserResourceManager',
-    
+
     # 页面分析接口
     'IPageAnalyzer',
     'IContentExtractor',
     'IElementMatcher',
     'IPageValidator',
-    
+
     # 分页器接口
     'IPaginator',
     'IDataExtractor',
@@ -115,24 +93,6 @@ __all__ = [
     'ILoadMorePaginator',
     'PaginationType',
     'PaginationDirection',
-    
-    # 运行器接口
-    'IRunner',
-    'IRunnerStep',
-    'IRunnerOrchestrator',
-    'IActionExecutor',
-    'IRunnerValidator',
-    'RunnerStatus',
-    'ActionType',
-    
-    # 资源管理接口
-    'IResourceManager',
-    'IConnectionPool',
-    'ICacheManager',
-    'IMemoryManager',
-    'IFileManager',
-    'ResourceType',
-    'ResourceStatus',
     
     # 配置管理接口
     'IConfigManager',

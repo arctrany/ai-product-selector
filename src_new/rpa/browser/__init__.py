@@ -5,72 +5,60 @@ RPA Browser Module
 提供完整的浏览器自动化功能
 """
 
-# 导入核心模块
-from .core import *
+# 导入接口
+from .core.interfaces.browser_driver import IBrowserDriver
 
-# 导入实现模块
-from .implementations import *
+# 导入主要服务类
+from .browser_service import BrowserService
 
-# 导入服务模块（将在后续阶段实现）
-# from .services import *
+# 导入实现类
+from .implementations.playwright_browser_driver import PlaywrightBrowserDriver
+from .implementations.config_manager import ConfigManager
+from .implementations.logger_system import get_logger
 
-# 导入工具模块（将在后续阶段实现）
-# from .utils import *
+# 导入核心数据模型和异常（仅导入存在的）
+from .core.models.browser_config import (
+    BrowserConfig,
+    ViewportConfig,
+    ProxyConfig,
+    SecurityConfig,
+    PerformanceConfig,
+    create_default_config
+)
+
+from .core.exceptions.browser_exceptions import (
+    BrowserError,
+    BrowserInitializationError,
+    BrowserConnectionError,
+    BrowserTimeoutError,
+    PageLoadError,
+    ElementNotFoundError,
+    ElementInteractionError,
+    NavigationError,
+    ResourceError,
+    ConfigurationError,
+    ValidationError,
+    ScenarioExecutionError,
+    PaginationError,
+    create_browser_error,
+    handle_browser_error
+)
 
 __version__ = "1.0.0"
 __author__ = "RPA Browser Team"
 
 __all__ = [
-    # 从核心模块导出的所有内容
-    # 浏览器驱动接口
+    # 接口
     'IBrowserDriver',
-    'IPageManager',
-    'IBrowserResourceManager',
-    
+
+    # 主要服务类
+    'BrowserService',
+
     # 实现类
     'PlaywrightBrowserDriver',
+    'ConfigManager',
+    'get_logger',
 
-    # 页面分析接口
-    'IPageAnalyzer',
-    'IContentExtractor',
-    'IElementMatcher',
-    'IPageValidator',
-    
-    # 分页器接口
-    'IPaginator',
-    'IDataExtractor',
-    'IPaginationStrategy',
-    'IScrollPaginator',
-    'ILoadMorePaginator',
-    'PaginationType',
-    'PaginationDirection',
-    
-    # 运行器接口
-    'IRunner',
-    'IRunnerStep',
-    'IRunnerOrchestrator',
-    'IActionExecutor',
-    'IRunnerValidator',
-    'RunnerStatus',
-    'ActionType',
-    
-    # 资源管理接口
-    'IResourceManager',
-    'IConnectionPool',
-    'ICacheManager',
-    'IMemoryManager',
-    'IFileManager',
-    'ResourceType',
-    'ResourceStatus',
-    
-    # 配置管理接口
-    'IConfigManager',
-    'IConfigValidator',
-    'IConfigTransformer',
-    'IEnvironmentManager',
-    'ConfigFormat',
-    'ConfigScope',
-    
     # 数据模型
     'BrowserConfig',
     'ViewportConfig',
@@ -78,12 +66,6 @@ __all__ = [
     'SecurityConfig',
     'PerformanceConfig',
     'create_default_config',
-    'PageElement',
-    'ElementAttributes',
-    'ElementBounds',
-    'ElementState',
-    'ElementCollection',
-    'ElementType',
     
     # 异常类型
     'BrowserError',

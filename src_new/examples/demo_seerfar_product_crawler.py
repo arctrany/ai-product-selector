@@ -13,12 +13,13 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
-# 添加项目根目录到 Python 路径
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
+# 添加项目路径
+current_dir = Path(__file__).parent  # examples目录
+src_new_dir = current_dir.parent  # src_new目录
+sys.path.insert(0, str(src_new_dir))
 
-from src_new.rpa.browser.browser_service import BrowserService
-from src_new.rpa.browser.config import RPAConfig
+from rpa.browser.browser_service import BrowserService
+from rpa.browser.implementations.config_manager import ConfigManager
 
 
 class SeerfarProductCrawler:
@@ -40,15 +41,31 @@ class SeerfarProductCrawler:
         self.request_delay = request_delay
         self.browser_service = None
         self.page_products = []
-        
-        # 创建 RPA 配置 - 使用跨平台的默认用户目录
-        self.rpa_config = RPAConfig(overrides={
-            "backend": "playwright",
-            "browser_type": "edge",
-            "headless": headless
-            # 不设置 user_data_dir，让浏览器使用默认用户目录以加载插件
-        })
-    
+
+        # 创建配置管理器并设置Edge浏览器配置
+        self.config_manager = ConfigManager()
+
+        # 设置浏览器配置
+        self.browser_config = {
+            'browser_type': 'edge',
+            'headless': headless,
+            'enable_extensions': True,
+            'ignore_default_args': [
+                '--use-mock-keychain',
+                '--password-store=basic',
+                '--disable-extensions-except',
+                '--disable-extensions',
+                '--disable-component-extensions-with-background-pages'
+            ],
+            'additional_args': [
+                '--disable-blink-features=AutomationControlled',
+                '--disable-web-security',
+                '--allow-running-insecure-content',
+                '--no-first-run',
+                '--no-default-browser-check'
+            ]
+        }
+
     async def initialize(self) -> bool:
         """
         初始化浏览器服务
@@ -58,7 +75,12 @@ class SeerfarProductCrawler:
         """
         try:
             print("🔧 初始化浏览器服务...")
-            self.browser_service = BrowserService(self.rpa_config)
+
+            # 将配置合并到配置管理器中
+            await self.config_manager.merge_configs(self.browser_config)
+
+            # 创建 BrowserService 并传入配置管理器
+            self.browser_service = BrowserService(config_manager=self.config_manager)
             
             success = await self.browser_service.initialize()
             if success:
@@ -242,7 +264,8 @@ class SeerfarProductCrawler:
                         'delivery_method': '',
                         'weight': '',
                         'listing_time': '',
-                        'product_description': ''
+                        'product_description': '',
+                        'detailed_info': {}  # 新增：存储详细信息
                     }
                     
                     # 获取所有单元格
@@ -267,6 +290,11 @@ class SeerfarProductCrawler:
                                 print(f"      ⚠️ 提取字段 {field_name} 失败: {e}")
                                 continue
                     
+                    # 如果有产品链接，尝试获取详细信息
+                    if product_info.get('product_link_url'):
+                        detailed_info = await self.extract_product_details(product_info['product_link_url'])
+                        product_info['detailed_info'] = detailed_info
+
                     page_products.append(product_info)
                     print(f"   ✅ 商品 {row_index + 1} 提取成功: {product_info.get('product_id', 'N/A')}")
                     
@@ -330,6 +358,179 @@ class SeerfarProductCrawler:
         except Exception as e:
             print(f"      ⚠️ 提取产品信息失败: {e}")
     
+    async def extract_product_details(self, product_url: str) -> Dict[str, Any]:
+        """
+        提取商品详细信息
+
+        Args:
+            product_url: 商品详情页URL
+
+        Returns:
+            Dict[str, Any]: 商品详细信息
+        """
+        detailed_info = {
+            'title': '',
+            'images': [],
+            'description': '',
+            'specifications': {},
+            'reviews_count': '',
+            'average_rating': '',
+            'price_history': [],
+            'availability': '',
+            'brand': '',
+            'model': '',
+            'features': []
+        }
+
+        try:
+            print(f"      🔍 获取商品详情: {product_url}")
+
+            page = self.browser_service._browser_driver.page
+            if not page:
+                return detailed_info
+
+            # 在新标签页中打开商品详情页
+            detail_page = await page.context.new_page()
+
+            try:
+                # 导航到商品详情页
+                await detail_page.goto(product_url, wait_until='networkidle', timeout=30000)
+                await asyncio.sleep(2)  # 等待页面完全加载
+
+                # 提取商品标题
+                title_selectors = [
+                    'h1',
+                    '.product-title',
+                    '[data-testid="product-title"]',
+                    '.pdp-product-name',
+                    '.item-title'
+                ]
+
+                for selector in title_selectors:
+                    try:
+                        title_element = await detail_page.query_selector(selector)
+                        if title_element:
+                            title = await title_element.text_content()
+                            if title and title.strip():
+                                detailed_info['title'] = title.strip()
+                                break
+                    except:
+                        continue
+
+                # 提取商品图片
+                image_selectors = [
+                    'img[src*="product"]',
+                    '.product-image img',
+                    '.gallery img',
+                    '[data-testid="product-image"] img'
+                ]
+
+                for selector in image_selectors:
+                    try:
+                        images = await detail_page.query_selector_all(selector)
+                        for img in images[:5]:  # 最多获取5张图片
+                            src = await img.get_attribute('src')
+                            if src and src.startswith('http'):
+                                detailed_info['images'].append(src)
+                        if detailed_info['images']:
+                            break
+                    except:
+                        continue
+
+                # 提取商品描述
+                desc_selectors = [
+                    '.product-description',
+                    '.item-description',
+                    '[data-testid="product-description"]',
+                    '.pdp-description'
+                ]
+
+                for selector in desc_selectors:
+                    try:
+                        desc_element = await detail_page.query_selector(selector)
+                        if desc_element:
+                            desc = await desc_element.text_content()
+                            if desc and desc.strip():
+                                detailed_info['description'] = desc.strip()[:500]  # 限制长度
+                                break
+                    except:
+                        continue
+
+                # 提取评分和评论数
+                rating_selectors = [
+                    '.rating',
+                    '.stars',
+                    '[data-testid="rating"]',
+                    '.review-rating'
+                ]
+
+                for selector in rating_selectors:
+                    try:
+                        rating_element = await detail_page.query_selector(selector)
+                        if rating_element:
+                            rating_text = await rating_element.text_content()
+                            if rating_text:
+                                # 尝试提取数字评分
+                                rating_match = re.search(r'(\d+\.?\d*)', rating_text)
+                                if rating_match:
+                                    detailed_info['average_rating'] = rating_match.group(1)
+                                break
+                    except:
+                        continue
+
+                # 提取品牌信息
+                brand_selectors = [
+                    '.brand',
+                    '.product-brand',
+                    '[data-testid="brand"]',
+                    '.manufacturer'
+                ]
+
+                for selector in brand_selectors:
+                    try:
+                        brand_element = await detail_page.query_selector(selector)
+                        if brand_element:
+                            brand = await brand_element.text_content()
+                            if brand and brand.strip():
+                                detailed_info['brand'] = brand.strip()
+                                break
+                    except:
+                        continue
+
+                # 提取规格信息
+                spec_selectors = [
+                    '.specifications table tr',
+                    '.product-specs .spec-item',
+                    '.attributes .attribute'
+                ]
+
+                for selector in spec_selectors:
+                    try:
+                        spec_elements = await detail_page.query_selector_all(selector)
+                        for spec in spec_elements[:10]:  # 最多获取10个规格
+                            try:
+                                spec_text = await spec.text_content()
+                                if spec_text and ':' in spec_text:
+                                    key, value = spec_text.split(':', 1)
+                                    detailed_info['specifications'][key.strip()] = value.strip()
+                            except:
+                                continue
+                        if detailed_info['specifications']:
+                            break
+                    except:
+                        continue
+
+                print(f"      ✅ 商品详情提取成功: {detailed_info['title'][:30]}...")
+
+            finally:
+                # 关闭详情页标签
+                await detail_page.close()
+
+        except Exception as e:
+            print(f"      ❌ 提取商品详情失败: {e}")
+
+        return detailed_info
+
     async def check_next_page(self) -> bool:
         """
         检查是否有下一页
@@ -492,21 +693,30 @@ class SeerfarProductCrawler:
             return
         
         print(f"\n📊 商品数据摘要 (共 {len(products)} 个商品):")
-        print("=" * 80)
-        
+        print("=" * 100)
+
         for i, product in enumerate(products[:10], 1):  # 只显示前10个
             product_id = product.get('product_id', 'N/A')
             category = product.get('category', 'N/A')
             price = product.get('price', 'N/A')
             sales_volume = product.get('sales_volume', 'N/A')
             rating = product.get('rating', 'N/A')
-            
-            print(f"{i:3d}. ID: {product_id:<15} | 类目: {category:<10} | 价格: {price:<10} | 销量: {sales_volume:<8} | 评分: {rating}")
-        
+
+            # 显示详细信息
+            detailed_info = product.get('detailed_info', {})
+            detail_title = detailed_info.get('title', 'N/A')[:30] + '...' if detailed_info.get('title') else 'N/A'
+            detail_brand = detailed_info.get('brand', 'N/A')
+            detail_rating = detailed_info.get('average_rating', 'N/A')
+
+            print(f"{i:3d}. ID: {product_id:<15} | 类目: {category:<10} | 价格: {price:<10}")
+            print(f"     标题: {detail_title:<35} | 品牌: {detail_brand:<10} | 详情评分: {detail_rating}")
+            print(f"     销量: {sales_volume:<8} | 列表评分: {rating}")
+            print("-" * 100)
+
         if len(products) > 10:
             print(f"... 还有 {len(products) - 10} 个商品未显示")
-        
-        print("=" * 80)
+
+        print("=" * 100)
     
     def save_products_to_json(self, products: List[Dict[str, Any]], filename: Optional[str] = None):
         """
@@ -571,7 +781,7 @@ async def main():
     target_url = "https://seerfar.cn/admin/store-detail.html?storeId=99927&platform=OZON"
     
     # 配置参数
-    headless = False  # 使用有头模式便于观察
+    headless = False  # 使用无头模式避免浏览器冲突
     request_delay = 2.0  # 请求间隔
     max_pages = 3  # 限制最大页数（设为None表示不限制）
     
