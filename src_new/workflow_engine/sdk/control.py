@@ -189,11 +189,19 @@ class WorkflowControl:
             Thread ID of the started workflow
         """
         try:
-            # This delegates to the engine using the same database path
-            # Get the database path from the current db_manager
+            # This delegates to the engine using the same database configuration
             from ..core.engine import WorkflowEngine
-            db_path = self.db_manager.db_path if hasattr(self.db_manager, 'db_path') else None
-            engine = WorkflowEngine(db_path)
+            from ..core.config import WorkflowEngineConfig
+
+            # Create a config with the same database path if available
+            if hasattr(self.db_manager, 'db_path') and self.db_manager.db_path:
+                config = WorkflowEngineConfig()
+                config.db_path = self.db_manager.db_path
+                engine = WorkflowEngine(config)
+            else:
+                # Use default config
+                engine = WorkflowEngine()
+
             return engine.start_workflow(flow_version_id, input_data, thread_id)
         except Exception as e:
             logger.error(f"Failed to start workflow: {str(e)}")

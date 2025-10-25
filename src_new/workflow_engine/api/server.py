@@ -10,11 +10,12 @@ from .exceptions import setup_exception_handlers
 from .system_routes import create_system_router
 from .flow_routes import create_flow_router
 from .workflow_routes import create_workflow_router
+from .thread_routes import create_thread_router
 from .workflow_ws import create_websocket_router
 from .console_routes import create_console_router
 from .app_routes import create_app_router
 from ..utils.logger import get_logger
-from ..config import get_config
+from ..core.config import get_config
 
 logger = get_logger(__name__)
 
@@ -77,24 +78,33 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
 
     # Create FastAPI app
     app = FastAPI(
-        title=config.server.title,
-        description=config.server.description,
-        version=config.server.version
+        title="Workflow Engine API",
+        description="AI Product Selector Workflow Engine",
+        version="1.0.0"
     )
 
     # Initialize workflow engine
     from ..core.engine import WorkflowEngine
-    if db_path is None:
-        db_path = str(config.get_database_path())
-    engine = WorkflowEngine(db_path)
+    if db_path is not None:
+        # If db_path is provided, create a custom config with that path
+        from ..core.config import WorkflowEngineConfig
+        custom_config = WorkflowEngineConfig()
+        custom_config.db_path = db_path
+        engine = WorkflowEngine(custom_config)
+    else:
+        # Use default config
+        engine = WorkflowEngine(config)
 
     # Initialize app manager
     from ..apps.manager import AppManager
-    apps_dir = config.get_apps_directory_path()
+    from pathlib import Path
+    # Use default apps directory since config doesn't have this method
+    apps_dir = Path(__file__).parent.parent.parent / "apps"
     app_manager = AppManager(str(apps_dir))
 
     # Initialize templates
-    templates_dir = config.get_templates_directory_path()
+    # Use default templates directory since config doesn't have this method
+    templates_dir = Path(__file__).parent.parent / "templates"
     templates = Jinja2Templates(directory=str(templates_dir))
 
     # Initialize dependencies
@@ -131,6 +141,7 @@ def create_app(db_path: Optional[str] = None) -> FastAPI:
     app.include_router(create_system_router(), prefix="", tags=["system"])
     app.include_router(create_flow_router(), prefix="/api", tags=["flows"])
     app.include_router(create_workflow_router(), prefix="/api", tags=["workflows"])
+    app.include_router(create_thread_router(), prefix="/api", tags=["threads"])
     app.include_router(create_websocket_router(), prefix="/api", tags=["websocket"])
     app.include_router(create_console_router(), prefix="", tags=["console"])
     app.include_router(create_app_router(), prefix="", tags=["applications"])
@@ -146,10 +157,11 @@ if __name__ == "__main__":
     config = get_config()
 
     # Use import string for uvicorn to support reload and workers
+    # Use default values since WorkflowEngineConfig doesn't have server config
     uvicorn.run(
         "workflow_engine.api.server:create_app",
-        host=config.server.host,
-        port=config.server.port,
-        reload=config.development.reload,
+        host="0.0.0.0",
+        port=8889,
+        reload=False,
         factory=True
     )

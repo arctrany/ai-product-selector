@@ -60,7 +60,7 @@ start_server() {
     cd "$PROJECT_DIR/src_new"
     
     # Start server in background
-    nohup /usr/local/bin/python3.11 -m "$SERVER_MODULE" > "$LOG_FILE" 2>&1 &
+    nohup /usr/bin/python3 -m "$SERVER_MODULE" > "$LOG_FILE" 2>&1 &
     local server_pid=$!
     
     # Save PID

@@ -144,7 +144,9 @@ def create_app_router() -> APIRouter:
 
         # Get configuration for apps directory
         config = get_config()
-        apps_dir = config.get_apps_directory_path()
+        from pathlib import Path
+        # Use default apps directory since config doesn't have this method
+        apps_dir = Path(__file__).parent.parent.parent / "apps"
 
         # Create flow context for template
         flow_context = {
@@ -214,7 +216,9 @@ def create_app_router() -> APIRouter:
 
         # Get configuration for apps directory
         config = get_config()
-        apps_dir = config.get_apps_directory_path()
+        from pathlib import Path
+        # Use default apps directory since config doesn't have this method
+        apps_dir = Path(__file__).parent.parent.parent / "apps"
 
         # Create flow context for template
         flow_context = {
@@ -242,7 +246,9 @@ def create_app_router() -> APIRouter:
         version_id = flow_version["version"] if flow_version else "latest"
 
         # Initialize templates with config-based directory
-        templates = Jinja2Templates(directory=str(config.get_templates_directory_path()))
+        from pathlib import Path
+        templates_dir = Path(__file__).parent.parent / "templates"
+        templates = Jinja2Templates(directory=str(templates_dir))
 
         return templates.TemplateResponse(
             "flow_console.html",
@@ -420,7 +426,7 @@ def create_app_router() -> APIRouter:
                 "message": f"Workflow {flow_id} started successfully",
                 "inputs": inputs,
                 "console_url": console_url,
-                "logs_url": f"/api/runs/{thread_id}/logs"
+                "logs_url": f"/api/thread/{thread_id}/logs"
             }
 
         except ValueError as e:

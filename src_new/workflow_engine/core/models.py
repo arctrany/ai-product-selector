@@ -2,8 +2,9 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Annotated
 from pydantic import BaseModel, Field
+from langgraph.graph.message import add_messages
 
 
 class NodeType(str, Enum):
@@ -73,10 +74,14 @@ class WorkflowDefinition(BaseModel):
     edges: List[WorkflowEdge] = Field(..., description="Workflow edges")
 
 
+def replace_current_node(left: Optional[str], right: Optional[str]) -> Optional[str]:
+    """Replace function for current_node to handle concurrent updates."""
+    return right if right is not None else left
+
 class WorkflowState(BaseModel):
     """Workflow execution state."""
     thread_id: str = Field(..., description="Unique thread identifier")
-    current_node: Optional[str] = Field(None, description="Currently executing node")
+    current_node: Annotated[Optional[str], replace_current_node] = Field(None, description="Currently executing node")
     data: Dict[str, Any] = Field(default_factory=dict, description="Workflow data")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Execution metadata")
     pause_requested: bool = Field(False, description="Pause request flag")

@@ -34,17 +34,6 @@ def create_flow1_workflow():
         }
     )
     
-    # 添加分支节点 - 复用现有的 ConditionNode 实现
-    builder.add_branch_node(
-        node_id="branch_node", 
-        condition={
-            "==": [
-                {"var": "loop_completed"}, 
-                True
-            ]
-        }
-    )
-    
     # 添加延时节点
     builder.add_code_node(
         node_id="delay_node",
@@ -54,18 +43,14 @@ def create_flow1_workflow():
             "message": "done"
         }
     )
-    
+
     # 添加结束节点
     builder.add_end_node("end")
-    
-    # 定义工作流连接
+
+    # 定义工作流连接 - 修复循环逻辑
     builder.add_edge("start", "loop_node")
-    builder.add_edge("loop_node", "branch_node")
-    
-    # 分支连接：如果循环完成，进入延时节点；否则回到循环节点
-    builder.add_edge("branch_node", "delay_node", condition=True)
-    builder.add_edge("branch_node", "loop_node", condition=False)
-    
+    # 循环节点完成后直接进入延时节点，不需要分支判断
+    builder.add_edge("loop_node", "delay_node")
     builder.add_edge("delay_node", "end")
     
     # 验证工作流

@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import (
     Boolean, Column, DateTime, Integer, JSON, String, Text, create_engine, and_, Index, select
 )
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 import asyncio
