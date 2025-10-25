@@ -16,6 +16,8 @@ from datetime import datetime
 # 添加项目路径
 current_dir = Path(__file__).parent  # examples目录
 src_new_dir = current_dir.parent  # src_new目录
+project_root = src_new_dir.parent  # 项目根目录
+sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(src_new_dir))
 
 from rpa.browser.browser_service import BrowserService
