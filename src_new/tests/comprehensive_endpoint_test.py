@@ -205,14 +205,14 @@ class ComprehensiveEndpointTest:
             return False
 
     def test_start_flow_api(self, flow_id: str = "test_comprehensive_flow") -> Optional[str]:
-        """测试Flow API启动 - POST /api/flows/{flow_version_param}/start"""
+        """测试Flow API启动 - POST /api/flows/{flow_version_param}/start/latest"""
         try:
             start_data = {
                 "input_data": {"test": "comprehensive_api_test"}
             }
 
             response = self.session.post(
-                f"{self.base_url}/api/flows/{flow_id}-latest/start",
+                f"{self.base_url}/api/flows/{flow_id}/start/latest",
                 json=start_data
             )
 

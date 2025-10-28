@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -9,15 +10,53 @@ from datetime import datetime
 from ..utils.logger import get_logger
 from .models import AppConfig, AppRunContext
 
+# Import Windows compatibility utilities
+try:
+    from ...utils.windows_compat import normalize_path, is_windows
+except ImportError:
+    # Fallback implementations if windows_compat is not available
+    def normalize_path(path):
+        return Path(path).resolve()
+
+
+    def is_windows():
+        import platform
+        return platform.system().lower() == "windows"
+
 logger = get_logger(__name__)
+
 
 class AppManager:
     """Manages application configurations and lifecycle."""
 
-    def __init__(self, apps_dir: str = "src_new/apps"):
-        self.apps_dir = Path(apps_dir)
+    def __init__(self, apps_dir: Optional[str] = None):
+        # Dynamic path resolution - determine the root module path
+        self.root_module_path = self._determine_root_module_path()
+
+        # Set apps directory relative to root module path
+        if apps_dir is None:
+            apps_dir = f"{self.root_module_path}/apps"
+
+        self.apps_dir = normalize_path(apps_dir)
         self.apps: Dict[str, AppConfig] = {}
         self._load_apps()
+
+    def _determine_root_module_path(self) -> str:
+        """Dynamically determine the root module path based on current module location."""
+        # Get the current module's path
+        current_module = sys.modules[self.__class__.__module__]
+        current_file = normalize_path(current_module.__file__)
+
+        # Navigate up to find the root module
+        # Current structure: <root>/workflow_engine/apps/manager.py
+        # We want to get to <root>
+        root_path = current_file.parent.parent.parent
+
+        # Convert to module path format
+        root_module_name = root_path.name
+
+        logger.debug(f"Determined root module path: {root_module_name}")
+        return root_module_name
 
     def _load_apps(self):
         """Load all application configurations from apps directory."""
@@ -30,7 +69,7 @@ class AppManager:
         # Look for app.json files in subdirectories
         for app_dir in self.apps_dir.iterdir():
             if app_dir.is_dir():
-                config_file = app_dir / "app.json"
+                config_file = normalize_path(app_dir / "app.json")
                 if config_file.exists():
                     try:
                         self._load_app_config(config_file)
@@ -38,7 +77,7 @@ class AppManager:
                         logger.error(f"Failed to load app config from {config_file}: {e}")
 
         # Also check for app.json in root apps directory
-        root_config = self.apps_dir / "app.json"
+        root_config = normalize_path(self.apps_dir / "app.json")
         if root_config.exists():
             try:
                 self._load_app_config(root_config)
@@ -76,19 +115,19 @@ class AppManager:
     def get_all_apps(self) -> List[AppConfig]:
         """Get all loaded applications. Alias for list_apps()."""
         return self.list_apps()
-    
+
     def get_app_by_flow(self, flow_id: str) -> Optional[AppConfig]:
         """Find application that contains the specified flow ID."""
         for app in self.apps.values():
             if flow_id in app.flow_ids or flow_id == app.default_flow_id:
                 return app
         return None
-    
+
     def parse_console_id(self, console_id: str) -> Optional[tuple[str, str]]:
         """Parse console ID into app_id and flow_id."""
         if '-' not in console_id:
             return None
-        
+
         # Try to match against known app_ids first
         # This handles cases where app_id contains hyphens
         for app_id in self.apps.keys():
@@ -103,36 +142,36 @@ class AppManager:
             return parts[0], parts[1]
 
         return None
-    
-    def create_run_context(self, console_id: str, run_id: Optional[str] = None, 
-                          thread_id: Optional[str] = None) -> Optional[AppRunContext]:
+
+    def create_run_context(self, console_id: str, run_id: Optional[str] = None,
+                           thread_id: Optional[str] = None) -> Optional[AppRunContext]:
         """Create application run context from console ID."""
         parsed = self.parse_console_id(console_id)
         if not parsed:
             return None
-        
+
         app_id, flow_id = parsed
         app_config = self.get_app(app_id)
         if not app_config:
             return None
-        
+
         # Validate flow_id belongs to this app
         if flow_id not in app_config.flow_ids and flow_id != app_config.default_flow_id:
             logger.warning(f"Flow {flow_id} not associated with app {app_id}")
             return None
-        
+
         return AppRunContext(
             app_config=app_config,
             flow_id=flow_id,
             run_id=run_id,
             thread_id=thread_id
         )
-    
+
     def reload_apps(self):
         """Reload all application configurations."""
         self.apps.clear()
         self._load_apps()
-    
+
     def validate_console_id(self, console_id: str) -> bool:
         """Validate if console ID is valid and app/flow exists."""
         context = self.create_run_context(console_id)
@@ -176,6 +215,10 @@ class AppManager:
             # Parse module and function name
             module_path, function_name = entry_point.split(':')
 
+            # Fix module path: add root module prefix if not present
+            if not module_path.startswith(f'{self.root_module_path}.'):
+                module_path = f'{self.root_module_path}.{module_path}'
+
             # Dynamic import
             import importlib
             module = importlib.import_module(module_path)
@@ -183,15 +226,19 @@ class AppManager:
             # Also import the nodes module to ensure decorators are executed
             # This registers the node functions in the function registry
 
-            # Generate possible nodes module paths
+            # Generate possible nodes module paths (with dynamic root prefix)
             possible_nodes_paths = [
-                # Direct replacement: apps.sample_app.flow1.imp.workflow_definition -> apps.sample_app.flow1.imp.nodes
+                # Direct replacement: <root>.apps.sample_app.flow1.imp.workflow_definition ->
+                # <root>.apps.sample_app.flow1.imp.nodes
                 module_path.replace('.workflow_definition', '.nodes'),
-                # Remove workflow_definition and add nodes: apps.sample_app.flow1.imp.workflow_definition -> apps.sample_app.flow1.imp.nodes
+                # Remove workflow_definition and add nodes: <root>.apps.sample_app.flow1.imp.workflow_definition ->
+                # <root>.apps.sample_app.flow1.imp.nodes
                 f"{module_path.rsplit('.', 1)[0]}.nodes",
-                # Try without imp: apps.sample_app.flow1.imp.workflow_definition -> apps.sample_app.flow1.nodes
+                # Try without imp: <root>.apps.sample_app.flow1.imp.workflow_definition ->
+                # <root>.apps.sample_app.flow1.nodes
                 f"{'.'.join(module_path.split('.')[:-2])}.nodes",
-                # Try with different structure: apps.sample_app.flow1.imp.workflow_definition -> apps.sample_app.flow1.nodes
+                # Try with different structure: <root>.apps.sample_app.flow1.imp.workflow_definition ->
+                # <root>.apps.sample_app.flow1.nodes
                 module_path.replace('.imp.workflow_definition', '.nodes'),
             ]
 
@@ -222,19 +269,16 @@ class AppManager:
 
                 # As a last resort, try to find nodes.py files in the app directory
                 try:
-                    import os
-                    from pathlib import Path
-
-                    # Get the app directory path
+                    # Get the app directory path using dynamic root module path and cross-platform paths
                     app_parts = module_path.split('.')
-                    if len(app_parts) >= 3:  # apps.sample_app.flow1...
-                        app_dir = Path("src_new") / "apps" / app_parts[1] / app_parts[2] / "imp"
-                        nodes_file = app_dir / "nodes.py"
+                    if len(app_parts) >= 4:  # <root>.apps.sample_app.flow1...
+                        app_dir = normalize_path(self.apps_dir / app_parts[2] / app_parts[3] / "imp")
+                        nodes_file = normalize_path(app_dir / "nodes.py")
 
                         if nodes_file.exists():
                             logger.info(f"🔍 Found nodes.py file at: {nodes_file}")
                             # Try to construct the correct import path
-                            correct_path = f"apps.{app_parts[1]}.{app_parts[2]}.imp.nodes"
+                            correct_path = f"{'.'.join(app_parts[:4])}.imp.nodes"
                             try:
                                 nodes_module = importlib.import_module(correct_path)
                                 importlib.reload(nodes_module)
@@ -336,6 +380,10 @@ class AppManager:
                 try:
                     # Parse module and function name
                     module_path, function_name = metadata_function.split(':')
+
+                    # Fix module path: add root module prefix if not present
+                    if not module_path.startswith(f'{self.root_module_path}.'):
+                        module_path = f'{self.root_module_path}.{module_path}'
 
                     # Dynamic import
                     import importlib

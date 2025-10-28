@@ -88,7 +88,7 @@ class TestCompleteWorkflowScenarios:
             
             # Step 1: Start workflow
             response = client.post(
-                "/api/flows/linear-workflow/start",
+                "/api/flows/linear-workflow/start/latest",
                 json={
                     "input_data": {
                         "input_value": 42,
@@ -220,7 +220,7 @@ class TestCompleteWorkflowScenarios:
             
             # Test high-value branch
             response = client.post(
-                "/api/flows/conditional-workflow/start",
+                "/api/flows/conditional-workflow/start/latest",
                 json={
                     "input_data": {
                         "value": workflow_conditions["input_value"],
@@ -230,24 +230,24 @@ class TestCompleteWorkflowScenarios:
             )
             assert response.status_code == 200
             thread_id = response.json()["thread_id"]
-            
+
             # Start execution
             response = client.post(f"/api/thread/{thread_id}/start", json={})
             assert response.status_code == 200
-            
+
             # Check that high-value branch was taken
             response = client.get(f"/api/thread/{thread_id}/status")
             assert response.status_code == 200
             status_result = response.json()
             assert "high_value" in status_result["status"]
-            
+
             # Test low-value branch
             workflow_conditions["input_value"] = 25
             workflow_conditions["thread_id"] = "e2e-conditional-789"
             workflow_conditions["status"] = "pending"
-            
+
             response = client.post(
-                "/api/flows/conditional-workflow/start",
+                "/api/flows/conditional-workflow/start/latest",
                 json={
                     "input_data": {
                         "value": 25,
@@ -324,7 +324,7 @@ class TestCompleteWorkflowScenarios:
             
             # Start error-prone workflow
             response = client.post(
-                "/api/flows/error-recovery-workflow/start",
+                "/api/flows/error-recovery-workflow/start/latest",
                 json={
                     "input_data": {
                         "simulate_errors": True,
@@ -428,7 +428,7 @@ class TestCompleteWorkflowScenarios:
             thread_ids = []
             for i in range(5):
                 response = client.post(
-                    "/api/flows/parallel-workflow/start",
+                    "/api/flows/parallel-workflow/start/latest",
                     json={
                         "input_data": {
                             "workflow_index": i,
@@ -508,7 +508,7 @@ class TestCompleteWorkflowScenarios:
             
             # Test starting latest version
             response = client.post(
-                "/api/flows/versioned-workflow/start",
+                "/api/flows/versioned-workflow/start/latest",
                 json={"input_data": {"test": "latest_version"}}
             )
             assert response.status_code == 200
@@ -518,7 +518,7 @@ class TestCompleteWorkflowScenarios:
             # Test starting specific versions
             for version in ["1.0.0", "2.0.0", "3.0.0"]:
                 response = client.post(
-                    f"/api/flows/versioned-workflow-{version}/start",
+                    f"/api/flows/versioned-workflow/start/version/{version}",
                     json={"input_data": {"test": f"version_{version}"}}
                 )
                 assert response.status_code == 200
@@ -528,7 +528,7 @@ class TestCompleteWorkflowScenarios:
             
             # Test invalid version
             response = client.post(
-                "/api/flows/versioned-workflow-99.0.0/start",
+                "/api/flows/versioned-workflow/start/version/99.0.0",
                 json={"input_data": {"test": "invalid_version"}}
             )
             # Should handle gracefully (exact behavior depends on implementation)

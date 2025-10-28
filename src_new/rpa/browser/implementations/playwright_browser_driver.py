@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Union
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
 
 
-from .config_manager import ConfigManager
+# ConfigManager removed - using simplified config system
 from .logger_system import get_logger
 from ..core.interfaces.browser_driver import IBrowserDriver
 
@@ -33,15 +33,14 @@ class PlaywrightBrowserDriver(IBrowserDriver):
     - 资源生命周期管理
     """
 
-    def __init__(self, config_manager: Optional[ConfigManager] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
         初始化Playwright浏览器驱动
-        
+
         Args:
-            config_manager: 配置管理器实例
+            config: 浏览器配置字典
         """
-        self.config_manager = config_manager or ConfigManager()
-        self.config = {}  # 配置将在initialize方法中异步加载
+        self.config = config or {}  # 使用简化配置系统
         self._logger = get_logger("PlaywrightDriver")
         
         # Playwright 相关实例
@@ -73,8 +72,7 @@ class PlaywrightBrowserDriver(IBrowserDriver):
         try:
             self._logger.info("Initializing Playwright browser driver...")
             
-            # 异步加载配置
-            self.config = await self.config_manager.get_config()
+            # 使用简化配置系统
             if not self.config:
                 self.config = {}
 

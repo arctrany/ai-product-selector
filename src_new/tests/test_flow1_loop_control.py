@@ -52,7 +52,7 @@ class Flow1LoopControlTest:
         try:
             # Start Flow1 workflow
             start_response = self.session.post(
-                f"{self.base_url}/api/flows/abba-ccdd-eeff-1.0.0/start",
+                f"{self.base_url}/api/flows/abba-ccdd-eeff/start/version/1.0.0",
                 json={
                     "input_data": {
                         "test_mode": "loop_control",
@@ -61,9 +61,9 @@ class Flow1LoopControlTest:
                     }
                 }
             )
-            
+
             self.log_evidence("WORKFLOW_START_REQUEST", {
-                "url": f"{self.base_url}/api/flows/abba-ccdd-eeff-1.0.0/start",
+                "url": f"{self.base_url}/api/flows/abba-ccdd-eeff/start/version/1.0.0",
                 "status_code": start_response.status_code,
                 "response_headers": dict(start_response.headers)
             })

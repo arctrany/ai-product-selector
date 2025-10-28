@@ -3,6 +3,7 @@
 import uuid
 import sqlite3
 import threading
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 from langgraph.graph import StateGraph, END
@@ -152,6 +153,11 @@ class WorkflowEngine:
         )
         if not success:
             logger.warning(f"Failed to update run status to running for {state.thread_id}")
+        else:
+            # Push status update to WebSocket
+            self._push_status_update(state.thread_id, "running")
+            # Push timer start event to WebSocket
+            self._push_timer_update(state.thread_id, "timer_start")
 
         return {"current_node": "__start__"}
 
@@ -165,13 +171,31 @@ class WorkflowEngine:
         )
         if not success:
             logger.warning(f"Failed to update run status to completed for {state.thread_id}")
+        else:
+            # Push status update to WebSocket
+            self._push_status_update(state.thread_id, "completed")
+            # Push timer stop event to WebSocket
+            self._push_timer_update(state.thread_id, "timer_stop")
 
         return {"current_node": "__end__"}
 
     def _create_python_node_handler(self, node_def):
         """Create handler function for Python node."""
         def handler(state: WorkflowState) -> Dict[str, Any]:
-            workflow_logger = WorkflowLogger(state.thread_id)
+            # Check for pending signals before executing node
+            self._check_and_process_signals(state)
+
+            # Get logging configuration for console output
+            from ..config import get_config
+            config = get_config()
+            logging_config = config.logging
+
+            # Create WorkflowLogger with console output configuration
+            workflow_logger = WorkflowLogger(
+                thread_id=state.thread_id,
+                log_dir=logging_config.directory if logging_config.directory else None,
+                enable_console=logging_config.console_output
+            )
             python_node = PythonNode(node_def.id, node_def.data.dict() if node_def.data else {})
 
             # Create improved interrupt function
@@ -194,6 +218,11 @@ class WorkflowEngine:
 
                 if not success:
                     logger.warning(f"Failed to update status to paused for {state.thread_id}")
+                else:
+                    # Push status update to WebSocket
+                    self._push_status_update(state.thread_id, "paused")
+                    # Push timer pause event to WebSocket
+                    self._push_timer_update(state.thread_id, "timer_pause")
 
                 # Raise proper exception for LangGraph
                 raise WorkflowInterrupt("Manual interrupt", {"node_id": node_def.id, "value": value})
@@ -211,7 +240,17 @@ class WorkflowEngine:
     def _create_condition_node_handler(self, node_def):
         """Create handler function for condition node."""
         def handler(state: WorkflowState) -> Dict[str, Any]:
-            workflow_logger = WorkflowLogger(state.thread_id)
+            # Get logging configuration for console output
+            from ..config import get_config
+            config = get_config()
+            logging_config = config.logging
+
+            # Create WorkflowLogger with console output configuration
+            workflow_logger = WorkflowLogger(
+                thread_id=state.thread_id,
+                log_dir=logging_config.directory if logging_config.directory else None,
+                enable_console=logging_config.console_output
+            )
             condition_node = ConditionNode(node_def.id, node_def.data.dict() if node_def.data else {})
 
             # Execute condition evaluation
@@ -250,6 +289,62 @@ class WorkflowEngine:
             return True
 
         return router
+
+    def _check_and_process_signals(self, state: WorkflowState) -> None:
+        """Check for pending signals and update workflow state accordingly."""
+        try:
+            # Check for pause signals
+            pause_signal = self.db_manager.atomic_claim_signal(state.thread_id, "pause_request")
+            if pause_signal:
+                logger.info(f"Processing pause signal for thread {state.thread_id}: {pause_signal['id']}")
+                state.pause_requested = True
+                return
+
+            # Check for cancel signals
+            cancel_signal = self.db_manager.atomic_claim_signal(state.thread_id, "cancel_request")
+            if cancel_signal:
+                logger.info(f"Processing cancel signal for thread {state.thread_id}: {cancel_signal['id']}")
+                state.cancel_requested = True
+
+                # Update database status to cancelled
+                success = self.db_manager.atomic_update_run_status(
+                    state.thread_id, "running", "cancelled", {
+                        "cancel_reason": cancel_signal.get("payload_json", {}).get("reason", "User requested")
+                    }
+                )
+                if not success:
+                    logger.warning(f"Failed to update status to cancelled for {state.thread_id}")
+                else:
+                    # Push status update to WebSocket
+                    self._push_status_update(state.thread_id, "cancelled")
+                    # Push timer stop event to WebSocket
+                    self._push_timer_update(state.thread_id, "timer_stop")
+
+                # Raise interrupt to stop execution
+                raise WorkflowInterrupt("Workflow cancelled by user request", {
+                    "signal_id": cancel_signal['id'],
+                    "reason": cancel_signal.get("payload_json", {}).get("reason", "User requested")
+                })
+
+            # Check for resume signals (in case workflow was paused and now resuming)
+            resume_signal = self.db_manager.atomic_claim_signal(state.thread_id, "resume_request")
+            if resume_signal:
+                logger.info(f"Processing resume signal for thread {state.thread_id}: {resume_signal['id']}")
+                state.pause_requested = False
+
+                # Apply any updates from resume signal
+                updates = resume_signal.get("payload_json", {}).get("updates", {})
+                if updates:
+                    for key, value in updates.items():
+                        if hasattr(state, key):
+                            setattr(state, key, value)
+                        else:
+                            state.data[key] = value
+                    logger.info(f"Applied resume updates for thread {state.thread_id}: {updates}")
+
+        except Exception as e:
+            logger.error(f"Error checking signals for thread {state.thread_id}: {str(e)}")
+            # Don't raise exception to avoid breaking workflow execution
 
     def _ensure_functions_registered(self, flow_version_id: int) -> None:
         """Ensure all functions required by the workflow are registered."""
@@ -420,6 +515,10 @@ class WorkflowEngine:
             logger.error(f"Workflow execution failed for thread: {thread_id}, error: {str(e)}, error_type: {type(e).__name__}")
 
             self.db_manager.atomic_update_run_status(thread_id, "running", "failed", {"error": str(e)})
+            # Push status update to WebSocket
+            self._push_status_update(thread_id, "failed")
+            # Push timer stop event to WebSocket
+            self._push_timer_update(thread_id, "timer_stop")
             raise
 
         return thread_id
@@ -467,10 +566,78 @@ class WorkflowEngine:
             logger.error(f"Workflow resume failed for thread: {thread_id}, error: {str(e)}, error_type: {type(e).__name__}")
 
             self.db_manager.atomic_update_run_status(thread_id, "running", "failed", {"error": str(e)})
+            # Push status update to WebSocket
+            self._push_status_update(thread_id, "failed")
+            # Push timer stop event to WebSocket
+            self._push_timer_update(thread_id, "timer_stop")
             return False
         
         return True
-    
+
+    def _push_status_update(self, thread_id: str, status: str) -> None:
+        """Push status update to WebSocket connections."""
+        try:
+            # Import here to avoid circular imports
+            from ..api.workflow_ws import get_connection_manager
+
+            connection_manager = get_connection_manager()
+            if connection_manager:
+                # Get current run data for complete status information
+                run_data = self.db_manager.get_run(thread_id)
+                if run_data:
+                    status_message = {
+                        "type": "status",
+                        "data": {
+                            "status": status,
+                            "thread_id": thread_id,
+                            "flow_version_id": run_data.get("flow_version_id"),
+                            "created_at": run_data.get("created_at"),
+                            "updated_at": run_data.get("updated_at"),
+                            "metadata": run_data.get("metadata", {})
+                        },
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+
+                    # Send status update to WebSocket
+                    connection_manager.send_message_sync(thread_id, status_message)
+                    logger.info(f"Pushed status update to WebSocket: {thread_id} -> {status}")
+                else:
+                    logger.warning(f"No run data found for status push: {thread_id}")
+            else:
+                logger.debug(f"No connection manager available for status push: {thread_id}")
+
+        except Exception as e:
+            # Don't let WebSocket errors break workflow execution
+            logger.warning(f"Failed to push status update to WebSocket for {thread_id}: {e}")
+
+    def _push_timer_update(self, thread_id: str, event: str) -> None:
+        """Push timer event to WebSocket connections."""
+        try:
+            # Import here to avoid circular imports
+            from ..api.workflow_ws import get_connection_manager
+
+            connection_manager = get_connection_manager()
+            if connection_manager:
+                timer_message = {
+                    "type": "timer",
+                    "data": {
+                        "event": event,
+                        "thread_id": thread_id,
+                        "timestamp": datetime.utcnow().isoformat()
+                    },
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+
+                # Send timer event to WebSocket
+                connection_manager.send_message_sync(thread_id, timer_message)
+                logger.info(f"Pushed timer event to WebSocket: {thread_id} -> {event}")
+            else:
+                logger.debug(f"No connection manager available for timer event: {thread_id}")
+
+        except Exception as e:
+            # Don't let WebSocket errors break workflow execution
+            logger.warning(f"Failed to push timer event to WebSocket for {thread_id}: {e}")
+
     def get_workflow_status(self, thread_id: str) -> Optional[Dict[str, Any]]:
         """Get workflow execution status."""
         return self.db_manager.get_run(thread_id)

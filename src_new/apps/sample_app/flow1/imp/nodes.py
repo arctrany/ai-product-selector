@@ -7,7 +7,7 @@ import base64
 from datetime import datetime
 from typing import Any, Dict
 import pandas as pd
-from workflow_engine.sdk import register_function, WorkflowState, WorkflowLogger
+from src_new.workflow_engine.sdk import register_function, WorkflowState, WorkflowLogger
 
 
 def _read_excel_file(file_data: Dict[str, Any], logger: WorkflowLogger) -> pd.DataFrame:

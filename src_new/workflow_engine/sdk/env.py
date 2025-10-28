@@ -270,12 +270,14 @@ class WorkflowEnvironment:
 # Global environment instance
 _env: Optional[WorkflowEnvironment] = None
 
+
 def get_environment(config: Optional[EnvironmentConfig] = None) -> WorkflowEnvironment:
     """Get or create the global environment instance."""
     global _env
     if _env is None:
         _env = WorkflowEnvironment(config)
     return _env
+
 
 def setup_environment(config: Optional[EnvironmentConfig] = None) -> None:
     """Setup the workflow engine environment.
@@ -286,25 +288,31 @@ def setup_environment(config: Optional[EnvironmentConfig] = None) -> None:
     env = get_environment(config)
     env.setup_python_path()
 
+
 def get_project_root() -> str:
     """Get the project root directory."""
     return get_environment().get_project_root()
+
 
 def get_config() -> Dict[str, Any]:
     """Get the workflow engine configuration."""
     return get_environment().get_config()
 
+
 def get_apps_directory() -> str:
     """Get the applications directory path."""
     return get_environment().get_apps_directory()
+
 
 def get_database_path() -> str:
     """Get the database file path."""
     return get_environment().get_database_path()
 
+
 def get_server_config() -> Dict[str, Any]:
     """Get server configuration."""
     return get_environment().get_server_config()
+
 
 def get_logging_directory() -> str:
     """Get the logging directory path."""

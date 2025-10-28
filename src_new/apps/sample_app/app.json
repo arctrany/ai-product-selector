@@ -12,7 +12,7 @@
       "flow_id": "abba-ccdd-eeff",
       "version": "1.0.0",
       "title": "循环演示工作流",
-      "description": "循环节点 + 分支节点 + 延时节点",
+      "description": "循环节点 + 延时节点（已修复无限循环问题）",
       "entry_point": "apps.sample_app.flow1.imp.workflow_definition:create_flow1_workflow",
       "metadata_function": "apps.sample_app.flow1.imp.workflow_definition:get_workflow_metadata"
     },
@@ -20,7 +20,7 @@
       "flow_id": "ghij-klmn-opqr-stuv",
       "version": "1.0.0",
       "title": "数据处理工作流",
-      "description": "数据处理 + 分支判断 + 通知/错误处理",
+      "description": "数据处理 + 分支判断 + 通",
       "entry_point": "apps.sample_app.flow2.imp.workflow_definition:create_flow2_workflow",
       "metadata_function": "apps.sample_app.flow2.imp.workflow_definition:get_workflow_metadata"
     }

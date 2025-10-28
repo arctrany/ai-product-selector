@@ -269,7 +269,7 @@ class TestAPIIntegration:
 
             # Test flow start
             response = client.post(
-                "/api/flows/test-flow/start",
+                "/api/flows/test-flow/start/latest",
                 json={"input_data": {"test": "value"}}
             )
             
@@ -500,7 +500,7 @@ class TestSystemIntegration:
             
             # Step 1: Start workflow
             response = client.post(
-                "/api/flows/e2e-test-flow/start",
+                "/api/flows/e2e-test-flow/start/latest",
                 json={"input_data": {"test": "e2e"}}
             )
             assert response.status_code == 200

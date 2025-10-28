@@ -3,9 +3,9 @@
 import time
 from datetime import datetime
 from typing import Any, Dict
-from workflow_engine.core.registry import register_function
-from workflow_engine.core.models import WorkflowState
-from workflow_engine.utils.logger import WorkflowLogger
+from src_new.workflow_engine.core.registry import register_function
+from src_new.workflow_engine.core.models import WorkflowState
+from src_new.workflow_engine.utils.logger import WorkflowLogger
 
 @register_function("flow2.process_node")
 def process_node_impl(state: WorkflowState, logger: WorkflowLogger, interrupt_fn, **kwargs) -> Dict[str, Any]:

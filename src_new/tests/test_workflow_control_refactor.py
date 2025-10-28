@@ -334,7 +334,7 @@ class TestWorkflowRoutesRefactor:
         self.mock_control.start_workflow.return_value = "thread_123"
 
         # Test request
-        response = self.client.post("/api/flows/test_flow-1.0.0/start", json={
+        response = self.client.post("/api/flows/test_flow/start/version/1.0.0", json={
             "input_data": {"key": "value"}
         })
 

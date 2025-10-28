@@ -5,9 +5,9 @@ from .bootstrap import setup_environment
 # Setup environment first
 setup_environment()
 
-from workflow_engine.core.registry import register_function
-from workflow_engine.core.models import WorkflowState
-from workflow_engine.utils.logger import WorkflowLogger
+from ..core.registry import register_function
+from ..core.models import WorkflowState
+from ..utils.logger import WorkflowLogger
 
 # Re-export for convenience
 __all__ = [

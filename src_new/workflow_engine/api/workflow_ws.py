@@ -1,7 +1,9 @@
 """WebSocket connection management for workflow events."""
 
 import json
-from typing import Dict, Any
+import asyncio
+from datetime import datetime
+from typing import Dict, Any, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 
 from .dependencies import engine_dependency
@@ -15,18 +17,43 @@ class ConnectionManager:
     
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
-    
+        self.connection_metadata: Dict[str, Dict[str, Any]] = {}
+        self.heartbeat_tasks: Dict[str, asyncio.Task] = {}
+
     async def connect(self, websocket: WebSocket, thread_id: str):
         """Accept WebSocket connection and store it."""
         await websocket.accept()
         self.active_connections[thread_id] = websocket
+
+        # Store connection metadata
+        self.connection_metadata[thread_id] = {
+            "connected_at": datetime.utcnow().isoformat(),
+            "last_ping": datetime.utcnow().isoformat(),
+            "status": "connected"
+        }
+
+        # Start heartbeat task
+        self.heartbeat_tasks[thread_id] = asyncio.create_task(
+            self._heartbeat_task(thread_id)
+        )
+
         logger.info(f"WebSocket connected for thread: {thread_id}")
     
     def disconnect(self, thread_id: str):
         """Remove WebSocket connection."""
         if thread_id in self.active_connections:
             del self.active_connections[thread_id]
-            logger.info(f"WebSocket disconnected for thread: {thread_id}")
+
+        # Clean up connection metadata
+        if thread_id in self.connection_metadata:
+            del self.connection_metadata[thread_id]
+
+        # Cancel heartbeat task
+        if thread_id in self.heartbeat_tasks:
+            self.heartbeat_tasks[thread_id].cancel()
+            del self.heartbeat_tasks[thread_id]
+
+        logger.info(f"WebSocket disconnected for thread: {thread_id}")
     
     async def send_message(self, thread_id: str, message: Dict[str, Any]):
         """Send message to specific WebSocket connection."""
@@ -36,7 +63,28 @@ class ConnectionManager:
             except Exception as e:
                 logger.error(f"Failed to send WebSocket message: {e}")
                 self.disconnect(thread_id)
-    
+
+    def send_message_sync(self, thread_id: str, message: Dict[str, Any]):
+        """Send message to specific WebSocket connection synchronously."""
+        import asyncio
+        if thread_id in self.active_connections:
+            try:
+                # Get the current event loop or create a new one
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # If loop is running, create a task
+                        asyncio.create_task(self.send_message(thread_id, message))
+                    else:
+                        # If loop is not running, run until complete
+                        loop.run_until_complete(self.send_message(thread_id, message))
+                except RuntimeError:
+                    # No event loop in current thread, create a new one
+                    asyncio.run(self.send_message(thread_id, message))
+            except Exception as e:
+                logger.error(f"Failed to send sync WebSocket message: {e}")
+                self.disconnect(thread_id)
+
     async def broadcast_message(self, message: Dict[str, Any]):
         """Broadcast message to all active connections."""
         disconnected = []
@@ -58,6 +106,52 @@ class ConnectionManager:
     def get_connected_threads(self) -> list:
         """Get list of connected thread IDs."""
         return list(self.active_connections.keys())
+
+    async def _heartbeat_task(self, thread_id: str):
+        """Heartbeat task to monitor connection health."""
+        try:
+            while thread_id in self.active_connections:
+                await asyncio.sleep(30)  # Send heartbeat every 30 seconds
+
+                if thread_id not in self.active_connections:
+                    break
+
+                try:
+                    # Send ping message
+                    await self.send_message(thread_id, {
+                        "type": "ping",
+                        "timestamp": datetime.utcnow().isoformat()
+                    })
+
+                    # Update last ping time
+                    if thread_id in self.connection_metadata:
+                        self.connection_metadata[thread_id]["last_ping"] = datetime.utcnow().isoformat()
+
+                except Exception as e:
+                    logger.warning(f"Heartbeat failed for {thread_id}: {e}")
+                    self.disconnect(thread_id)
+                    break
+
+        except asyncio.CancelledError:
+            logger.info(f"Heartbeat task cancelled for {thread_id}")
+        except Exception as e:
+            logger.error(f"Heartbeat task error for {thread_id}: {e}")
+
+    def get_connection_status(self, thread_id: str) -> Optional[Dict[str, Any]]:
+        """Get connection status and metadata."""
+        if thread_id not in self.connection_metadata:
+            return None
+
+        metadata = self.connection_metadata[thread_id].copy()
+        metadata["is_connected"] = thread_id in self.active_connections
+        return metadata
+
+    def get_all_connection_status(self) -> Dict[str, Dict[str, Any]]:
+        """Get status of all connections."""
+        return {
+            thread_id: self.get_connection_status(thread_id)
+            for thread_id in self.connection_metadata.keys()
+        }
 
 # Global connection manager instance
 connection_manager = ConnectionManager()

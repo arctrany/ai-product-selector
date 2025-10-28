@@ -56,7 +56,7 @@ def create_thread_router() -> APIRouter:
         """Start a thread execution.
         
         Note: This endpoint is for starting a thread that was created but not yet started.
-        For creating and starting a new workflow, use /api/flows/{flow_id}/start instead.
+        For creating and starting a new workflow, use /api/flows/{flow_id}/start/latest instead.
         """
         try:
             # Validate thread exists and is in a startable state
@@ -157,6 +157,37 @@ def create_thread_router() -> APIRouter:
             logger.error(f"Failed to resume thread {thread_id}: {e}")
             raise ValidationException(f"Failed to resume thread: {str(e)}")
 
+    @router.post("/{thread_id}/stop", response_model=ThreadControlResponse)
+    async def stop_thread(
+        thread_id: str = Path(..., description="Thread ID to stop"),
+        control: WorkflowControl = Depends(workflow_control_dependency),
+        db_manager: DatabaseManager = Depends(db_manager_dependency)
+    ):
+        """Stop (cancel) thread execution permanently."""
+        try:
+            # Validate thread exists
+            validate_thread_exists(thread_id, db_manager)
+
+            success = control.cancel_workflow(thread_id, "User requested stop")
+            if not success:
+                raise ValidationException(f"Failed to stop thread {thread_id}")
+
+            logger.info(f"Stopped thread: {thread_id}")
+
+            return ThreadControlResponse(
+                thread_id=thread_id,
+                status="stopped",
+                message="Thread stopped successfully"
+            )
+
+        except WorkflowNotFoundException:
+            raise
+        except ValidationException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to stop thread {thread_id}: {e}")
+            raise ValidationException(f"Failed to stop thread: {str(e)}")
+
     @router.get("/{thread_id}/status", response_model=ThreadStatusResponse)
     async def get_thread_status(
         thread_id: str = Path(..., description="Thread ID to get status for"),
@@ -196,13 +227,14 @@ def create_thread_router() -> APIRouter:
             # Validate thread exists
             validate_thread_exists(thread_id, db_manager)
             
-            # Try to get logs from file system
+            # Try to get logs from file system using configuration
             try:
                 import json
                 from pathlib import Path
-                
-                # Get log directory path
-                log_dir = Path.home() / ".ren" / "runs" / thread_id
+
+                # Get log directory path from configuration
+                log_dir_path = config.get_logging_directory_path()
+                log_dir = log_dir_path / "runs" / thread_id
                 log_file = log_dir / "logs.jsonl"
 
                 logs = []

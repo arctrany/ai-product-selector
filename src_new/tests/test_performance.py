@@ -385,7 +385,7 @@ class TestAPIPerformance:
             
             # Test different API endpoints
             endpoints = [
-                ("POST", "/api/flows/test-flow/start", {"input_data": {"test": "value"}}),
+                ("POST", "/api/flows/test-flow/start/latest", {"input_data": {"test": "value"}}),
                 ("GET", "/api/thread/test-123/status", None),
                 ("POST", "/api/thread/test-123/pause", None),
                 ("GET", "/api/thread/test-123/logs", None),

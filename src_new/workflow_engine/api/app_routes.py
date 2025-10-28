@@ -5,7 +5,8 @@ from fastapi import APIRouter, HTTPException, Query, Request, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from .dependencies import app_manager_dependency, db_manager_dependency, engine_dependency, workflow_control_dependency, config_dependency
+from .dependencies import app_manager_dependency, db_manager_dependency, engine_dependency, workflow_control_dependency, \
+    config_dependency
 from ..apps import AppManager
 from ..storage.database import DatabaseManager
 from ..core.engine import WorkflowEngine
@@ -13,9 +14,23 @@ from ..utils.logger import get_logger
 from ..config import get_config
 from ..sdk.control import WorkflowControl
 
+# Import Windows compatibility utilities
+try:
+    from ...utils.windows_compat import normalize_path, is_windows
+except ImportError:
+    # Fallback implementations if windows_compat is not available
+    from pathlib import Path
+
+
+    def normalize_path(path):
+        return Path(path).resolve()
+
+
+    def is_windows():
+        import platform
+        return platform.system().lower() == "windows"
+
 logger = get_logger(__name__)
-
-
 
 
 def create_app_router() -> APIRouter:
@@ -144,25 +159,40 @@ def create_app_router() -> APIRouter:
 
         # Get configuration for apps directory
         config = get_config()
-        from pathlib import Path
-        # Use default apps directory since config doesn't have this method
-        apps_dir = Path(__file__).parent.parent.parent / "apps"
+        # Use config to get apps directory path for consistency
+        apps_dir = config.get_apps_directory_path()
 
-        # Create flow context for template
+        # Ensure the path is properly resolved and doesn't contain environment variable placeholders
+        from ..config.loader import EnvironmentVariableExpander
+        from pathlib import Path
+        apps_dir_str = str(apps_dir)
+        apps_dir_expanded = EnvironmentVariableExpander.expand_value(apps_dir_str)
+
+        # Get project root directory - use cross-platform path handling
+        project_root = normalize_path(Path.cwd())  # Use current working directory as project root
+        if Path(apps_dir_expanded).is_absolute():
+            # Absolute path
+            apps_dir = normalize_path(apps_dir_expanded)
+        else:
+            # Relative path
+            apps_dir = normalize_path(project_root / apps_dir_expanded)
+
+        # Create flow context for template - use cross-platform paths
         flow_context = {
-            "flow_path": str(apps_dir / app_name / flow_name),
-            "templates_path": str(apps_dir / app_name / flow_name / "web" / "templates"),
-            "scripts_path": str(apps_dir / app_name / flow_name / "web" / "scripts")
+            "flow_path": str(normalize_path(apps_dir / app_name / flow_name)),
+            "templates_path": str(normalize_path(apps_dir / app_name / flow_name / "web" / "templates")),
+            "scripts_path": str(normalize_path(apps_dir / app_name / flow_name / "web" / "scripts"))
         }
 
         # Try to load custom template from app's web/templates directory
         import os
-        custom_template_path = str(apps_dir / app_name / flow_name / "web" / "templates" / "index.htm")
+        custom_template_path = normalize_path(apps_dir / app_name / flow_name / "web" / "templates" / "index.htm")
 
-        if os.path.exists(custom_template_path):
+        if custom_template_path.exists():
             # Use custom template from app directory
             from fastapi.templating import Jinja2Templates
-            app_templates = Jinja2Templates(directory=str(apps_dir / app_name / flow_name / "web" / "templates"))
+            app_templates = Jinja2Templates(
+                directory=str(normalize_path(apps_dir / app_name / flow_name / "web" / "templates")))
 
             # Get latest flow version for submit URL
             if not flow_id:
@@ -199,7 +229,7 @@ def create_app_router() -> APIRouter:
             flow_identifier: str,
             app_manager: AppManager = Depends(app_manager_dependency),
             db_manager: DatabaseManager = Depends(db_manager_dependency),
-            config = Depends(config_dependency)
+            config=Depends(config_dependency)
     ):
         """Get flow-specific console page using flow_name, flow_id, or flow_id-version."""
         # Validate app exists (flexible matching)
@@ -216,15 +246,29 @@ def create_app_router() -> APIRouter:
 
         # Get configuration for apps directory
         config = get_config()
-        from pathlib import Path
-        # Use default apps directory since config doesn't have this method
-        apps_dir = Path(__file__).parent.parent.parent / "apps"
+        # Use config to get apps directory path for consistency
+        apps_dir = config.get_apps_directory_path()
 
-        # Create flow context for template
+        # Ensure the path is properly resolved and doesn't contain environment variable placeholders
+        from ..config.loader import EnvironmentVariableExpander
+        from pathlib import Path
+        apps_dir_str = str(apps_dir)
+        apps_dir_expanded = EnvironmentVariableExpander.expand_value(apps_dir_str)
+
+        # Get project root directory - use cross-platform path handling
+        project_root = normalize_path(Path.cwd())  # Use current working directory as project root
+        if Path(apps_dir_expanded).is_absolute():
+            # Absolute path
+            apps_dir = normalize_path(apps_dir_expanded)
+        else:
+            # Relative path
+            apps_dir = normalize_path(project_root / apps_dir_expanded)
+
+        # Create flow context for template - use cross-platform paths
         flow_context = {
-            "flow_path": str(apps_dir / app_name / flow_name),
-            "templates_path": str(apps_dir / app_name / "templates"),
-            "scripts_path": str(apps_dir / app_name / "scripts")
+            "flow_path": str(normalize_path(apps_dir / app_name / flow_name)),
+            "templates_path": str(normalize_path(apps_dir / app_name / "templates")),
+            "scripts_path": str(normalize_path(apps_dir / app_name / "scripts"))
         }
 
         # Get recent runs for this flow
@@ -245,9 +289,8 @@ def create_app_router() -> APIRouter:
         _, flow_version = get_flow_version_by_id_and_version(flow_id, db_manager=db_manager)
         version_id = flow_version["version"] if flow_version else "latest"
 
-        # Initialize templates with config-based directory
-        from pathlib import Path
-        templates_dir = Path(__file__).parent.parent / "templates"
+        # Initialize templates with config-based directory - use cross-platform paths
+        templates_dir = normalize_path(Path(__file__).parent.parent / "templates")
         templates = Jinja2Templates(directory=str(templates_dir))
 
         return templates.TemplateResponse(
@@ -294,9 +337,9 @@ def create_app_router() -> APIRouter:
             form_data = await request.form()
             form_dict = {}
 
-            # Get configuration for file upload directory
+            # Get configuration for file upload directory - use environment variable or default
             config = get_config()
-            upload_dir = config.get_logging_directory_path().parent / "uploads"
+            upload_dir = normalize_path(config.get_upload_directory_path())
             upload_dir.mkdir(parents=True, exist_ok=True)
 
             for key, value in form_data.items():
@@ -307,7 +350,7 @@ def create_app_router() -> APIRouter:
 
                         file_extension = Path(value.filename).suffix
                         unique_filename = f"{uuid.uuid4()}{file_extension}"
-                        file_path = upload_dir / unique_filename
+                        file_path = normalize_path(upload_dir / unique_filename)
 
                         file_content = await value.read()
                         with open(file_path, "wb") as f:
@@ -336,7 +379,8 @@ def create_app_router() -> APIRouter:
                 metadata={"inputs": form_dict},
             )
 
-            logger.info(f"Form submitted for {flow_id}-{version}: {list(form_dict.keys())}; pending thread: {pending_thread_id}")
+            logger.info(
+                f"Form submitted for {flow_id}-{version}: {list(form_dict.keys())}; pending thread: {pending_thread_id}")
 
             # Find app_name and flow_name for redirect (reverse lookup)
             app_name = None
@@ -366,76 +410,5 @@ def create_app_router() -> APIRouter:
         except Exception as e:
             logger.error(f"Failed to submit form for {flow_id}-{version}: {e}")
             raise HTTPException(status_code=500, detail=f"Form submission failed: {str(e)}")
-
-    @router.post("/api/flows/{flow_version_param}/start", tags=["flows"])
-    async def start_workflow_api(
-            flow_version_param: str,
-            request: Request,
-            app_manager: AppManager = Depends(app_manager_dependency),
-            db_manager: DatabaseManager = Depends(db_manager_dependency),
-            control: WorkflowControl = Depends(workflow_control_dependency)
-    ):
-        """Start workflow execution via API."""
-        flow_id, version = parse_flow_version_id(flow_version_param)
-
-        # Parse request body for inputs and optional thread_id
-        try:
-            body = await request.json()
-            inputs = body.get("input_data", {})
-            provided_thread_id = body.get("thread_id")
-        except Exception:
-            inputs = {}
-            provided_thread_id = None
-
-        # Validate flow exists and get version
-        flow, flow_version = get_flow_version_by_id_and_version(flow_id, version, db_manager)
-        if not flow or not flow_version:
-            raise HTTPException(status_code=404, detail=f"Flow '{flow_id}' version '{version or 'latest'}' not found")
-
-        try:
-            thread_id_to_use = provided_thread_id
-
-            # Start workflow execution using WorkflowControl
-            thread_id = control.start_workflow(
-                flow_version_id=flow_version["flow_version_id"],
-                input_data=inputs,
-                thread_id=thread_id_to_use
-            )
-
-            # Ensure status reflects running without creating duplicate records
-            db_manager.update_run_status(thread_id, "running", metadata={"inputs": inputs})
-
-            # Find app_name for console URL (reverse lookup)
-            app_name = None
-            for app in app_manager.list_apps():
-                for fname, fconfig in app.flows.items():
-                    if getattr(fconfig, "flow_id", None) == flow_id:
-                        app_name = app.app_id
-                        break
-                if app_name:
-                    break
-
-            console_url = f"/{app_name}/{flow_id}?tab=logs&thread_id={thread_id}" if app_name else f"/console?id={flow_id}&tab=logs&thread_id={thread_id}"
-
-            return {
-                "flow_id": flow_id,
-                "version": version or "latest",
-                "flow_version_id": flow_version["flow_version_id"],
-                "thread_id": thread_id,
-                "status": "started",
-                "message": f"Workflow {flow_id} started successfully",
-                "inputs": inputs,
-                "console_url": console_url,
-                "logs_url": f"/api/thread/{thread_id}/logs"
-            }
-
-        except ValueError as e:
-            logger.error(f"Validation error for {flow_id}-{version}: {e}")
-            raise HTTPException(status_code=400, detail=f"Validation error: {str(e)}")
-        except Exception as e:
-            logger.error(f"Failed to start workflow for {flow_id}-{version}: {e}")
-            raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
-
-
 
     return router

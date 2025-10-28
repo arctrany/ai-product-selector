@@ -1,46 +1,82 @@
 # Workflow Engine Server Configuration
+# Supports environment variable injection using ${VAR_NAME:default_value} syntax
 
 # Project settings
 project:
   # Project root directory (auto-detected if not specified)
-  root: ""
+  root: "${WORKFLOW_PROJECT_ROOT:}"
   # Source directory relative to project root
-  source_dir: "src_new"
+  source_dir: "${WORKFLOW_SOURCE_DIR:src_new}"
 
 # Server settings
 server:
-  host: "127.0.0.1"
-  port: 8889
-  title: "Workflow Engine API"
-  description: "轻量级本地工作流引擎 API"
-  version: "1.0.0"
+  host: "${WORKFLOW_HOST:0.0.0.0}"
+  port: ${WORKFLOW_PORT:8889}
+  title: "${WORKFLOW_TITLE:Ren Engine}"
+  description: "${WORKFLOW_DESCRIPTION:轻量级本地工作流引擎 API}"
+  version: "${WORKFLOW_VERSION:1.0.0}"
 
 # Application settings
 apps:
   # Applications directory path (relative to project root)
-  directory: "src_new/apps"
+  directory: "${WORKFLOW_APPS_DIR:src_new/apps}"
   # Auto-reload apps on changes
-  auto_reload: true
+  auto_reload: ${WORKFLOW_AUTO_RELOAD:true}
 
 # Database settings
 database:
-  # Database file path (relative to user home)
-  path: "~/.ren/workflow.db"
+  # Database file path - uses platform-independent user data directory
+  # Windows: %APPDATA%/workflow_engine/workflow.db
+  # macOS/Linux: ~/.local/share/workflow_engine/workflow.db
+  path: "${WORKFLOW_DB_PATH:}"
 
 # Logging settings
 logging:
-  level: "INFO"
-  # Log directory (relative to user home)
-  directory: "~/.ren/runs"
+  level: "${WORKFLOW_LOG_LEVEL:INFO}"
+  # Log directory - uses platform-independent user data directory
+  # Windows: %APPDATA%/workflow_engine/logs
+  # macOS/Linux: ~/.local/share/workflow_engine/logs
+  directory: "${WORKFLOW_LOG_DIR:}"
+  # Enable console output for real-time log viewing
+  console_output: ${WORKFLOW_CONSOLE_OUTPUT:true}
+  # Console log format (simple, detailed, json)
+  console_format: "${WORKFLOW_CONSOLE_FORMAT:detailed}"
 
 # Templates settings
 templates:
   # Templates directory (relative to workflow_engine package)
-  directory: "templates"
+  directory: "${WORKFLOW_TEMPLATES_DIR:templates}"
 
 # Development settings
 development:
   # Enable debug mode
-  debug: false
+  debug: ${WORKFLOW_DEBUG:false}
   # Enable auto-reload
-  reload: true
+  reload: ${WORKFLOW_RELOAD:true}
+
+# Cross-platform data directories
+# These will be resolved programmatically based on the platform
+data_dirs:
+  # Base data directory for the application
+  # Windows: %APPDATA%/workflow_engine
+  # macOS: ~/Library/Application Support/workflow_engine
+  # Linux: ~/.local/share/workflow_engine
+  base: "${WORKFLOW_DATA_DIR:}"
+
+  # Cache directory
+  # Windows: %LOCALAPPDATA%/workflow_engine/cache
+  # macOS: ~/Library/Caches/workflow_engine
+  # Linux: ~/.cache/workflow_engine
+  cache: "${WORKFLOW_CACHE_DIR:}"
+
+  # Temporary directory
+  # Uses system temp directory with workflow_engine subdirectory
+  temp: "${WORKFLOW_TEMP_DIR:}"
+
+  # Upload directory for file uploads
+  # Default: base_dir/uploads
+  upload: "${WORKFLOW_UPLOAD_DIR:}"
+
+  # Logs directory for workflow execution logs
+  # Default: base_dir/logs
+  logs: "${WORKFLOW_LOG_DIR:}"

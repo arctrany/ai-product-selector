@@ -21,6 +21,7 @@ logger = get_logger(__name__)
 
 Base = declarative_base()
 
+
 class Flow(Base):
     """Flow definition table."""
     __tablename__ = "flows"
@@ -28,6 +29,7 @@ class Flow(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
 
 class FlowVersion(Base):
     """Flow version table."""
@@ -41,6 +43,7 @@ class FlowVersion(Base):
     published = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
 class FlowRun(Base):
     """Flow run table."""
     __tablename__ = "runs"
@@ -53,6 +56,7 @@ class FlowRun(Base):
     last_event_at = Column(DateTime)
     run_metadata = Column(JSON, default=dict)
 
+
 class Signal(Base):
     """Control signal table."""
     __tablename__ = "signals"
@@ -63,6 +67,7 @@ class Signal(Base):
     payload_json = Column(JSON, default=dict)
     ts = Column(DateTime, default=datetime.utcnow)
     processed = Column(Boolean, default=False)
+
 
 class DatabaseManager:
     """Database manager for workflow engine."""
@@ -300,7 +305,7 @@ class DatabaseManager:
             return orphaned_count
 
     def create_flow_by_name(self, flow_name: str, version: str = "1.0.0",
-                           dsl_json: Optional[Dict[str, Any]] = None, published: bool = True) -> int:
+                            dsl_json: Optional[Dict[str, Any]] = None, published: bool = True) -> int:
         """Create a new flow by name with simplified parameters."""
         with self.get_session() as session:
             # Check if flow already exists
@@ -337,7 +342,7 @@ class DatabaseManager:
             return flow.id
 
     def create_flow_version(self, flow_id: int, version: str, dsl_json: Dict[str, Any],
-                           compiled_meta: Optional[Dict[str, Any]] = None) -> int:
+                            compiled_meta: Optional[Dict[str, Any]] = None) -> int:
         """Create a new flow version."""
         with self.get_session() as session:
             flow_version = FlowVersion(
@@ -404,7 +409,7 @@ class DatabaseManager:
             return True
 
     def update_run_status(self, thread_id: str, status: str,
-                         metadata: Optional[Dict[str, Any]] = None) -> bool:
+                          metadata: Optional[Dict[str, Any]] = None) -> bool:
         """Update run status."""
         with self.get_session() as session:
             run = session.query(FlowRun).filter(FlowRun.thread_id == thread_id).first()
@@ -466,7 +471,7 @@ class DatabaseManager:
             ]
 
     def create_signal(self, thread_id: str, signal_type: str,
-                     payload: Optional[Dict[str, Any]] = None) -> int:
+                      payload: Optional[Dict[str, Any]] = None) -> int:
         """Create a control signal."""
         with self.get_session() as session:
             signal = Signal(
@@ -512,7 +517,28 @@ class DatabaseManager:
             return True
 
     def get_flow_by_name(self, flow_name: str) -> Optional[Dict[str, Any]]:
-        """Get flow by name."""
+        """Get flow definition by business name.
+
+        This method retrieves the basic flow information (without version details)
+        by the flow's business name. A flow can have multiple versions, but this
+        method only returns the flow's basic metadata.
+
+        Args:
+            flow_name (str): The business name of the flow (Flow.name field)
+
+        Returns:
+            Optional[Dict[str, Any]]: Flow information containing:
+                - flow_id (int): Database primary key (Flow.id)
+                - name (str): Business flow name (Flow.name)
+                - created_at (str): ISO format creation timestamp
+
+            Returns None if flow not found.
+
+        Note:
+            - This returns the Flow table record, not FlowVersion records
+            - To get flow versions, use get_latest_flow_version() or get_flow_version_by_version()
+            - The returned 'flow_id' is the database primary key, not the business identifier
+        """
         with self.get_session() as session:
             flow = session.query(Flow).filter(Flow.name == flow_name).first()
 
@@ -568,37 +594,8 @@ class DatabaseManager:
                 "created_at": flow_version.created_at.isoformat() if flow_version.created_at else None
             }
 
-    def get_flow_by_name_and_version(self, flow_name: str, version: str) -> Optional[Dict[str, Any]]:
-        """Get flow by name and version (flow+version combination is unique)."""
-        with self.get_session() as session:
-            # First get the flow by name
-            flow = session.query(Flow).filter(Flow.name == flow_name).first()
-            if not flow:
-                return None
-
-            # Then get the specific version
-            flow_version = session.query(FlowVersion).filter(
-                FlowVersion.flow_id == flow.id,
-                FlowVersion.version == version,
-                FlowVersion.published == True
-            ).first()
-
-            if not flow_version:
-                return None
-
-            return {
-                "flow_version_id": flow_version.id,
-                "flow_id": flow_version.flow_id,
-                "flow_name": flow.name,
-                "version": flow_version.version,
-                "dsl_json": flow_version.dsl_json,
-                "compiled_meta": flow_version.compiled_meta,
-                "published": flow_version.published,
-                "created_at": flow_version.created_at.isoformat() if flow_version.created_at else None
-            }
-
     def atomic_update_run_status(self, thread_id: str, expected_status: str,
-                                new_status: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+                                 new_status: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
         """
         Atomically update run status only if current status matches expected status.
         This prevents race conditions in status updates.
@@ -708,11 +705,11 @@ class DatabaseManager:
 
             # Index for signal queries by thread_id and processed status
             signal_thread_processed_index = Index('idx_signals_thread_processed',
-                                                 Signal.thread_id, Signal.processed, Signal.ts)
+                                                  Signal.thread_id, Signal.processed, Signal.ts)
 
             # Index for flow version queries by flow_id and published status
             version_flow_published_index = Index('idx_versions_flow_published',
-                                                FlowVersion.flow_id, FlowVersion.published)
+                                                 FlowVersion.flow_id, FlowVersion.published)
 
             # Create indexes if they don't exist
             run_status_index.create(self.engine, checkfirst=True)
@@ -736,7 +733,7 @@ class DatabaseManager:
     # Async Operations (using thread pool for SQLite)
 
     async def async_update_run_status(self, thread_id: str, expected_status: str,
-                                     new_status: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+                                      new_status: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
         """Async version of atomic_update_run_status."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
@@ -751,7 +748,7 @@ class DatabaseManager:
         return await loop.run_in_executor(self.thread_pool, self.get_run, thread_id)
 
     async def async_create_signal(self, thread_id: str, signal_type: str,
-                                 payload: Optional[Dict[str, Any]] = None) -> int:
+                                  payload: Optional[Dict[str, Any]] = None) -> int:
         """Async version of create_signal."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
@@ -804,7 +801,8 @@ class DatabaseManager:
 
                         if run.status != expected_status:
                             results["failed"] += 1
-                            results["errors"].append(f"Status mismatch for {thread_id}: expected {expected_status}, got {run.status}")
+                            results["errors"].append(
+                                f"Status mismatch for {thread_id}: expected {expected_status}, got {run.status}")
                             continue
 
                         # Update status and timestamps
@@ -876,7 +874,8 @@ class DatabaseManager:
                     session.refresh(signal)
                     results["signal_ids"].append(signal.id)
 
-                logger.info(f"Batch signal creation completed: {results['success']} success, {results['failed']} failed")
+                logger.info(
+                    f"Batch signal creation completed: {results['success']} success, {results['failed']} failed")
 
             except Exception as e:
                 session.rollback()

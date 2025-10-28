@@ -13,7 +13,7 @@ from .browser_service import BrowserService
 
 # 导入实现类
 from .implementations.playwright_browser_driver import PlaywrightBrowserDriver
-from .implementations.config_manager import ConfigManager
+# ConfigManager removed - using simplified config system
 from .implementations.logger_system import get_logger
 
 # 导入核心数据模型和异常（仅导入存在的）
@@ -56,7 +56,6 @@ __all__ = [
 
     # 实现类
     'PlaywrightBrowserDriver',
-    'ConfigManager',
     'get_logger',
 
     # 数据模型

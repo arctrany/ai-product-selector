@@ -28,14 +28,7 @@ from .interfaces.paginator import (
 
 
 
-from .interfaces.config_manager import (
-    IConfigManager,
-    IConfigValidator,
-    IConfigTransformer,
-    IEnvironmentManager,
-    ConfigFormat,
-    ConfigScope
-)
+# Config manager interfaces removed - using simplified config system
 
 # 导入所有数据模型
 from .models.browser_config import (
@@ -94,13 +87,7 @@ __all__ = [
     'PaginationType',
     'PaginationDirection',
     
-    # 配置管理接口
-    'IConfigManager',
-    'IConfigValidator',
-    'IConfigTransformer',
-    'IEnvironmentManager',
-    'ConfigFormat',
-    'ConfigScope',
+    # 配置管理接口已移除 - 使用简化配置系统
     
     # 数据模型
     'BrowserConfig',

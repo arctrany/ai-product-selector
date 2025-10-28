@@ -16,7 +16,7 @@ from .playwright_browser_driver import PlaywrightBrowserDriver
 
 from .dom_page_analyzer import DOMPageAnalyzer, DOMContentExtractor, DOMElementMatcher, DOMPageValidator
 from .universal_paginator import UniversalPaginator, UniversalDataExtractor, SequentialPaginationStrategy
-from .config_manager import ConfigManager, EnvironmentManager
+# ConfigManager and EnvironmentManager removed - using simplified config system
 from .logger_system import (
     StructuredLogger,
     LoggerSystem,
@@ -41,9 +41,7 @@ __all__ = [
     'UniversalDataExtractor',
     'SequentialPaginationStrategy',
 
-    # 配置管理
-    'ConfigManager',
-    'EnvironmentManager',
+    # 配置管理已移除 - 使用简化配置系统
 
     # 日志系统
     'StructuredLogger',

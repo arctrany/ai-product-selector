@@ -199,7 +199,7 @@ class TestFlowStartAPI:
         with patch('workflow_engine.api.dependencies.get_database_manager', return_value=mock_db_manager), \
              patch('workflow_engine.api.dependencies.get_workflow_control', return_value=mock_control):
 
-            response = client.post("/api/flows/test-flow/start", json={"input_data": {"test": "data"}})
+            response = client.post("/api/flows/test-flow/start/latest", json={"input_data": {"test": "data"}})
 
             assert response.status_code == 200
             data = response.json()
@@ -212,7 +212,7 @@ class TestFlowStartAPI:
         with patch('workflow_engine.api.dependencies.get_database_manager', return_value=mock_db_manager), \
              patch('workflow_engine.api.dependencies.get_workflow_control', return_value=mock_control):
 
-            response = client.post("/api/flows/test-flow-2.0.0/start", json={"input_data": {"test": "data"}})
+            response = client.post("/api/flows/test-flow/start/version/2.0.0", json={"input_data": {"test": "data"}})
 
             assert response.status_code == 200
             data = response.json()
@@ -229,7 +229,7 @@ class TestFlowStartAPI:
         with patch('workflow_engine.api.dependencies.get_database_manager', return_value=mock_db_manager), \
              patch('workflow_engine.api.dependencies.get_workflow_control', return_value=mock_control):
 
-            response = client.post("/api/flows/non-existent-flow/start", json={})
+            response = client.post("/api/flows/non-existent-flow/start/latest", json={})
 
             assert response.status_code == 404
             assert "not found" in response.json()["error"].lower()
@@ -246,7 +246,7 @@ class TestFlowStartAPI:
         with patch('workflow_engine.api.dependencies.get_database_manager', return_value=mock_db_manager), \
              patch('workflow_engine.api.dependencies.get_workflow_control', return_value=mock_control):
 
-            response = client.post("/api/flows/test-flow-invalid-version/start", json={})
+            response = client.post("/api/flows/test-flow/start/version/invalid-version", json={})
 
             # Should return 400 for invalid version format
             assert response.status_code == 400
@@ -264,7 +264,7 @@ class TestFlowStartAPI:
         with patch('workflow_engine.api.dependencies.get_database_manager', return_value=mock_db_manager), \
              patch('workflow_engine.api.dependencies.get_workflow_control', return_value=mock_control):
 
-            response = client.post("/api/flows/test-flow-999.0.0/start", json={})
+            response = client.post("/api/flows/test-flow/start/version/999.0.0", json={})
 
             assert response.status_code == 400
             assert "Failed to start workflow" in response.json()["error"]

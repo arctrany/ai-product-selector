@@ -206,3 +206,113 @@ class WorkflowControl:
         except Exception as e:
             logger.error(f"Failed to start workflow: {str(e)}")
             raise
+
+    async def start_workflow_async(self, flow_version_id: int, input_data: Optional[Dict[str, Any]] = None,
+                                   thread_id: Optional[str] = None) -> str:
+        """Start workflow execution asynchronously.
+
+        Args:
+            flow_version_id: Flow version ID to execute
+            input_data: Optional input data for the workflow
+            thread_id: Optional custom thread ID
+
+        Returns:
+            Thread ID of the started workflow
+        """
+        import asyncio
+        import threading
+        import uuid
+
+        try:
+            # Generate thread_id if not provided, with enhanced uniqueness
+            if thread_id is None:
+                timestamp = int(time.time() * 1000000)  # Microsecond timestamp
+                random_part = uuid.uuid4().hex[:8]
+                thread_id = f"thr_{timestamp}_{random_part}"
+
+            # Check if run already exists and handle accordingly
+            existing_run = None
+            try:
+                existing_run = self.db_manager.get_run(thread_id)
+            except Exception:
+                # Run doesn't exist, which is fine
+                pass
+
+            if existing_run:
+                # Run already exists, check its status
+                if existing_run["status"] in ["running", "completed", "failed", "cancelled"]:
+                    # Cannot start already processed run
+                    raise ValueError(f"Workflow {thread_id} is already {existing_run['status']}")
+                elif existing_run["status"] == "pending":
+                    # Run exists and is pending, we can proceed to start it
+                    logger.info(f"Found existing pending run with thread_id: {thread_id}, starting execution")
+                else:
+                    # Unknown status, create new thread_id to avoid conflicts
+                    logger.warning(f"Run {thread_id} has unknown status {existing_run['status']}, generating new thread_id")
+                    timestamp = int(time.time() * 1000000)
+                    random_part = uuid.uuid4().hex[:8]
+                    thread_id = f"thr_{timestamp}_{random_part}"
+                    existing_run = None
+
+            # Create run record if it doesn't exist, with retry mechanism for conflicts
+            if not existing_run:
+                max_retries = 5
+                for attempt in range(max_retries):
+                    try:
+                        self.db_manager.create_run(thread_id, flow_version_id, "pending", metadata={"inputs": input_data or {}})
+                        logger.info(f"Created async workflow run with thread_id: {thread_id}")
+                        break
+                    except Exception as e:
+                        if "UNIQUE constraint failed" in str(e) and attempt < max_retries - 1:
+                            # Generate new thread_id and retry
+                            logger.warning(f"Thread ID {thread_id} already exists, generating new one (attempt {attempt + 1})")
+                            timestamp = int(time.time() * 1000000)
+                            random_part = uuid.uuid4().hex[:8]
+                            thread_id = f"thr_{timestamp}_{random_part}"
+                            continue
+                        else:
+                            # Final attempt failed or different error
+                            raise
+
+            # Start workflow execution in background thread
+            def run_workflow():
+                try:
+                    from ..core.engine import WorkflowEngine
+                    from ..core.config import WorkflowEngineConfig
+
+                    # Create a config with the same database path if available
+                    if hasattr(self.db_manager, 'db_path') and self.db_manager.db_path:
+                        config = WorkflowEngineConfig()
+                        config.db_path = self.db_manager.db_path
+                        engine = WorkflowEngine(config)
+                    else:
+                        # Use default config
+                        engine = WorkflowEngine()
+
+                    # Execute workflow - this will update the status from pending to running
+                    engine.start_workflow(flow_version_id, input_data, thread_id)
+
+                except Exception as e:
+                    logger.error(f"Async workflow execution failed for thread {thread_id}: {str(e)}")
+                    # Update status to failed
+                    try:
+                        self.db_manager.atomic_update_run_status(thread_id, "running", "failed", {"error": str(e)})
+                    except Exception as update_e:
+                        logger.error(f"Failed to update run status to failed: {update_e}")
+
+            # Start background thread
+            workflow_thread = threading.Thread(target=run_workflow, daemon=True)
+            workflow_thread.start()
+
+            logger.info(f"Started async workflow execution for thread_id: {thread_id}")
+            return thread_id
+
+        except Exception as e:
+            logger.error(f"Failed to start async workflow: {str(e)}")
+            # Clean up the run record if it was created
+            try:
+                if thread_id:
+                    self.db_manager.atomic_update_run_status(thread_id, "pending", "failed", {"error": str(e)})
+            except Exception:
+                pass
+            raise

@@ -29,7 +29,7 @@ class TestLayeredArchitecture:
         # Test 1: Flow layer should handle submit/start
         flow_endpoints = [
             "/api/flows/test-flow-1.0.0/submit",
-            "/api/flows/test-flow-1.0.0/start"
+            "/api/flows/test-flow/start/version/1.0.0"
         ]
         
         for endpoint in flow_endpoints:
@@ -178,7 +178,7 @@ class TestLayeredArchitecture:
         
         # Test that flow endpoints don't handle run concerns
         flow_response = self.session.post(
-            f"{self.base_url}/api/flows/test-flow-1.0.0/start", 
+            f"{self.base_url}/api/flows/test-flow/start/version/1.0.0",
             json={"input_data": {}}
         )
         
@@ -198,7 +198,7 @@ class TestLayeredArchitecture:
         
         # Test non-existent flow
         response = self.session.post(
-            f"{self.base_url}/api/flows/non-existent-flow-1.0.0/start",
+            f"{self.base_url}/api/flows/non-existent-flow/start/version/1.0.0",
             json={}
         )
         
@@ -307,7 +307,7 @@ class TestIntegrationScenarios:
         
         # Step 1: Start workflow via flow layer
         start_response = self.session.post(
-            f"{self.base_url}/api/flows/abba-ccdd-eeff-1.0.0/start",
+            f"{self.base_url}/api/flows/abba-ccdd-eeff/start/version/1.0.0",
             json={"input_data": {"test": "integration"}}
         )
         
@@ -343,7 +343,7 @@ class TestIntegrationScenarios:
         try:
             # Test invalid flow version
             response = self.session.post(
-                f"{self.base_url}/api/flows/invalid-flow-999.999.999/start",
+                f"{self.base_url}/api/flows/invalid-flow/start/version/999.999.999",
                 json={}
             )
 

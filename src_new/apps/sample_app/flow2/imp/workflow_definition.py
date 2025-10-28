@@ -1,6 +1,6 @@
 """Flow2 工作流定义 - 使用编码方式定义工作流结构"""
 
-from workflow_engine.sdk import WorkflowBuilder
+from src_new.workflow_engine.sdk import WorkflowBuilder
 
 def create_flow2_workflow():
     """创建 Flow2 工作流定义

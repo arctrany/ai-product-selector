@@ -197,7 +197,7 @@ class TestAppRoutesRefactored:
             mock_engine.return_value = mock_engine_instance
 
             response = client.post(
-                "/api/flows/abba-ccdd-eeff-1.0.0/start",
+                "/api/flows/abba-ccdd-eeff/start/version/1.0.0",
                 json={"input_data": "test"}
             )
             assert response.status_code == 200
@@ -215,7 +215,7 @@ class TestAppRoutesRefactored:
             mock_engine.return_value = mock_engine_instance
 
             response = client.post(
-                "/api/flows/abba-ccdd-eeff/start",
+                "/api/flows/abba-ccdd-eeff/start/latest",
                 json={"input_data": "test"}
             )
             assert response.status_code == 200
@@ -227,7 +227,7 @@ class TestAppRoutesRefactored:
     def test_start_workflow_api_invalid_flow(self, client, mock_db_manager):
         """Test start workflow API with invalid flow."""
         response = client.post(
-            "/api/flows/invalid-flow-id/start",
+            "/api/flows/invalid-flow-id/start/latest",
             json={"input_data": "test"}
         )
         assert response.status_code == 404
@@ -244,7 +244,7 @@ class TestAppRoutesRefactored:
             mock_engine.return_value = mock_engine_instance
 
             response = client.post(
-                "/api/flows/abba-ccdd-eeff-1.0.0/start",
+                "/api/flows/abba-ccdd-eeff/start/version/1.0.0",
                 json={"input_data": "test"}
             )
             assert response.status_code == 200
@@ -260,7 +260,7 @@ class TestAppRoutesRefactored:
             mock_engine.return_value = mock_engine_instance
 
             response = client.post(
-                "/api/flows/abba-ccdd-eeff/start",
+                "/api/flows/abba-ccdd-eeff/start/latest",
                 json={"input_data": "test"}
             )
             assert response.status_code == 200
@@ -284,7 +284,7 @@ class TestAppRoutesRefactored:
 
             # Test with specific version
             response = client.post(
-                "/api/flows/complex-flow-id-with-many-hyphens-2.1.0/start",
+                "/api/flows/complex-flow-id-with-many-hyphens/start/version/2.1.0",
                 json={"input_data": "test"}
             )
             assert response.status_code == 200

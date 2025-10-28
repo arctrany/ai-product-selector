@@ -169,7 +169,7 @@ class Flow1ExcelTest:
             }
             
             response = self.session.post(
-                f"{self.base_url}/api/flows/abba-ccdd-eeff-1.0.0/start",
+                f"{self.base_url}/api/flows/abba-ccdd-eeff/start/version/1.0.0",
                 json=submission_data,
                 headers={'Content-Type': 'application/json'}
             )

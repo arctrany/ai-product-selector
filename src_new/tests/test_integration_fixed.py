@@ -255,7 +255,7 @@ class TestAPIIntegration:
 
             # Test flow start
             response = client.post(
-                "/api/flows/test-flow/start",
+                "/api/flows/test-flow/start/latest",
                 json={"input_data": {"test": "value"}}
             )
             
