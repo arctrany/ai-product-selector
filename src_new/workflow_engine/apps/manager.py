@@ -9,19 +9,21 @@ from datetime import datetime
 
 from ..utils.logger import get_logger
 from .models import AppConfig, AppRunContext
+from ..core.config import get_config
+
+# Import and setup environment for module imports
+from ..sdk.bootstrap import setup_environment
 
 # Import Windows compatibility utilities
 try:
     from ...utils.windows_compat import normalize_path, is_windows
 except ImportError:
-    # Fallback implementations if windows_compat is not available
+    # Fallback if windows_compat is not available
     def normalize_path(path):
-        return Path(path).resolve()
-
-
+        return Path(path)
+    
     def is_windows():
-        import platform
-        return platform.system().lower() == "windows"
+        return os.name == 'nt'
 
 logger = get_logger(__name__)
 
@@ -33,11 +35,29 @@ class AppManager:
         # Dynamic path resolution - determine the root module path
         self.root_module_path = self._determine_root_module_path()
 
-        # Set apps directory relative to root module path
+        # Set apps directory using configuration system
         if apps_dir is None:
-            apps_dir = f"{self.root_module_path}/apps"
+            # Use configuration system to get apps directory
+            config = get_config()
+            apps_dir_path = config.get_apps_directory_path()
 
-        self.apps_dir = normalize_path(apps_dir)
+            # Convert to absolute path if it's relative
+            if not apps_dir_path.is_absolute():
+                # Get project root (parent of src_new)
+                project_root = Path(__file__).parent.parent.parent.parent
+                apps_dir_path = project_root / apps_dir_path
+        else:
+            apps_dir_path = Path(apps_dir)
+            # Convert to absolute path if it's relative
+            if not apps_dir_path.is_absolute():
+                project_root = Path(__file__).parent.parent.parent.parent
+                apps_dir_path = project_root / apps_dir_path
+
+        self.apps_dir = normalize_path(apps_dir_path)
+
+        # Backward compatibility: Check for legacy apps directory
+        self._check_legacy_apps_directory()
+
         self.apps: Dict[str, AppConfig] = {}
         self._load_apps()
 
@@ -57,6 +77,54 @@ class AppManager:
 
         logger.debug(f"Determined root module path: {root_module_name}")
         return root_module_name
+
+    def _check_legacy_apps_directory(self):
+        """Check for legacy apps directory and provide migration warnings."""
+        try:
+            # Get project root (parent of src_new)
+            project_root = Path(__file__).parent.parent.parent.parent
+            legacy_apps_dir = normalize_path(project_root / "src_new" / "apps")
+
+            # Check if legacy directory exists and has content
+            if legacy_apps_dir.exists() and any(legacy_apps_dir.iterdir()):
+                # Count apps in legacy directory
+                legacy_app_count = 0
+                for item in legacy_apps_dir.iterdir():
+                    if item.is_dir() and (item / "app.json").exists():
+                        legacy_app_count += 1
+
+                if legacy_app_count > 0:
+                    logger.warning("=" * 80)
+                    logger.warning("🚨 LEGACY APPS DIRECTORY DETECTED")
+                    logger.warning("=" * 80)
+                    logger.warning(f"Found {legacy_app_count} app(s) in legacy directory: {legacy_apps_dir}")
+                    logger.warning(f"Current apps directory: {self.apps_dir}")
+                    logger.warning("")
+                    logger.warning("📋 MIGRATION REQUIRED:")
+                    logger.warning("1. Move apps from src_new/apps/ to apps/ (project root)")
+                    logger.warning("2. Update app.json entry_point format:")
+                    logger.warning("   OLD: 'apps.sample_app.flow1.imp.workflow_definition:create_flow1_workflow'")
+                    logger.warning("   NEW: 'sample_app.flow1.imp.workflow_definition:create_flow1_workflow'")
+                    logger.warning("3. Verify WORKFLOW_APPS_DIR environment variable points to 'apps'")
+                    logger.warning("")
+                    logger.warning("⚠️  The legacy directory will be ignored in future versions.")
+                    logger.warning("=" * 80)
+
+                    # Count apps in current directory for comparison
+                    current_app_count = 0
+                    if self.apps_dir.exists():
+                        for item in self.apps_dir.iterdir():
+                            if item.is_dir() and (item / "app.json").exists():
+                                current_app_count += 1
+
+                    if current_app_count == 0:
+                        logger.error("❌ No apps found in current directory. Please migrate from legacy directory!")
+                    elif current_app_count < legacy_app_count:
+                        logger.warning(f"⚠️  Current directory has {current_app_count} apps, but legacy has {legacy_app_count}. Some apps may not be migrated.")
+
+        except Exception as e:
+            logger.debug(f"Error checking legacy apps directory: {e}")
+            # Don't fail initialization due to legacy check errors
 
     def _load_apps(self):
         """Load all application configurations from apps directory."""
@@ -99,7 +167,15 @@ class AppManager:
         if 'updated_at' not in config_data:
             config_data['updated_at'] = datetime.now().isoformat()
 
+        # Handle flow_ids field specially to avoid dataclass conflicts
+        flow_ids_data = config_data.pop('flow_ids', None)
+
         app_config = AppConfig(**config_data)
+
+        # Set flow_ids after initialization if present
+        if flow_ids_data is not None:
+            app_config._flow_ids = flow_ids_data
+
         self.apps[app_config.app_id] = app_config
 
         logger.info(f"Loaded app: {app_config.app_id} ({app_config.name})")
@@ -122,60 +198,6 @@ class AppManager:
             if flow_id in app.flow_ids or flow_id == app.default_flow_id:
                 return app
         return None
-
-    def parse_console_id(self, console_id: str) -> Optional[tuple[str, str]]:
-        """Parse console ID into app_id and flow_id."""
-        if '-' not in console_id:
-            return None
-
-        # Try to match against known app_ids first
-        # This handles cases where app_id contains hyphens
-        for app_id in self.apps.keys():
-            if console_id.startswith(app_id + '-'):
-                flow_id = console_id[len(app_id) + 1:]  # +1 for the hyphen
-                if flow_id:  # Ensure flow_id is not empty
-                    return app_id, flow_id
-
-        # Fallback: simple split if no known app_id matches
-        parts = console_id.split('-', 1)
-        if len(parts) == 2:
-            return parts[0], parts[1]
-
-        return None
-
-    def create_run_context(self, console_id: str, run_id: Optional[str] = None,
-                           thread_id: Optional[str] = None) -> Optional[AppRunContext]:
-        """Create application run context from console ID."""
-        parsed = self.parse_console_id(console_id)
-        if not parsed:
-            return None
-
-        app_id, flow_id = parsed
-        app_config = self.get_app(app_id)
-        if not app_config:
-            return None
-
-        # Validate flow_id belongs to this app
-        if flow_id not in app_config.flow_ids and flow_id != app_config.default_flow_id:
-            logger.warning(f"Flow {flow_id} not associated with app {app_id}")
-            return None
-
-        return AppRunContext(
-            app_config=app_config,
-            flow_id=flow_id,
-            run_id=run_id,
-            thread_id=thread_id
-        )
-
-    def reload_apps(self):
-        """Reload all application configurations."""
-        self.apps.clear()
-        self._load_apps()
-
-    def validate_console_id(self, console_id: str) -> bool:
-        """Validate if console ID is valid and app/flow exists."""
-        context = self.create_run_context(console_id)
-        return context is not None
 
     def get_flow_entry_point(self, app_id: str, flow_id: str) -> Optional[str]:
         """Get the entry point for a specific flow in an app."""
@@ -212,85 +234,43 @@ class AppManager:
             raise ValueError(f"No entry point found for flow {flow_id} in app {app_id}")
 
         try:
-            # Parse module and function name
-            module_path, function_name = entry_point.split(':')
+            # Setup environment to ensure proper Python path configuration
+            setup_environment()
 
-            # Fix module path: add root module prefix if not present
-            if not module_path.startswith(f'{self.root_module_path}.'):
-                module_path = f'{self.root_module_path}.{module_path}'
+            # Parse entry point: module_path:function_name
+            if ':' not in entry_point:
+                raise ValueError(f"Invalid entry point format: {entry_point}")
 
-            # Dynamic import
-            import importlib
-            module = importlib.import_module(module_path)
+            module_path, function_name = entry_point.split(':', 1)
 
-            # Also import the nodes module to ensure decorators are executed
-            # This registers the node functions in the function registry
+            # Import the module
+            module = __import__(module_path, fromlist=[function_name])
 
-            # Generate possible nodes module paths (with dynamic root prefix)
-            possible_nodes_paths = [
-                # Direct replacement: <root>.apps.sample_app.flow1.imp.workflow_definition ->
-                # <root>.apps.sample_app.flow1.imp.nodes
-                module_path.replace('.workflow_definition', '.nodes'),
-                # Remove workflow_definition and add nodes: <root>.apps.sample_app.flow1.imp.workflow_definition ->
-                # <root>.apps.sample_app.flow1.imp.nodes
-                f"{module_path.rsplit('.', 1)[0]}.nodes",
-                # Try without imp: <root>.apps.sample_app.flow1.imp.workflow_definition ->
-                # <root>.apps.sample_app.flow1.nodes
-                f"{'.'.join(module_path.split('.')[:-2])}.nodes",
-                # Try with different structure: <root>.apps.sample_app.flow1.imp.workflow_definition ->
-                # <root>.apps.sample_app.flow1.nodes
-                module_path.replace('.imp.workflow_definition', '.nodes'),
-            ]
-
+            # Try to import nodes module if it exists
             nodes_imported = False
-            for nodes_module_path in possible_nodes_paths:
-                try:
-                    logger.info(f"🔍 Trying to import nodes module: {nodes_module_path}")
-                    nodes_module = importlib.import_module(nodes_module_path)
-                    logger.info(f"✅ Successfully imported nodes module: {nodes_module_path}")
-
-                    # Force reload to ensure decorators are executed
-                    importlib.reload(nodes_module)
-                    logger.info(f"✅ Reloaded nodes module to ensure function registration")
-
-                    nodes_imported = True
-                    break
-
-                except ImportError as e:
-                    logger.debug(f"Could not import nodes module {nodes_module_path}: {e}")
-                    continue
-                except Exception as e:
-                    logger.warning(f"Unexpected error importing nodes module {nodes_module_path}: {e}")
-                    continue
-
-            if not nodes_imported:
-                logger.error(f"❌ Failed to import any nodes module for {app_id}.{flow_id}")
-                logger.error(f"Tried paths: {possible_nodes_paths}")
-
-                # As a last resort, try to find nodes.py files in the app directory
-                try:
-                    # Get the app directory path using dynamic root module path and cross-platform paths
-                    app_parts = module_path.split('.')
-                    if len(app_parts) >= 4:  # <root>.apps.sample_app.flow1...
-                        app_dir = normalize_path(self.apps_dir / app_parts[2] / app_parts[3] / "imp")
-                        nodes_file = normalize_path(app_dir / "nodes.py")
-
-                        if nodes_file.exists():
-                            logger.info(f"🔍 Found nodes.py file at: {nodes_file}")
-                            # Try to construct the correct import path
-                            correct_path = f"{'.'.join(app_parts[:4])}.imp.nodes"
-                            try:
-                                nodes_module = importlib.import_module(correct_path)
-                                importlib.reload(nodes_module)
-                                logger.info(f"✅ Successfully imported nodes using constructed path: {correct_path}")
-                                nodes_imported = True
-                            except Exception as e:
-                                logger.error(f"Failed to import with constructed path {correct_path}: {e}")
-                        else:
-                            logger.warning(f"nodes.py file not found at expected location: {nodes_file}")
-                except Exception as e:
-                    logger.error(f"Error in fallback nodes import logic: {e}")
-
+            try:
+                nodes_module_path = f"{module_path.rsplit('.', 1)[0]}.nodes"
+                __import__(nodes_module_path)
+                nodes_imported = True
+                logger.debug(f"Successfully imported nodes module: {nodes_module_path}")
+            except ImportError as e:
+                logger.debug(f"No nodes module found at {nodes_module_path}: {e}")
+                
+                # Try alternative paths
+                alternative_paths = [
+                    f"{app_id}.nodes",
+                    f"{app_id}.{flow_id}.nodes"
+                ]
+                
+                for alt_path in alternative_paths:
+                    try:
+                        __import__(alt_path)
+                        nodes_imported = True
+                        logger.debug(f"Successfully imported nodes module: {alt_path}")
+                        break
+                    except ImportError:
+                        logger.debug(f"No nodes module found at {alt_path}")
+                
                 if not nodes_imported:
                     logger.error(f"❌ All attempts to import nodes module failed for {app_id}.{flow_id}")
                     # Don't raise an exception here, let the workflow continue and fail later if functions are missing
@@ -320,83 +300,69 @@ class AppManager:
                 logger.warning(f"App not found: {app_id}")
                 return None
 
-            # 获取工作流基本信息
-            flow_config = None
-            if hasattr(app_config, 'flows') and app_config.flows and flow_id in app_config.flows:
-                flow_config = app_config.flows[flow_id]
+            # 获取工作流定义来提取节点信息
+            try:
+                workflow_definition = self.load_workflow_definition(app_id, flow_id)
+                
+                # 从工作流定义中提取节点信息
+                nodes_info = []
+                if hasattr(workflow_definition, 'nodes'):
+                    for node in workflow_definition.nodes:
+                        node_info = {
+                            "id": getattr(node, 'id', 'unknown'),
+                            "type": node.__class__.__name__,
+                            "name": getattr(node, 'name', node.__class__.__name__)
+                        }
+                        
+                        # 添加节点描述（如果有的话）
+                        if hasattr(node, 'description'):
+                            node_info["description"] = node.description
+                        elif hasattr(node, '__doc__') and node.__doc__:
+                            node_info["description"] = node.__doc__.strip().split('\n')[0]
+                        
+                        nodes_info.append(node_info)
 
-            if not flow_config:
-                logger.warning(f"Flow config not found: {app_id}.{flow_id}")
-                return None
-
-            # 加载工作流定义以提取节点信息
-            workflow_definition = self.load_workflow_definition(app_id, flow_id)
-            if not workflow_definition:
-                logger.warning(f"Could not load workflow definition for {app_id}.{flow_id}")
-                return None
-
-            # 自动从 WorkflowDefinition 提取节点元数据
-            nodes_metadata = {}
-            for node in workflow_definition.nodes:
-                node_info = {
-                    "type": node.type.value,
-                    "id": node.id
+                # 构建元数据
+                metadata = {
+                    "app_id": app_id,
+                    "flow_id": flow_id,
+                    "name": getattr(app_config, 'name', app_id),
+                    "description": getattr(app_config, 'description', ''),
+                    "version": getattr(app_config, 'version', '1.0.0'),
+                    "author": getattr(app_config, 'author', ''),
+                    "nodes": nodes_info,
+                    "node_count": len(nodes_info),
+                    "generated_at": datetime.now().isoformat()
                 }
 
-                # 根据节点类型提取详细信息
-                if node.type.value == "python" and node.data:
-                    node_info.update({
-                        "function_ref": node.data.code_ref,
-                        "parameters": node.data.args
-                    })
-                elif node.type.value == "condition" and node.data:
-                    node_info.update({
-                        "condition": node.data.expr
+                # 如果有流特定的配置，添加流信息
+                if hasattr(app_config, 'flows') and app_config.flows and flow_id in app_config.flows:
+                    flow_config = app_config.flows[flow_id]
+                    metadata.update({
+                        "flow_description": getattr(flow_config, 'description', ''),
+                        "flow_version": getattr(flow_config, 'version', '1.0.0'),
+                        "flow_enabled": getattr(flow_config, 'enabled', True)
                     })
 
-                nodes_metadata[node.id] = node_info
+                return metadata
 
-            # 构建完整的元数据（基本信息来自 app.json，节点信息自动提取）
-            metadata = {
-                "nodes": nodes_metadata,
-                "technical_info": {
-                    "total_nodes": len(workflow_definition.nodes),
-                    "total_edges": len(workflow_definition.edges),
-                    "node_types": list(set(node.type.value for node in workflow_definition.nodes)),
-                    "auto_generated": True,
-                    "source": "extracted_from_workflow_definition"
+            except Exception as e:
+                logger.warning(f"Failed to load workflow definition for metadata extraction: {e}")
+                
+                # 回退到基本元数据
+                return {
+                    "app_id": app_id,
+                    "flow_id": flow_id,
+                    "name": getattr(app_config, 'name', app_id),
+                    "description": getattr(app_config, 'description', ''),
+                    "version": getattr(app_config, 'version', '1.0.0'),
+                    "author": getattr(app_config, 'author', ''),
+                    "nodes": [],
+                    "node_count": 0,
+                    "generated_at": datetime.now().isoformat(),
+                    "error": f"Failed to extract workflow definition: {str(e)}"
                 }
-            }
-
-            logger.info(f"Auto-generated workflow metadata for {app_id}.{flow_id} with {len(nodes_metadata)} nodes")
-            return metadata
 
         except Exception as e:
-            logger.warning(f"Failed to auto-generate workflow metadata for {app_id}.{flow_id}: {e}")
-
-            # 降级：尝试使用传统的 metadata_function 方式
-            metadata_function = self.get_flow_metadata_function(app_id, flow_id)
-            if metadata_function:
-                try:
-                    # Parse module and function name
-                    module_path, function_name = metadata_function.split(':')
-
-                    # Fix module path: add root module prefix if not present
-                    if not module_path.startswith(f'{self.root_module_path}.'):
-                        module_path = f'{self.root_module_path}.{module_path}'
-
-                    # Dynamic import
-                    import importlib
-                    module = importlib.import_module(module_path)
-                    metadata_function_obj = getattr(module, function_name)
-
-                    # Execute metadata function
-                    metadata = metadata_function_obj()
-
-                    logger.info(f"Loaded workflow metadata using legacy method for {app_id}.{flow_id}")
-                    return metadata
-
-                except Exception as legacy_e:
-                    logger.warning(f"Legacy metadata loading also failed for {app_id}.{flow_id}: {legacy_e}")
-
+            logger.error(f"Failed to load workflow metadata for {app_id}.{flow_id}: {e}")
             return None

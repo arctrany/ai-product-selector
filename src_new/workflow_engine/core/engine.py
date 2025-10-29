@@ -461,14 +461,34 @@ class WorkflowEngine:
 
     def start_workflow(self, flow_version_id: int, input_data: Optional[Dict[str, Any]] = None,
                        thread_id: Optional[str] = None) -> str:
-        """Start workflow execution."""
+        """Start workflow execution with smart thread_id management.
 
+        Smart thread_id management rules:
+        - If thread_id is explicitly provided, use it
+        - If thread_id is None and there's a paused workflow for this flow_version_id, reuse its thread_id
+        - If thread_id is None and no paused workflow exists, generate a new thread_id
+        """
+
+        # Smart thread_id management
         if thread_id is None:
-            thread_id = str(uuid.uuid4())
+            # Check if there's a paused workflow for this flow_version_id
+            paused_workflow = self.db_manager.find_paused_workflow_by_flow_version(flow_version_id)
+
+            if paused_workflow:
+                # Reuse the paused workflow's thread_id
+                thread_id = paused_workflow["thread_id"]
+                logger.info(f"🔄 Resuming paused workflow: thread_id={thread_id}, flow_version_id={flow_version_id}, paused_at={paused_workflow.get('last_event_at')}")
+            else:
+                # Generate new thread_id
+                thread_id = str(uuid.uuid4())
+                logger.info(f"🆕 Generated new workflow instance: thread_id={thread_id}, flow_version_id={flow_version_id}")
+        else:
+            logger.info(f"🎯 Using provided thread_id: {thread_id}, flow_version_id={flow_version_id}")
 
         # Get flow version
         flow_version = self.db_manager.get_flow_version(flow_version_id)
         if not flow_version:
+            logger.error(f"❌ Flow version not found: {flow_version_id} for thread_id: {thread_id}")
             raise ValueError(f"Flow version not found: {flow_version_id}")
 
         # Ensure functions are registered before execution
@@ -493,10 +513,12 @@ class WorkflowEngine:
         if not existing_run:
             # Store inputs in metadata for observability
             self.db_manager.create_run(thread_id, flow_version_id, "pending", metadata={"inputs": input_data or {}})
+            logger.info(f"📝 Created new workflow run record: thread_id={thread_id}, flow_version_id={flow_version_id}, status=pending")
         else:
             # Avoid duplicate insert; keep or reset to pending before engine sets running at start node
             current_status = existing_run.get("status", "unknown")
             self.db_manager.atomic_update_run_status(thread_id, current_status, "pending", {"inputs": input_data or {}, "restarted": True})
+            logger.info(f"🔄 Updated existing workflow run: thread_id={thread_id}, status={current_status}->pending, restarted=True")
 
         # Start execution
         config = {"configurable": {"thread_id": thread_id}}

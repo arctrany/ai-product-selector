@@ -230,8 +230,11 @@ class WorkflowEnvironment:
         source_dir = config.get("project", {}).get("source_dir", self._env_config.source_directory)
         source_path = os.path.join(project_root, source_dir)
 
+        # Get apps directory path
+        apps_path = self.get_apps_directory()
+
         # Add paths to sys.path if they exist and aren't already there
-        paths_to_add = [project_root, source_path]
+        paths_to_add = [project_root, source_path, apps_path]
 
         for path in paths_to_add:
             if os.path.exists(path) and path not in sys.path:

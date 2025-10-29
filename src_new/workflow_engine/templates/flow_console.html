@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>工作流控制台 - {{ app_name }}/{{ flow_name }}</title>
+    <title>Ren工作流控制台 - {{ app_name }}/{{ flow_name }}</title>
     <style>
         * {
             margin: 0;
@@ -460,6 +460,40 @@
             border: 1px solid #d6d8db;
         }
 
+
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .timer-control-buttons .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+
+        .timer-control-buttons .btn:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .timer-control-buttons .btn-success {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+        }
+
+        .timer-control-buttons .btn-warning {
+            background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
+            color: #212529;
+        }
+
+        .timer-control-buttons .btn-danger {
+            background: linear-gradient(135deg, #dc3545 0%, #e83e8c 100%);
+            color: white;
+        }
+
+        .timer-control-buttons .btn-secondary {
+            background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+            color: white;
+        }
+
         @keyframes pulse-green {
             0% { opacity: 1; }
             50% { opacity: 0.7; }
@@ -608,6 +642,8 @@
                     </div>
                 </div>
 
+
+
             </div>
 
             <!-- 执行日志区域 -->
@@ -617,7 +653,6 @@
                     <div class="logs-controls">
                         <button class="btn btn-secondary" onclick="loadLogs()">刷新日志</button>
                         <button class="btn btn-secondary" onclick="clearLogs()">清空日志</button>
-                        <button class="btn btn-primary" onclick="refreshStatus()">刷新状态</button>
                     </div>
                 </div>
                 <div id="logs-container" class="logs">
@@ -633,7 +668,7 @@
         const appName = "{{ app_name }}";
         const flowName = "{{ flow_name }}";
 
-        // 启动工作流 (新的主要启动函数，携带提交阶段生成的 thread_id)
+        // 启动工作流 (新的主要启动函数，智能处理thread_id)
         function startWorkflow() {
             console.log('启动工作流:', flowName);
             addLog('info', '正在启动工作流...');
@@ -642,11 +677,24 @@
             const apiUrl = `/api/flows/${flowId}/start/latest`;
             addLog('debug', `调用API: ${apiUrl}`);
 
-            // 从URL获取提交阶段生成的thread_id
+            // 智能处理thread_id：只在首次启动或从表单提交页面跳转时使用URL中的thread_id
             const urlParams = new URLSearchParams(window.location.search);
-            const pendingThreadId = urlParams.get('thread_id') || null;
+            let pendingThreadId = null;
 
-            // 调用后端API启动工作流（如果存在pendingThreadId则复用）
+            // 只有在以下情况下才使用URL中的thread_id：
+            // 1. 当前没有活动的工作流（首次启动）
+            // 2. 从表单提交页面跳转过来（form_data=submitted）
+            // 3. 当前工作流状态为idle或pending
+            if ((!currentThreadId || ['idle', 'pending'].includes(currentWorkflowStatus)) &&
+                (urlParams.get('form_data') === 'submitted' || !currentThreadId)) {
+                pendingThreadId = urlParams.get('thread_id') || null;
+                addLog('debug', `使用URL中的thread_id: ${pendingThreadId}`);
+            } else {
+                // 重新启动时不使用旧的thread_id，让服务器生成新的
+                addLog('debug', '重新启动工作流，将生成新的thread_id');
+            }
+
+            // 调用后端API启动工作流
             fetch(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -672,7 +720,11 @@
                     addLog('success', `✅ 工作流启动成功！Thread ID: ${data.thread_id}`);
                     updateStatus('running');
                     updateButtonState(true); // 切换到"暂停任务"状态
-                    startTimer(); // 启动计时器
+
+                    // 启动计时器 - 与任务状态同步
+                    startTimer();
+                    addLog('info', '⏱️ 计时器已启动');
+
                     addLog('info', `📋 流程ID: ${data.flow_id}`);
                     addLog('info', `📋 版本: ${data.version}`);
                     addLog('info', `📋 状态: ${data.status}`);
@@ -702,7 +754,25 @@
                 } else if (error.message.includes('500')) {
                     addLog('warning', '💡 提示: 服务器内部错误，请检查工作流定义或联系管理员');
                 } else if (error.message.includes('400')) {
-                    addLog('warning', '💡 提示: 请求参数错误，请检查输入数据格式');
+                    addLog('warning', '💡 提示: 请求参数错误，可能是thread_id冲突');
+                    addLog('info', '🔧 解决方案: 正在清理状态并重试...');
+
+                    // 清理所有状态和URL参数，然后重试
+                    currentThreadId = null;
+                    pausedThreadId = null;
+                    currentWorkflowStatus = 'idle';
+
+                    // 清理URL参数
+                    const url = new URL(window.location);
+                    if (url.searchParams.has('thread_id')) {
+                        url.searchParams.delete('thread_id');
+                        window.history.replaceState({}, '', url);
+                        addLog('debug', '已清理URL中的thread_id参数');
+                    }
+
+                    addLog('info', '✅ 状态已清理，请重新点击"开始任务"按钮');
+                } else {
+                    addLog('warning', '💡 提示: 未知错误，请检查网络连接或联系管理员');
                 }
             });
         }
@@ -846,12 +916,13 @@
                                 addLog('info', `📊 状态更新: ${getStatusText(statusData.status)}`);
                                 updateStatus(statusData.status);
 
-                                // 同时更新按钮状态和计时器
+                                // 同时更新按钮状态和计时器 - 修复自动启动问题
                                 if (statusData.status === 'running') {
                                     updateButtonState(true);
-                                    if (!timerState.isRunning) {
-                                        startTimer();
-                                    }
+                                    // 移除自动启动计时器 - 只有用户手动点击才启动
+                                    // if (!timerState.isRunning) {
+                                    //     startTimer();
+                                    // }
                                 } else if (statusData.status === 'paused') {
                                     updateButtonState(false);
                                     if (timerState.isRunning) {
@@ -885,6 +956,12 @@
                     addLog('error', '❌ 实时日志连接出错');
                     updateConnectionStatus('disconnected', '连接错误');
                     stopHeartbeat();
+
+                    // WebSocket错误时，如果计时器还在运行，暂停它以避免数据不一致
+                    if (timerState.isRunning) {
+                        pauseTimer();
+                        addLog('warning', '⚠️ 连接中断，计时器已暂停');
+                    }
                 };
 
                 wsConnection.onclose = function(event) {
@@ -892,6 +969,12 @@
                     addLog('warning', '⚠️ 实时日志连接已断开');
                     updateConnectionStatus('disconnected', '已断开');
                     stopHeartbeat();
+
+                    // WebSocket连接关闭时，如果计时器还在运行，暂停它以避免数据不一致
+                    if (timerState.isRunning) {
+                        pauseTimer();
+                        addLog('warning', '⚠️ 连接断开，计时器已暂停');
+                    }
 
                     // 如果是非正常关闭且还有活动的thread_id，尝试重连
                     if (event.code !== 1000 && currentThreadId && reconnectAttempts < maxReconnectAttempts) {
@@ -946,11 +1029,25 @@
                         if (data.status) {
                             updateStatus(data.status);
 
-                            // 同时更新按钮状态
+                            // 同时更新按钮状态和计时器状态
                             if (data.status === 'running') {
                                 updateButtonState(true);
-                            } else if (data.status === 'paused' || data.status === 'stopped' || data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled' || data.status === 'timeout' || data.status === 'error') {
+                                // 如果工作流正在运行但计时器未启动，启动计时器
+                                if (!timerState.isRunning && !timerState.isPaused && !timerState.isStopped) {
+                                    startTimer();
+                                }
+                            } else if (data.status === 'paused') {
                                 updateButtonState(false);
+                                // 如果工作流暂停但计时器还在运行，暂停计时器
+                                if (timerState.isRunning) {
+                                    pauseTimer();
+                                }
+                            } else if (['stopped', 'completed', 'failed', 'cancelled', 'timeout', 'error'].includes(data.status)) {
+                                updateButtonState(false);
+                                // 如果工作流结束但计时器还在运行，停止计时器
+                                if (timerState.isRunning || timerState.isPaused) {
+                                    stopTimer();
+                                }
                             }
 
                             // 如果工作流完成，停止轮询
@@ -990,14 +1087,20 @@
         // 工作流状态跟踪
         let isWorkflowRunning = false;
 
-        // 计时器状态管理 - 增加 finalTime 支持
+        // 暂停状态管理 - 用于智能恢复逻辑
+        let pausedThreadId = null;  // 保存暂停时的线程ID
+        let currentWorkflowStatus = 'idle';  // 当前工作流状态
+
+        // 计时器状态管理 - 重新设计，修复所有逻辑问题
         let timerState = {
             startTime: null,
-            pausedTime: 0,
+            totalPausedTime: 0,  // 累计暂停时间
+            pauseStartTime: null, // 暂停开始时间
             isRunning: false,
             isPaused: false,
             intervalId: null,
-            finalTime: undefined  // 保存最终时间，用于任务完成后显示
+            finalTime: undefined,  // 保存最终时间，用于任务完成后显示
+            isStopped: false      // 新增：标记是否已完全停止
         };
 
         // 格式化时间显示 (HH:MM:SS)
@@ -1008,59 +1111,50 @@
             return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         }
 
-        // 更新计时器显示 - 优化版本：支持保持最终时间
+        // 更新计时器显示 - 完全重写，修复所有逻辑问题
         function updateTimerDisplay() {
             const timerDisplay = document.getElementById('timer-display');
-            const timerStatus = document.getElementById('timer-status');
 
-            if (!timerDisplay || !timerStatus) return;
+            if (!timerDisplay) return;
 
             let elapsedSeconds = 0;
 
-            if (timerState.isRunning && timerState.startTime) {
-                elapsedSeconds = Math.floor((Date.now() - timerState.startTime - timerState.pausedTime) / 1000);
-            } else if (timerState.isPaused && timerState.startTime) {
-                elapsedSeconds = Math.floor(timerState.pausedTime / 1000);
-            } else if (timerState.finalTime !== undefined) {
-                // 如果有最终时间，显示最终时间（任务完成或停止后保持显示）
+            if (timerState.isStopped && timerState.finalTime !== undefined) {
+                // 已停止状态：显示最终时间，不再更新
                 elapsedSeconds = timerState.finalTime;
+            } else if (timerState.isRunning && timerState.startTime) {
+                // 运行状态：当前时间 - 开始时间 - 累计暂停时间
+                elapsedSeconds = Math.floor((Date.now() - timerState.startTime - timerState.totalPausedTime) / 1000);
+            } else if (timerState.isPaused && timerState.startTime) {
+                // 暂停状态：暂停时的累计时间
+                const timeBeforePause = timerState.pauseStartTime - timerState.startTime - timerState.totalPausedTime;
+                elapsedSeconds = Math.floor(timeBeforePause / 1000);
             }
 
             timerDisplay.textContent = formatTime(Math.max(0, elapsedSeconds));
 
-            // 更新计时器状态显示
-            if (timerState.isRunning) {
-                timerStatus.textContent = '运行中';
-                timerStatus.className = 'timer-status running';
-            } else if (timerState.isPaused) {
-                timerStatus.textContent = '已暂停';
-                timerStatus.className = 'timer-status paused';
-            } else if (timerState.finalTime !== undefined && timerState.finalTime > 0) {
-                // 显示已完成状态
-                timerStatus.textContent = '已完成';
-                timerStatus.className = 'timer-status completed';
-            } else {
-                timerStatus.textContent = '待机';
-                timerStatus.className = 'timer-status idle';
-            }
+            // 计时器状态现在通过执行状态显示，无需单独的状态标签
         }
 
-        // 启动计时器
+        // 启动计时器 - 完全重写
         function startTimer() {
-            if (timerState.isRunning) return;
+            if (timerState.isRunning || timerState.isStopped) return;
 
             const now = Date.now();
 
-            if (timerState.isPaused) {
-                // 从暂停状态恢复
-                timerState.pausedTime = now - timerState.startTime - timerState.pausedTime;
-                timerState.startTime = now - timerState.pausedTime;
+            if (timerState.isPaused && timerState.pauseStartTime) {
+                // 从暂停状态恢复：累加本次暂停时间
+                timerState.totalPausedTime += (now - timerState.pauseStartTime);
                 timerState.isPaused = false;
+                timerState.pauseStartTime = null;
                 addLog('info', '⏯️ 计时器已恢复');
             } else {
                 // 全新启动
                 timerState.startTime = now;
-                timerState.pausedTime = 0;
+                timerState.totalPausedTime = 0;
+                timerState.pauseStartTime = null;
+                timerState.finalTime = undefined;
+                timerState.isStopped = false;
                 addLog('info', '▶️ 计时器已启动');
             }
 
@@ -1075,12 +1169,12 @@
             updateTimerDisplay();
         }
 
-        // 暂停计时器
+        // 暂停计时器 - 修复逻辑错误
         function pauseTimer() {
-            if (!timerState.isRunning) return;
+            if (!timerState.isRunning || timerState.isStopped) return;
 
             const now = Date.now();
-            timerState.pausedTime = now - timerState.startTime - timerState.pausedTime;
+            timerState.pauseStartTime = now;  // 记录暂停开始时间
             timerState.isRunning = false;
             timerState.isPaused = true;
 
@@ -1093,50 +1187,127 @@
             addLog('info', '⏸️ 计时器已暂停');
         }
 
-        // 停止计时器 - 优化版本：保持最终时间，不重置
+        // 停止计时器 - 增强版本，确保完全停止
         function stopTimer() {
-            if (timerState.isRunning || timerState.isPaused) {
-                // 计算并保存最终时间
-                let finalElapsedSeconds = 0;
-                if (timerState.isRunning && timerState.startTime) {
-                    finalElapsedSeconds = Math.floor((Date.now() - timerState.startTime - timerState.pausedTime) / 1000);
-                } else if (timerState.isPaused && timerState.startTime) {
-                    finalElapsedSeconds = Math.floor(timerState.pausedTime / 1000);
-                }
+            if (timerState.isStopped) return; // 已经停止，避免重复处理
 
-                // 保存最终时间到状态中
-                timerState.finalTime = Math.max(0, finalElapsedSeconds);
+            // 计算并保存最终时间
+            let finalElapsedSeconds = 0;
+            const now = Date.now();
 
-                addLog('info', `⏹️ 计时器已停止，最终时间: ${formatTime(timerState.finalTime)}`);
+            if (timerState.isRunning && timerState.startTime) {
+                finalElapsedSeconds = Math.floor((now - timerState.startTime - timerState.totalPausedTime) / 1000);
+            } else if (timerState.isPaused && timerState.startTime && timerState.pauseStartTime) {
+                const timeBeforePause = timerState.pauseStartTime - timerState.startTime - timerState.totalPausedTime;
+                finalElapsedSeconds = Math.floor(timeBeforePause / 1000);
             }
 
+            // 保存最终时间并标记为已停止
+            timerState.finalTime = Math.max(0, finalElapsedSeconds);
             timerState.isRunning = false;
             timerState.isPaused = false;
-            // 注意：不重置 startTime 和 pausedTime，保持历史记录
+            timerState.isStopped = true;
 
+            // 清除定时器
             if (timerState.intervalId) {
                 clearInterval(timerState.intervalId);
                 timerState.intervalId = null;
             }
 
             updateTimerDisplay();
+            addLog('info', `⏹️ 计时器已停止，最终时间: ${formatTime(timerState.finalTime)}`);
         }
 
-        // 重置计时器
+        // 重置计时器 - 增强版本
         function resetTimer() {
-            stopTimer();
+            // 清除所有状态
+            timerState.startTime = null;
+            timerState.totalPausedTime = 0;
+            timerState.pauseStartTime = null;
+            timerState.isRunning = false;
+            timerState.isPaused = false;
+            timerState.finalTime = undefined;
+            timerState.isStopped = false;
+
+            if (timerState.intervalId) {
+                clearInterval(timerState.intervalId);
+                timerState.intervalId = null;
+            }
+
             const timerDisplay = document.getElementById('timer-display');
             if (timerDisplay) {
                 timerDisplay.textContent = '00:00:00';
             }
+
+            updateTimerDisplay();
             addLog('info', '🔄 计时器已重置');
         }
 
-        // 动态切换开始/暂停按钮
+        // 恢复工作流 - 新增函数
+        function resumeWorkflow() {
+            console.log('恢复流程:', flowName, 'Thread ID:', pausedThreadId);
+
+            if (!pausedThreadId) {
+                addLog('error', '❌ 没有可恢复的工作流');
+                return;
+            }
+
+            const apiUrl = `/api/thread/${pausedThreadId}/resume`;
+
+            fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    updates: {
+                        resume_reason: 'user_requested'
+                    }
+                })
+            })
+                .then(response => {
+                    if (response.ok) {
+                        return response.json();
+                    } else {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                })
+                .then(data => {
+                    // 后端返回 ThreadControlResponse: {thread_id, status, message}
+                    if (data.status === 'resumed') {
+                        addLog('success', '▶️ 工作流已恢复');
+                        currentThreadId = pausedThreadId; // 恢复当前线程ID
+                        pausedThreadId = null; // 清除暂停状态
+                        currentWorkflowStatus = 'running';
+                        updateStatus('running');
+                        updateButtonState(true); // 切换到"暂停任务"状态
+                        startTimer(); // 恢复计时器
+                        startLogPolling(currentThreadId); // 重新开始日志监听
+                        addLog('info', '⏱️ 计时器已恢复');
+                    } else {
+                        addLog('error', `❌ 恢复失败: ${data.message || '未知错误'}`);
+                    }
+                })
+                .catch(error => {
+                    addLog('error', `❌ 恢复请求失败: ${error.message}`);
+                });
+        }
+
+        // 动态切换开始/暂停按钮 - 重写为智能逻辑
         function toggleStartPause() {
             if (!isWorkflowRunning) {
-                // 当前是"开始任务"状态，执行启动
-                startWorkflow();
+                // 当前是"开始任务"状态，需要判断是恢复还是新启动
+                if (pausedThreadId && currentWorkflowStatus === 'paused') {
+                    // 有暂停的工作流，执行恢复
+                    addLog('info', '🔄 检测到暂停的工作流，正在恢复...');
+                    resumeWorkflow();
+                } else {
+                    // 没有暂停的工作流或工作流已完成，启动新的工作流
+                    if (currentWorkflowStatus === 'completed' || currentWorkflowStatus === 'failed' || currentWorkflowStatus === 'stopped') {
+                        addLog('info', '🔄 工作流已结束，正在启动新实例...');
+                    }
+                    startWorkflow();
+                }
             } else {
                 // 当前是"暂停任务"状态，执行暂停
                 pauseWorkflow();
@@ -1191,9 +1362,19 @@
                         // 后端返回 ThreadControlResponse: {thread_id, status, message}
                         if (data.status === 'pause_requested') {
                             addLog('warning', '⏸️ 工作流已暂停');
+
+                            // 保存暂停状态，用于后续恢复
+                            pausedThreadId = currentThreadId;  // 保存暂停的线程ID
+                            currentWorkflowStatus = 'paused';  // 更新工作流状态
+
                             updateStatus('paused');
                             updateButtonState(false); // 切换回"开始任务"状态
-                            pauseTimer(); // 暂停计时器
+                            pauseTimer(); // 暂停计时器（保持时间状态）
+                            addLog('info', '⏱️ 计时器已暂停');
+
+                            // 保持currentThreadId用于恢复，但停止日志监听
+                            stopLogPolling(); // 停止日志监听
+                            addLog('info', '💾 已保存工作流状态，可通过"开始任务"按钮恢复');
                         } else {
                             addLog('error', `❌ 暂停失败: ${data.message || '未知错误'}`);
                         }
@@ -1236,6 +1417,20 @@
                             updateButtonState(false); // 重置为"开始任务"状态
                             stopTimer(); // 停止计时器
                             stopLogPolling(); // 停止日志监听
+
+                            // 清理所有状态，确保下次启动时使用全新的thread_id
+                            currentThreadId = null;
+                            pausedThreadId = null;
+                            currentWorkflowStatus = 'stopped';
+                            addLog('info', '🔄 已清理工作流状态，下次启动将创建新实例');
+
+                            // 清理URL参数中的thread_id，避免重新启动时使用无效的thread_id
+                            const url = new URL(window.location);
+                            if (url.searchParams.has('thread_id')) {
+                                url.searchParams.delete('thread_id');
+                                window.history.replaceState({}, '', url);
+                                addLog('debug', '已清理URL中的thread_id参数');
+                            }
                         } else {
                             addLog('error', `❌ 停止失败: ${data.message || '未知错误'}`);
                         }
@@ -1251,9 +1446,12 @@
 
 
 
-        // 更新状态 - 优化版本：适配新的布局结构
+        // 更新状态 - 优化版本：适配新的布局结构和智能暂停/恢复逻辑
         function updateStatus(status) {
             const statusInfo = document.getElementById('status-info');
+
+            // 更新全局状态变量
+            currentWorkflowStatus = status;
 
             // 更新状态显示
             if (statusInfo) {
@@ -1261,23 +1459,29 @@
                 statusInfo.className = `status-display ${status}`;
             }
 
-            // 根据状态更新计时器状态
+            // 根据状态更新计时器状态和暂停状态管理
             if (['completed', 'stopped', 'failed', 'cancelled', 'timeout', 'error'].includes(status)) {
                 // 任务结束状态：停止计时器但保持最终时间
                 if (timerState.isRunning || timerState.isPaused) {
                     stopTimer();
                 }
 
-                // 更新计时器状态文本以反映任务结束
-                const timerStatus = document.getElementById('timer-status');
-                if (timerStatus && timerState.finalTime !== undefined && timerState.finalTime > 0) {
-                    if (status === 'completed') {
-                        timerStatus.textContent = '已完成';
-                        timerStatus.className = 'timer-status completed';
-                    } else {
-                        timerStatus.textContent = '已停止';
-                        timerStatus.className = 'timer-status stopped';
-                    }
+                // 清除暂停状态，因为工作流已结束
+                if (pausedThreadId) {
+                    pausedThreadId = null;
+                    addLog('info', '🔄 工作流已结束，清除暂停状态');
+                }
+
+                // 计时器状态现在通过执行状态显示，无需单独更新
+            } else if (status === 'paused') {
+                // 暂停状态：确保计时器也暂停
+                if (timerState.isRunning) {
+                    pauseTimer();
+                }
+            } else if (status === 'running') {
+                // 运行状态：确保计时器也运行
+                if (!timerState.isRunning && !timerState.isStopped) {
+                    startTimer();
                 }
             }
         }
@@ -1401,6 +1605,38 @@
                 // 没有thread_id时，显示初始状态
                 updateStatus('idle');
                 updateButtonState(false);
+            }
+        });
+
+        // 页面卸载时的清理处理 - 确保计时器状态正确保存
+        window.addEventListener('beforeunload', function(event) {
+            // 如果计时器正在运行，暂停它以保存当前状态
+            if (timerState.isRunning) {
+                pauseTimer();
+                addLog('info', '🔄 页面卸载，计时器已暂停保存状态');
+            }
+
+            // 关闭WebSocket连接
+            if (wsConnection) {
+                wsConnection.close(1000, '页面卸载');
+            }
+        });
+
+        // 页面隐藏时暂停计时器，页面显示时恢复（处理浏览器标签页切换）
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                // 页面隐藏时，如果计时器在运行且有活动工作流，暂停计时器
+                if (timerState.isRunning && currentThreadId) {
+                    pauseTimer();
+                    addLog('info', '👁️ 页面隐藏，计时器已暂停');
+                }
+            } else {
+                // 页面显示时，如果有活动工作流且计时器是暂停状态，检查工作流状态决定是否恢复
+                if (timerState.isPaused && currentThreadId) {
+                    // 刷新状态以确保与服务器同步
+                    refreshStatus();
+                    addLog('info', '👁️ 页面显示，正在同步状态...');
+                }
             }
         });
     </script>

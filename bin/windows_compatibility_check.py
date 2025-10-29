@@ -353,12 +353,8 @@ import platform
 from pathlib import Path
 from typing import Union
 
-def normalize_path(path: Union[str, Path]) -> Path:
-    """标准化路径，确保跨平台兼容"""
-    if isinstance(path, str):
-        # 将 Unix 风格路径转换为当前平台路径
-        path = path.replace('/', os.sep)
-    return Path(path).resolve()
+# Use the centralized normalize_path from utils.windows_compat
+from src_new.utils.windows_compat import normalize_path
 
 def ensure_directory(path: Union[str, Path]) -> Path:
     """确保目录存在，跨平台兼容"""

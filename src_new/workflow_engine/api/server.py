@@ -5,6 +5,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+# Setup environment FIRST before importing any workflow engine modules
+from ..sdk.env import setup_environment
+
+setup_environment()
+
 from .dependencies import init_dependencies
 from .exceptions import setup_exception_handlers
 from .system_routes import create_system_router
@@ -19,6 +24,7 @@ from ..core.config import get_config
 
 # Initialize logging first
 from ..config.loader import CrossPlatformConfigLoader
+
 config_loader = CrossPlatformConfigLoader()
 raw_config = config_loader.load_config()
 logging_config = raw_config.get("logging", {})
@@ -30,6 +36,7 @@ setup_logging(
 
 logger = get_logger(__name__)
 
+
 def _bootstrap_workflows(engine, app_manager):
     """Bootstrap workflow definitions from apps into database."""
     try:
@@ -38,6 +45,7 @@ def _bootstrap_workflows(engine, app_manager):
         # Get all apps
         apps = app_manager.list_apps()
         loaded_count = 0
+        existing_count = 0
 
         for app in apps:
             logger.info(f"📦 Processing app: {app.app_id}")
@@ -57,7 +65,9 @@ def _bootstrap_workflows(engine, app_manager):
                     # Check if flow already exists in database
                     existing_flow = engine.db_manager.get_flow_by_name(flow_id)
                     if existing_flow:
-                        logger.info(f"  ⏭️  Flow {flow_id} already exists in database, but functions are now registered")
+                        logger.info(
+                            f"  ⏭️  Flow {flow_id} already exists in database, but functions are now registered")
+                        existing_count += 1
                         continue
 
                     # Workflow definition already loaded above for function registration
@@ -76,7 +86,12 @@ def _bootstrap_workflows(engine, app_manager):
                     logger.error(f"  ❌ Failed to load {app.app_id}.{flow_name}: {e}")
                     continue
 
-        logger.info(f"🎉 Workflow bootstrap completed! Loaded {loaded_count} workflows")
+        total_workflows = loaded_count + existing_count
+        if existing_count > 0:
+            logger.info(
+                f"🎉 Workflow bootstrap completed! Loaded {loaded_count} new workflows, {existing_count} existing workflows (Total: {total_workflows})")
+        else:
+            logger.info(f"🎉 Workflow bootstrap completed! Loaded {loaded_count} workflows")
 
     except Exception as e:
         logger.error(f"❌ Workflow bootstrap failed: {e}")
@@ -202,7 +217,7 @@ if __name__ == "__main__":
     # Use default values since WorkflowEngineConfig doesn't have server config
     uvicorn.run(
         "src_new.workflow_engine.api.server:create_app",
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=8889,
         reload=False,
         factory=True

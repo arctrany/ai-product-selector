@@ -229,6 +229,9 @@ class WorkflowControl:
                 timestamp = int(time.time() * 1000000)  # Microsecond timestamp
                 random_part = uuid.uuid4().hex[:8]
                 thread_id = f"thr_{timestamp}_{random_part}"
+                logger.info(f"🆕 Generated new async workflow instance: thread_id={thread_id}, flow_version_id={flow_version_id}, timestamp={timestamp}")
+            else:
+                logger.info(f"🔄 Reusing provided thread_id for async workflow: {thread_id}, flow_version_id={flow_version_id}")
 
             # Check if run already exists and handle accordingly
             existing_run = None

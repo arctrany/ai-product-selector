@@ -15,21 +15,16 @@ import webbrowser
 from pathlib import Path
 from typing import Optional, List, Dict
 
+# Add project root to Python path for module imports
+script_dir = Path(__file__).parent.absolute()
+project_dir = script_dir.parent
+if str(project_dir) not in sys.path:
+    sys.path.insert(0, str(project_dir))
+
 # Import Windows compatibility utilities
-try:
-    from src_new.utils.windows_compat import (
-        normalize_path, is_windows, fix_command_for_windows
-    )
-except ImportError:
-    # Fallback implementations if windows_compat is not available
-    def normalize_path(path):
-        return Path(path).resolve()
-
-    def is_windows():
-        return platform.system().lower() == "windows"
-
-    def fix_command_for_windows(command):
-        return command
+from src_new.utils.windows_compat import (
+    normalize_path, is_windows, fix_command_for_windows
+)
 
 class WorkflowServerManager:
     """Cross-platform workflow server manager"""
@@ -43,7 +38,13 @@ class WorkflowServerManager:
 
         self.server_module = "src_new.workflow_engine.api.server"
         self.pid_file = normalize_path(self.project_dir / ".workflow_server.pid")
-        self.log_file = normalize_path(self.project_dir / "workflow_server.log")
+
+        # Use WORKFLOW_LOG_DIR if set, otherwise use project directory
+        log_dir = os.getenv('WORKFLOW_LOG_DIR', str(self.project_dir))
+        # Always expand user home directory and environment variables
+        log_dir = os.path.expanduser(os.path.expandvars(log_dir))
+        self.log_file = normalize_path(Path(log_dir) / "workflow_server.log")
+
         self.src_dir = normalize_path(self.project_dir / os.getenv('WORKFLOW_SOURCE_DIR', 'src_new'))
         self.requirements_file = normalize_path(self.src_dir / "requirements.txt")
         self.ports = [8000, 8888, 8001, 8889]
@@ -233,19 +234,27 @@ class WorkflowServerManager:
         try:
             os.chdir(self.project_dir)
 
+            # Add apps directory to Python path for module imports
+            apps_dir = normalize_path(self.project_dir / "apps")
+            env = os.environ.copy()
+            if 'PYTHONPATH' in env:
+                env['PYTHONPATH'] = f"{apps_dir}{os.pathsep}{env['PYTHONPATH']}"
+            else:
+                env['PYTHONPATH'] = str(apps_dir)
+
             # Start server process
             with open(self.log_file, 'w') as log_f:
                 if is_windows():
                     # Windows: Use CREATE_NEW_PROCESS_GROUP to avoid signal issues
                     process = subprocess.Popen([
                         sys.executable, "-m", self.server_module
-                    ], stdout=log_f, stderr=subprocess.STDOUT,
+                    ], stdout=log_f, stderr=subprocess.STDOUT, env=env,
                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP') else 0)
                 else:
                     # Unix-like systems: Standard process creation
                     process = subprocess.Popen([
                         sys.executable, "-m", self.server_module
-                    ], stdout=log_f, stderr=subprocess.STDOUT)
+                    ], stdout=log_f, stderr=subprocess.STDOUT, env=env)
 
             # Save PID
             with open(self.pid_file, 'w') as f:
@@ -320,8 +329,6 @@ class WorkflowServerManager:
             pid = self.get_pid()
             self.print_status(f"Server is running (PID: {pid})")
             self.print_status(f"Server URL: http://0.0.0.0:{self.server_port}")
-            self.print_status(f"Apps page: http://localhost:{self.server_port}/apps")
-
             # Show port usage
             print("\nPort usage:")
             try:

@@ -54,7 +54,7 @@ class WorkflowEngineConfig:
     def get_apps_directory_path(self) -> Path:
         """Get the applications directory path."""
         # Use environment variable if set, otherwise use default
-        apps_dir = os.getenv('WORKFLOW_APPS_DIR', 'src_new/apps')
+        apps_dir = os.getenv('WORKFLOW_APPS_DIR', 'apps')
         return Path(apps_dir)
 
     def get_templates_directory_path(self) -> Path:
@@ -66,6 +66,16 @@ class WorkflowEngineConfig:
         else:
             # Default to templates directory relative to workflow engine
             return Path(__file__).parent.parent / "templates"
+
+    def get_logging_directory_path(self) -> Path:
+        """Get the logging directory path."""
+        # Use environment variable if set, otherwise use default in .ren directory
+        log_dir = os.getenv('WORKFLOW_LOG_DIR')
+        if log_dir:
+            return Path(log_dir)
+        else:
+            # Default to .ren directory in user home
+            return Path.home() / ".ren" / "logs"
 
 class DependencyContainer:
     """Thread-safe dependency injection container."""
@@ -225,7 +235,7 @@ class ConfigManager:
     def get_apps_directory_path(self) -> Path:
         """Get the applications directory path."""
         # Use environment variable if set, otherwise use default
-        apps_dir = os.getenv('WORKFLOW_APPS_DIR', 'src_new/apps')
+        apps_dir = os.getenv('WORKFLOW_APPS_DIR', 'apps')
         return Path(apps_dir)
 
     def get_templates_directory_path(self) -> Path:
@@ -237,6 +247,16 @@ class ConfigManager:
         else:
             # Default to templates directory relative to workflow engine
             return Path(__file__).parent.parent / "templates"
+
+    def get_logging_directory_path(self) -> Path:
+        """Get the logging directory path."""
+        # Use environment variable if set, otherwise use default in .ren directory
+        log_dir = os.getenv('WORKFLOW_LOG_DIR')
+        if log_dir:
+            return Path(log_dir)
+        else:
+            # Default to .ren directory in user home
+            return Path.home() / ".ren" / "logs"
 
 # Global configuration manager instance
 _config_manager = ConfigManager()

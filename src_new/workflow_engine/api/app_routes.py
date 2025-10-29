@@ -14,21 +14,19 @@ from ..utils.logger import get_logger
 from ..config import get_config
 from ..sdk.control import WorkflowControl
 
-# Import Windows compatibility utilities
-try:
-    from ...utils.windows_compat import normalize_path, is_windows
-except ImportError:
-    # Fallback implementations if windows_compat is not available
-    from pathlib import Path
+# Windows compatibility utilities (inline to avoid import issues)
+import os
+from pathlib import Path
 
+def normalize_path(path):
+    """Normalize path for cross-platform compatibility."""
+    if isinstance(path, str):
+        path = Path(path)
+    return path.resolve()
 
-    def normalize_path(path):
-        return Path(path).resolve()
-
-
-    def is_windows():
-        import platform
-        return platform.system().lower() == "windows"
+def is_windows():
+    """Check if running on Windows."""
+    return os.name == 'nt'
 
 logger = get_logger(__name__)
 

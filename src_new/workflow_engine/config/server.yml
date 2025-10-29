@@ -19,7 +19,7 @@ server:
 # Application settings
 apps:
   # Applications directory path (relative to project root)
-  directory: "${WORKFLOW_APPS_DIR:src_new/apps}"
+  directory: "${WORKFLOW_APPS_DIR:apps}"
   # Auto-reload apps on changes
   auto_reload: ${WORKFLOW_AUTO_RELOAD:true}
 

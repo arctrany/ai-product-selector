@@ -234,7 +234,7 @@ research, market analysis, and automated decision-making processes.
 - **Network Services** - HTTP APIs for external data sources
 
 ### Browser Infrastructure
-- **Chrome Devtool MCP** - Study browser behavior and diagnose issues **
+- **Playwright MCP** - Study browser behavior and diagnose issues **
 - **Playwright Browsers** - Chromium, Firefox, Safari engines
 - **System Browsers** - Integration with locally installed browsers
 - **Proxy Support** - Optional proxy configuration for network requests

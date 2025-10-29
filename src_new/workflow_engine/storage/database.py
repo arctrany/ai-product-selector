@@ -918,6 +918,39 @@ class DatabaseManager:
 
         return results
 
+    def find_paused_workflow_by_flow_version(self, flow_version_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Find a paused workflow for the given flow_version_id.
+
+        This is used for smart thread_id management:
+        - If a paused workflow exists, we should reuse its thread_id
+        - If no paused workflow exists, we should generate a new thread_id
+
+        Args:
+            flow_version_id: The flow version ID to search for
+
+        Returns:
+            Dict with paused workflow info if found, None otherwise
+        """
+        with self.get_session() as session:
+            run = session.query(FlowRun).filter(
+                FlowRun.flow_version_id == flow_version_id,
+                FlowRun.status == "paused"
+            ).order_by(FlowRun.last_event_at.desc()).first()
+
+            if not run:
+                return None
+
+            return {
+                "thread_id": run.thread_id,
+                "flow_version_id": run.flow_version_id,
+                "status": run.status,
+                "started_at": run.started_at.isoformat() if run.started_at else None,
+                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+                "last_event_at": run.last_event_at.isoformat() if run.last_event_at else None,
+                "metadata": run.run_metadata
+            }
+
     def close(self):
         """Clean up resources."""
         if hasattr(self, 'thread_pool'):

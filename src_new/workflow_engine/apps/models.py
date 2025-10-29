@@ -1,85 +1,92 @@
 """Application configuration models."""
 
+import json
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel, Field
+from datetime import datetime
+from pathlib import Path
 
 
-class AppExtension(BaseModel):
-    """Application extension configuration."""
-    
-    type: str = Field(..., description="Extension type (e.g., 'browser_preview', 'custom_widget')")
-    title: str = Field(..., description="Extension display title")
-    enabled: bool = Field(default=True, description="Whether extension is enabled")
-    config: Dict[str, Any] = Field(default_factory=dict, description="Extension-specific configuration")
+@dataclass
+class FlowConfig:
+    """Configuration for a single flow within an app."""
+    entry_point: str
+    metadata_function: Optional[str] = None
+    description: Optional[str] = None
+    version: str = "1.0.0"
+    enabled: bool = True
+
+    # Flow metadata
+    flow_id: Optional[str] = None
+    title: Optional[str] = None
 
 
-class FlowConfig(BaseModel):
-    """Flow configuration within an application."""
-
-    flow_id: str = Field(..., description="Unique flow identifier")
-    version: str = Field(default="1.0.0", description="Flow version")
-    title: str = Field(..., description="Flow display title (Chinese name)")
-    description: Optional[str] = Field(None, description="Flow description")
-    entry_point: str = Field(..., description="Flow entry point module:function")
-    metadata_function: Optional[str] = Field(None, description="Flow metadata function module:function")
-
-class AppConfig(BaseModel):
+@dataclass
+class AppConfig:
     """Application configuration model."""
-
-    app_id: str = Field(..., description="Unique application identifier")
-    name: str = Field(..., alias="app_name", description="Application display name")
-    description: Optional[str] = Field(None, description="Application description")
-    version: str = Field(default="1.0.0", description="Application version")
-
-    # Console configuration
-    console_title: str = Field(..., description="Console page title")
-    console_subtitle: Optional[str] = Field(None, description="Console page subtitle")
-
-    # Flow associations
-    flow_ids: List[str] = Field(default_factory=list, description="Associated workflow IDs")
-    default_flow_id: Optional[str] = Field(None, description="Default workflow ID")
-
-    # Flow configurations (new multi-flow support)
-    flows: Optional[Dict[str, FlowConfig]] = Field(None, description="Flow configurations")
-
-    # Legacy entry point (for backward compatibility)
-    entry_point: Optional[str] = Field(None, description="Legacy single flow entry point")
+    app_id: str
+    name: str
+    description: str = ""
+    version: str = "1.0.0"
+    author: str = ""
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
     
-    # Extensions
-    extensions: List[AppExtension] = Field(default_factory=list, description="Application extensions")
-    
-    # Metadata
-    author: Optional[str] = Field(None, description="Application author")
-    created_at: Optional[str] = Field(None, description="Creation timestamp")
-    updated_at: Optional[str] = Field(None, description="Last update timestamp")
-    
-    def get_flow_id(self, flow_name: Optional[str] = None) -> Optional[str]:
-        """Get flow ID by name or return default."""
-        if flow_name and flow_name in self.flow_ids:
-            return flow_name
-        return self.default_flow_id or (self.flow_ids[0] if self.flow_ids else None)
-    
-    def has_extension(self, extension_type: str) -> bool:
-        """Check if application has specific extension type."""
-        return any(ext.type == extension_type and ext.enabled for ext in self.extensions)
-    
-    def get_extension(self, extension_type: str) -> Optional[AppExtension]:
-        """Get extension configuration by type."""
-        for ext in self.extensions:
-            if ext.type == extension_type and ext.enabled:
-                return ext
-        return None
+    # UI configuration
+    console_title: Optional[str] = None
+    console_subtitle: Optional[str] = None
 
+    # Flow configuration
+    _flow_ids: Optional[List[str]] = field(default=None, init=False)  # Internal field
+    default_flow_id: str = "default"
+    extensions: Optional[List[str]] = None
 
-class AppRunContext(BaseModel):
-    """Application run context for console view."""
-    
-    app_config: AppConfig
-    flow_id: str
-    run_id: Optional[str] = None
-    thread_id: Optional[str] = None
-    
+    # Legacy support
+    entry_point: Optional[str] = None
+
+    # New flow-based configuration
+    flows: Optional[Dict[str, FlowConfig]] = None
+
+    def __post_init__(self):
+        """Post-initialization processing."""
+        if self.flows is None:
+            self.flows = {}
+
+        # Handle flow_ids from JSON input (if present)
+        if hasattr(self, '_temp_flow_ids'):
+            self._flow_ids = getattr(self, '_temp_flow_ids')
+            delattr(self, '_temp_flow_ids')
+
+        # Convert dict flows to FlowConfig objects if needed
+        if self.flows and isinstance(list(self.flows.values())[0], dict):
+            converted_flows = {}
+            for flow_id, flow_data in self.flows.items():
+                if isinstance(flow_data, dict):
+                    converted_flows[flow_id] = FlowConfig(**flow_data)
+                else:
+                    converted_flows[flow_id] = flow_data
+            self.flows = converted_flows
+
     @property
-    def console_id(self) -> str:
-        """Generate console ID from app_id and flow_id."""
-        return f"{self.app_config.app_id}-{self.flow_id}"
+    def flow_ids(self) -> List[str]:
+        """Get list of flow IDs."""
+        # First check if we have explicit flow_ids from JSON
+        if self._flow_ids is not None:
+            return self._flow_ids
+        # Then check flows configuration
+        if self.flows:
+            return list(self.flows.keys())
+        # Fallback to default
+        return [self.default_flow_id] if self.entry_point else []
+
+
+@dataclass
+class AppRunContext:
+    """Runtime context for app execution."""
+    app_id: str
+    flow_id: str
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    parameters: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    created_at: datetime = field(default_factory=datetime.now)

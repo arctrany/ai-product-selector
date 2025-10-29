@@ -87,6 +87,7 @@ def setup_environment() -> None:
     source_dir = project_config.get("source_dir", "src_new")
 
     source_path = os.path.join(project_root, source_dir)
+    apps_path = os.path.join(project_root, "apps")
 
     # Add project root to Python path
     if project_root not in sys.path:
@@ -95,6 +96,10 @@ def setup_environment() -> None:
     # Add source directory to Python path
     if source_path not in sys.path:
         sys.path.insert(0, source_path)
+
+    # Add apps directory to Python path to enable direct import of app modules
+    if apps_path not in sys.path:
+        sys.path.insert(0, apps_path)
 
 
 def get_project_root() -> str:
