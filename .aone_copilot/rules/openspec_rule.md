@@ -12,6 +12,10 @@ Use `@/openspec/AGENTS.md` to learn:
 - Spec format and conventions
 - Project structure and guidelines
 
-如果涉及指令，请学习commands目录下的*.md文件
+Execute commands according to the documentation in `commands/*.md`:
+
+- `openspec-proposal.md` - Create new change proposals
+- `openspec-apply.md` - Apply approved changes
+- `openspec-archive.md` - Archive completed changes
 
 Keep this managed block so 'openspec update' can refresh the instructions.
