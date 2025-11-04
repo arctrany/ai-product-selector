@@ -22,7 +22,8 @@
 - **WHEN** 处理未处理状态的店铺
 - **THEN** 系统SHALL访问 https://seerfar.cn/admin/store-detail.html?storeId={店铺ID}&platform=OZON
 - **AND** 系统SHALL等待页面完全加载
-- **AND** URL中的storeId参数SHALL使用Excel中的店铺ID值
+- **AND** URL中的storeId参数SHALL使用Excel第一列中的店铺ID值
+- **AND** platform参数SHALL固定为"OZON"
 
 #### Scenario: 店铺销售数据抓取
 - **WHEN** 店铺页面加载完成
