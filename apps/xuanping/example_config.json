@@ -1,0 +1,18 @@
+{
+  "good_shop_file": "",
+  "item_collect_file": "",
+  "margin_calculator": "",
+  "margin": 0.15,
+  "item_created_days": 150,
+  "follow_buy_cnt": 37,
+  "max_monthly_sold": 0,
+  "monthly_sold_min": 100,
+  "item_min_weight": 0,
+  "item_max_weight": 1000,
+  "g01_item_min_price": 0,
+  "g01_item_max_price": 1000,
+  "max_products_per_store": 50,
+  "output_format": "xlsx",
+  "output_path": "",
+  "remember_settings": true
+}
