@@ -9,7 +9,14 @@ RPA Browser Module
 from .core.interfaces.browser_driver import IBrowserDriver
 
 # 导入主要服务类
-from .browser_service import BrowserService
+from .browser_service import (
+    BrowserService,
+    create_browser_service,
+    create_browser_service_from_dict,
+    create_headless_browser_service,
+    create_debug_browser_service,
+    create_fast_browser_service
+)
 
 # 导入实现类
 from .implementations.playwright_browser_driver import PlaywrightBrowserDriver
@@ -53,6 +60,11 @@ __all__ = [
 
     # 主要服务类
     'BrowserService',
+    'create_browser_service',
+    'create_browser_service_from_dict',
+    'create_headless_browser_service',
+    'create_debug_browser_service',
+    'create_fast_browser_service',
 
     # 实现类
     'PlaywrightBrowserDriver',

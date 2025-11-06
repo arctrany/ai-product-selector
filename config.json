@@ -2,6 +2,7 @@
   "good_shop_file": "/Users/haowu/IdeaProjects/ai-product-selector3/docs/good_shops.xlsx",
   "item_collect_file": "/Users/haowu/IdeaProjects/ai-product-selector3/docs/goods.xlsx",
   "margin_calculator": "/Users/haowu/Downloads/profits.xlsx",
+  "item_similarity": "0.6",
   "margin": 0.15,
   "item_created_days": 150,
   "follow_buy_cnt": 37,

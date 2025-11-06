@@ -38,35 +38,64 @@ class BrowserService:
     2. 自动组件初始化
     3. 统一的错误处理
     4. 清晰的生命周期管理
+    5. 🔧 支持浏览器进程复用（单例模式）
     """
-    
+
+    # 🔧 关键修复：添加类级别的共享实例管理
+    _shared_instances = {}
+    _instance_lock = asyncio.Lock()
+
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
         初始化浏览器服务
-        
+
         Args:
             config: 配置字典，None表示使用默认配置
         """
         # 配置管理
         self.config_manager = ConfigManager()
         self.config = self.config_manager.load_config(config)
-        
+
         # 日志配置
         self.logger = logging.getLogger(__name__)
         if self.config.debug_mode:
             logging.basicConfig(level=logging.DEBUG)
-        
+
         # 组件实例
         self.browser_driver: Optional[IBrowserDriver] = None
         self.page_analyzer: Optional[IPageAnalyzer] = None
         self.paginator: Optional[IPaginator] = None
-        
+
         # 状态管理
         self._initialized = False
         self._browser_started = False
-        
+
+        # 🔧 关键修复：浏览器复用配置
+        self._instance_key = self._generate_instance_key()
+        self._use_shared_browser = getattr(self.config, 'use_shared_browser', True)
+
         if self.config.debug_mode:
-            self.logger.info("🚀 浏览器服务创建完成")
+            self.logger.info(f"🚀 浏览器服务创建完成，实例键: {self._instance_key}, 共享模式: {self._use_shared_browser}")
+
+    def _generate_instance_key(self) -> str:
+        """
+        生成实例键，用于浏览器复用
+
+        基于浏览器类型、用户数据目录、调试端口等关键配置生成唯一键
+        """
+        try:
+            browser_config = self.config.browser_config
+            key_parts = [
+                getattr(browser_config, 'browser_type', 'chrome'),
+                str(getattr(browser_config, 'debug_port', 9222)),
+                getattr(browser_config, 'user_data_dir', 'default'),
+                getattr(browser_config, 'profile_name', 'Default')
+            ]
+            instance_key = '_'.join(key_parts)
+            return instance_key
+        except Exception as e:
+            self.logger.warning(f"生成实例键失败，使用默认键: {e}")
+            return "default_browser_instance"
     
     async def initialize(self) -> bool:
         """
@@ -82,9 +111,29 @@ class BrowserService:
             if self.config.debug_mode:
                 self.logger.info("🔧 开始初始化浏览器服务")
             
-            # 初始化浏览器驱动
+            # 🔧 关键修复：检查是否使用共享浏览器实例
+            if self._use_shared_browser:
+                async with self._instance_lock:
+                    # 检查是否已有共享实例
+                    if self._instance_key in self._shared_instances:
+                        shared_driver = self._shared_instances[self._instance_key]
+                        if shared_driver and hasattr(shared_driver, 'page') and shared_driver.page:
+                            self.browser_driver = shared_driver
+                            self._initialized = True
+                            if self.config.debug_mode:
+                                self.logger.info(f"✅ 复用现有浏览器实例: {self._instance_key}")
+                            return True
+
+            # 初始化新的浏览器驱动
             self.browser_driver = PlaywrightBrowserDriver()
             await self.browser_driver.initialize()
+
+            # 🔧 关键修复：将新实例加入共享池
+            if self._use_shared_browser:
+                async with self._instance_lock:
+                    self._shared_instances[self._instance_key] = self.browser_driver
+                    if self.config.debug_mode:
+                        self.logger.info(f"📝 新浏览器实例已加入共享池: {self._instance_key}")
             
             self._initialized = True
             
@@ -114,10 +163,22 @@ class BrowserService:
             if self.config.debug_mode:
                 self.logger.info("🌐 启动浏览器")
             
-            # PlaywrightBrowserDriver 使用 initialize 方法启动浏览器
-            # 需要先设置配置，然后调用 initialize
+            # 🔧 关键修复：正确传递浏览器配置，包括用户数据目录和Profile设置
             if hasattr(self.browser_driver, 'config'):
-                self.browser_driver.config = self.config.browser_config.to_dict()
+                browser_config = self.config.browser_config.to_dict()
+
+                # 确保传递用户数据目录和Profile相关配置
+                if hasattr(self.config.browser_config, 'user_data_dir'):
+                    browser_config['user_data_dir'] = self.config.browser_config.user_data_dir
+                if hasattr(self.config.browser_config, 'profile_name'):
+                    browser_config['profile_name'] = self.config.browser_config.profile_name
+                if hasattr(self.config.browser_config, 'use_persistent_context'):
+                    browser_config['use_persistent_context'] = self.config.browser_config.use_persistent_context
+
+                self.browser_driver.config = browser_config
+
+                if self.config.debug_mode:
+                    self.logger.info(f"🔧 浏览器配置: {browser_config}")
 
             success = await self.browser_driver.initialize()
             
@@ -333,20 +394,63 @@ class BrowserService:
             bool: 关闭是否成功
         """
         try:
+            # 🔧 关键修复：如果使用共享浏览器，不要关闭共享实例
+            if self._use_shared_browser and self._instance_key in self._shared_instances:
+                if self.config.debug_mode:
+                    self.logger.info(f"🔄 保持共享浏览器实例运行: {self._instance_key}")
+                # 只重置当前服务的状态，不关闭共享的浏览器
+                self._initialized = False
+                self._browser_started = False
+                return True
+
+            # 非共享模式或没有共享实例时，正常关闭
             if self.browser_driver:
                 # PlaywrightBrowserDriver 使用 shutdown 方法关闭
                 await self.browser_driver.shutdown()
-            
+
+                # 🔧 关键修复：从共享池中移除已关闭的实例
+                if self._use_shared_browser:
+                    async with self._instance_lock:
+                        if self._instance_key in self._shared_instances:
+                            del self._shared_instances[self._instance_key]
+                            if self.config.debug_mode:
+                                self.logger.info(f"🗑️ 已从共享池移除浏览器实例: {self._instance_key}")
+
             self._initialized = False
             self._browser_started = False
-            
+
             if self.config.debug_mode:
                 self.logger.info("✅ 浏览器服务已关闭")
-            
+
             return True
-            
+
         except Exception as e:
             self.logger.error(f"❌ 关闭浏览器服务失败: {e}")
+            return False
+
+    @classmethod
+    async def cleanup_all_shared_instances(cls) -> bool:
+        """
+        清理所有共享浏览器实例
+
+        Returns:
+            bool: 清理是否成功
+        """
+        try:
+            async with cls._instance_lock:
+                for instance_key, driver in cls._shared_instances.items():
+                    try:
+                        if driver and hasattr(driver, 'shutdown'):
+                            await driver.shutdown()
+                    except Exception as e:
+                        print(f"清理共享实例 {instance_key} 失败: {e}")
+
+                cls._shared_instances.clear()
+                print("✅ 所有共享浏览器实例已清理")
+                return True
+
+        except Exception as e:
+            print(f"❌ 清理共享实例失败: {e}")
             return False
     
     # ==================== 内部方法 ====================
@@ -437,6 +541,26 @@ def create_fast_browser_service() -> BrowserService:
     from .core.config.config import get_fast_config
     return BrowserService(get_fast_config().to_dict())
 
+def create_shared_browser_service(config: Optional[Dict[str, Any]] = None) -> BrowserService:
+    """
+    创建共享浏览器服务
+
+    🔧 关键修复：专门用于创建支持浏览器复用的服务实例
+
+    Args:
+        config: 配置字典
+
+    Returns:
+        BrowserService: 支持浏览器复用的服务实例
+    """
+    if config is None:
+        config = {}
+
+    # 确保启用浏览器共享
+    config['use_shared_browser'] = True
+
+    return BrowserService(config)
+
 # 导出
 __all__ = [
     'BrowserService',
@@ -444,5 +568,6 @@ __all__ = [
     'create_browser_service_from_dict',
     'create_headless_browser_service',
     'create_debug_browser_service',
-    'create_fast_browser_service'
+    'create_fast_browser_service',
+    'create_shared_browser_service'
 ]

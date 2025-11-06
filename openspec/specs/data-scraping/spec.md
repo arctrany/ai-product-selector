@@ -1,41 +1,12 @@
-# data-scraping Specification
+# good-store-selection Specification
 
 ## Purpose
-定义数据抓取模块，专门负责从各个平台和插件抓取数据，支持多平台配置化抓取，包括但不限于Seerfar、OZON、1688等平台。
+定义好店筛选系统，专门负责从Seerfar平台抓取OZON店铺和商品数据，通过Excel利润计算器进行利润计算，实现自动化的好店筛选和利润评估的完整业务流程。
 
 ## Requirements
 
-### Requirement: 平台配置化管理
-系统SHALL支持多平台配置化管理，避免硬编码平台特定信息，实现平台无关的抓取架构。
-
-#### Scenario: 平台配置定义
-- **WHEN** 配置抓取平台
-- **THEN** 系统SHALL支持通过配置文件定义平台信息：
-  - 平台名称和标识符
-  - 基础URL和API端点
-  - 页面元素选择器映射
-  - 平台特定的业务规则
-- **AND** 系统SHALL支持运行时动态加载平台配置
-- **AND** 系统SHALL验证平台配置的完整性和有效性
-
-#### Scenario: 多平台适配器模式
-- **WHEN** 实现平台抓取逻辑
-- **THEN** 系统SHALL使用适配器模式支持不同平台：
-  - 定义统一的抓取接口
-  - 为每个平台实现专用适配器
-  - 支持平台特定的数据转换逻辑
-- **AND** 系统SHALL支持新平台的插件式扩展
-- **AND** 系统SHALL提供平台兼容性检查机制
-
-#### Scenario: 平台URL配置化
-- **WHEN** 访问平台页面
-- **THEN** 系统SHALL从配置中读取平台URL模板
-- **AND** 系统SHALL支持URL参数的动态替换
-- **AND** 系统SHALL支持多环境URL配置（开发、测试、生产）
-- **AND** 系统SHALL提供URL有效性验证
-
 ### Requirement: Excel数据读取和处理
-系统SHALL读取用户提交的Excel表单数据，提供标准化的数据接口。
+系统SHALL读取用户提交的Excel表单数据，提供标准化的店铺数据接口。
 
 #### Scenario: Excel文件读取
 - **WHEN** 读取用户提交的Excel文件
@@ -49,132 +20,192 @@
 - **AND** 系统SHALL跳过状态为"已处理"或空的店铺
 - **AND** 系统SHALL提供筛选结果统计信息
 
-### Requirement: 店铺数据抓取（平台无关）
-系统SHALL从配置的平台抓取店铺的销售数据和基本信息，支持多平台适配。
+### Requirement: Seerfar店铺信息抓取
+系统SHALL从Seerfar平台抓取OZON店铺的销售数据，进行初筛验证，实现店铺级别的筛选。
 
-#### Scenario: 店铺页面访问
+#### Scenario: Seerfar店铺页面访问
 - **WHEN** 访问店铺详情页
-- **THEN** 系统SHALL根据平台配置构建访问URL
-- **AND** 系统SHALL支持平台特定的认证和会话管理
+- **THEN** 系统SHALL构建Seerfar访问URL：`https://seerfar.cn/admin/store-detail.html?storeId={店铺ID}&platform=OZON`
 - **AND** 系统SHALL等待页面完全加载
 - **AND** 系统SHALL处理页面加载异常和重试机制
 
 #### Scenario: 店铺销售数据抓取
 - **WHEN** 抓取店铺销售数据
-- **THEN** 系统SHALL根据平台配置的选择器抓取销售数据
-- **AND** 系统SHALL支持可配置的数据字段映射：
-  - 销售额字段（如：sold_30days）
-  - 销量字段
-  - 日均销量字段
+- **THEN** 系统SHALL抓取以下关键指标：
+  - 店铺销售额_30天 (sold_30days)
+  - 店铺销量_30天 (sold_count_30days)
+  - 日均销量 (daily_avg_sold)
 - **AND** 系统SHALL验证数据的数值格式和合理性
-- **AND** 系统SHALL支持平台特定的数据单位转换
+- **AND** 系统SHALL支持数据单位转换（卢布等）
 
-### Requirement: 商品数据抓取（平台无关）
-系统SHALL从配置的电商平台抓取商品的详细信息，包括价格、图片和基本属性。
+#### Scenario: 店铺初筛条件验证
+- **WHEN** 验证店铺是否符合初筛条件
+- **THEN** 系统SHALL检查店铺销售额_30天 > 50万
+- **AND** 系统SHALL检查店铺销量_30天 > 250单
+- **AND** 如果不符合条件，系统SHALL标记"是否为好店"为"否"，状态为"已处理"并跳过该店铺
+- **AND** 系统SHALL支持初筛条件参数的配置调整（利润计算参数值会调整）
+
+### Requirement: Seerfar店铺商品列表抓取
+系统SHALL从Seerfar平台抓取店铺的商品列表信息，为后续商品详情抓取提供基础数据。
 
 #### Scenario: 商品列表遍历
 - **WHEN** 遍历店铺商品列表
-- **THEN** 系统SHALL根据平台配置的选择器采集商品信息：
-  - 商品图片URL（可配置选择器）
-  - 品牌名称（可配置选择器）
-  - SKU信息（可配置选择器）
+- **THEN** 系统SHALL循环商品表格，从商品表格第二列采集：
+  - 商品图片URL
+  - 品牌名称
+  - SKU信息
 - **AND** 系统SHALL提供商品列表的分页处理
-- **AND** 系统SHALL支持平台特定的商品列表结构
+- **AND** 系统SHALL支持商品列表的完整遍历
+- **AND** 系统SHALL通过抓取商品信息和利润计算器判断店铺是否需要"裂变"
 
-#### Scenario: 商品详情页数据抓取
-- **WHEN** 访问商品详情页
-- **THEN** 系统SHALL根据平台配置点击商品链接
-- **AND** 系统SHALL根据平台配置的价格选择器抓取价格信息：
-  - 主要价格（如：绿标价格）
-  - 次要价格（如：黑标价格）
-  - 促销价格
-- **AND** 系统SHALL处理价格不存在的情况
+### Requirement: OZON商品最低价抓取
+系统SHALL从OZON平台抓取商品的价格信息，确定真实的最低价格。
 
-#### Scenario: 竞品价格和店铺信息抓取
-- **WHEN** 抓取竞品信息
-- **THEN** 系统SHALL根据平台配置的价格对比逻辑选择抓取策略
-- **AND** 系统SHALL支持可配置的竞品信息采集：
-  - 竞品数量限制（可配置）
-  - 竞品店铺信息字段
-  - 竞品价格比较规则
-- **AND** 系统SHALL处理平台特定的竞品展示方式
+#### Scenario: 商品详情页价格抓取
+- **WHEN** 点击商品图片进入OZON商品详情页
+- **THEN** 系统SHALL抓取价格信息：
+  - 绿标价格（促销价格）
+  - 黑标价格（商品原价）
+  - 跟卖黑标价格 (跟卖黑标价格)
+- **AND** 系统SHALL处理绿标价格不存在的情况，使用黑标价格对比
+- **AND** 系统SHALL根据价格比较逻辑确定真实价格
 
-### Requirement: 插件数据抓取（可扩展）
-系统SHALL支持从各种浏览器插件抓取数据，提供可扩展的插件适配机制。
+#### Scenario: 价格比较和真实价格确定
+- **WHEN** 比较绿标价格和跟卖价格
+- **THEN** 如果绿标价格 <= 跟卖价格（分支1）：
+  - 系统SHALL使用当前商品详情页的绿标、黑标价格作为真实价格
+- **AND** 如果绿标价格 > 跟卖黑标价格（分支2）：
+  - 系统SHALL点击黑标价格打开跟卖浮层
+  - 系统SHALL点击浮层中的绿标跳转获取更低的价格
 
-#### Scenario: 插件数据源配置
-- **WHEN** 配置插件数据源
-- **THEN** 系统SHALL支持插件信息的配置化定义：
-  - 插件名称和版本
-  - 数据渲染区域选择器
-  - 数据字段映射规则
-- **AND** 系统SHALL支持多插件数据源
-- **AND** 系统SHALL提供插件兼容性检查
+### Requirement: 跟卖店铺信息抓取
+系统SHALL在商品利润符合预期时采集跟卖店铺信息，为店铺裂变提供竞争对手数据。
 
-#### Scenario: 佣金率数据抓取（可配置规则）
+#### Scenario: 跟卖店铺信息采集执行
+- **WHEN** 商品利润率 >= 配置阈值（默认20%）
+- **THEN** 系统SHALL点击黑标价格打开跟卖浮层
+- **AND** 系统SHALL从浮层获取前N个（默认10个）店铺信息
+- **AND** 如果浮层中有"更多"标签，系统SHALL先点击展开
+- **AND** 采集的信息SHALL包括店铺ID等关键信息
+
+#### Scenario: 跟卖店铺信息输出
+- **WHEN** 成功采集跟卖店铺信息
+- **THEN** 系统SHALL将跟卖店铺ID输出到Excel
+- **AND** 系统SHALL包含店铺ID和相关详细信息
+- **AND** 系统SHALL避免重复采集相同商品的跟卖信息
+
+### Requirement: 毛子ERP插件数据抓取
+系统SHALL从毛子ERP插件渲染区域一次性抓取商品的佣金率、重量和尺寸信息。
+
+#### Scenario: 插件数据源自动加载
+- **WHEN** 系统启动时
+- **THEN** 系统SHALL自动检测和加载毛子ERP插件
+- **AND** 系统SHALL自动配置插件数据渲染区域选择器
+- **AND** 系统SHALL自动进行插件兼容性检查
+
+#### Scenario: 佣金率数据抓取和计算
 - **WHEN** 抓取商品佣金率
-- **THEN** 系统SHALL从配置中读取佣金率计算规则：
-  - 价格区间定义（可配置货币单位）
-  - 佣金率映射表
-  - 特殊规则处理逻辑
-- **AND** 系统SHALL支持多货币和汇率转换
+- **THEN** 系统SHALL从毛子ERP插件渲染区域采集佣金率信息
+- **AND** 系统SHALL根据以下规则计算佣金率：
+  - 绿标价格 <= 1500卢布：佣金率 = 12%
+  - 1500卢布 < 绿标价格 <= 5000卢布：选择第二个label里的数字
+  - 绿标价格 > 5000卢布：选择第三个label里的数字
 - **AND** 系统SHALL验证佣金率数据的有效性
 
-#### Scenario: 商品属性抓取（标准化）
+#### Scenario: 商品物理属性抓取
 - **WHEN** 抓取商品物理属性
-- **THEN** 系统SHALL根据配置抓取商品属性：
-  - 重量信息（支持多单位）
-  - 尺寸信息（长宽高，支持多单位）
-  - 其他平台特定属性
+- **THEN** 系统SHALL从毛子ERP插件渲染区域获取：
+  - 商品重量信息
+  - 商品尺寸信息（长宽高）
 - **AND** 系统SHALL进行单位标准化处理
 - **AND** 系统SHALL验证物理属性数据的合理性
 
-### Requirement: API数据抓取（多平台支持）
-系统SHALL通过配置的API获取货源匹配数据，支持多个供应商平台的API集成。
+### Requirement: 利润计算和店铺评分
+系统SHALL通过商品定价、货源匹配和Excel利润计算器完成利润计算，并进行店铺评分判定。
 
-#### Scenario: API平台配置
-- **WHEN** 配置API数据源
-- **THEN** 系统SHALL支持多API平台配置：
-  - API端点和认证信息
-  - 请求参数映射
-  - 响应数据解析规则
-- **AND** 系统SHALL支持API版本管理
-- **AND** 系统SHALL处理API调用的认证和限流
+#### Scenario: 商品定价计算
+- **WHEN** 计算商品定价
+- **THEN** 系统SHALL使用价格比较后确定的最终价格（绿标价格、黑标价格）
+- **AND** 系统SHALL根据以下规则计算真实售价：
+  - 只有黑标价格：真实售价 = 黑标价格
+  - 黑标价格 <= 90人民币：真实售价 = 黑标价格
+  - 90人民币 < 黑标价格 <= 120人民币：真实售价 = 黑标价格 + 5
+  - 黑标价格 > 120人民币：真实售价 = (黑标 - 绿标) × 2.2 + 黑标
+- **AND** 系统SHALL计算商品定价：定价 = 真实售价 × 0.95（95折）
+- **AND** 系统SHALL验证计算结果的合理性
+- **AND** 系统SHALL支持汇率转换（卢布转人民币）
+- **AND** 系统SHALL支持配置化参数以便后续调整
 
-#### Scenario: 货源匹配API调用
-- **WHEN** 调用货源匹配API
-- **THEN** 系统SHALL根据平台配置调用相应API
-- **AND** 系统SHALL支持多种搜索方式：
-  - 图片相似度搜索
-  - 关键词搜索
-  - 商品属性匹配
-- **AND** 系统SHALL处理不同API的响应格式
+#### Scenario: 货源匹配检查
+- **WHEN** 进行货源匹配
+- **THEN** 系统SHALL调用货源匹配函数，输入商品图片信息等参数
+- **AND** 系统SHALL通过Mock接口模拟1688 API和AI匹配能力
+- **AND** 如果匹配成功，系统SHALL获得采购价格
+- **AND** 如果匹配失败，系统SHALL跳过该商品不进行处理
+- **AND** 系统SHALL为未来集成真实1688 API预留接口
 
-#### Scenario: API结果标准化
-- **WHEN** 处理API返回结果
-- **THEN** 系统SHALL将不同平台的API结果标准化：
-  - 统一的商品信息格式
-  - 标准化的价格和供应商信息
-  - 一致的匹配度评分
-- **AND** 系统SHALL提供结果质量评估
-- **AND** 系统SHALL支持结果过滤和排序
+#### Scenario: Excel利润计算器初始化
+- **WHEN** 初始化Excel利润计算器
+- **THEN** 系统SHALL使用openpyxl打开利润计算器Excel文件
+- **AND** 系统SHALL验证工作表格式和版本兼容性
+- **AND** 系统SHALL支持计算器文件路径的配置
+
+#### Scenario: Excel利润计算器调用
+- **WHEN** 计算商品利润
+- **THEN** 系统SHALL调用Excel利润计算函数，输入以下参数：
+  - 商品长宽高
+  - 商品重量
+  - 绿标价格
+  - 黑标价格
+  - 佣金率
+  - 商品定价（真实售价 × 0.95）
+  - 采购价格（货源匹配获得）
+- **AND** 系统SHALL通过Excel计算器自动输出利润和利润率
+- **AND** 系统SHALL验证计算结果的准确性
+- **AND** 系统SHALL为未来独立利润计算模块预留接口
+
+#### Scenario: 商品利润评估
+- **WHEN** 评估商品利润
+- **THEN** 系统SHALL使用公式：利润率 = 利润 / 备货成本
+- **AND** 如果商品利润率 >= 预期值（默认20%）：
+  - 系统SHALL记录该商品为有利润商品
+  - 系统SHALL触发跟卖店铺信息采集
+- **AND** 如果商品利润率 < 预期值，系统SHALL跳过该商品
+- **AND** 系统SHALL记录评估过程和结果
+- **AND** 系统SHALL支持利润率阈值的配置调整
+
+#### Scenario: 好店判定和裂变判断
+- **WHEN** 店铺遍历完毕
+- **THEN** 系统SHALL统计前N个商品中利润率 > 配置阈值（默认20%）的商品数量
+- **AND** 如果有利润商品个数超过配置比例（默认20%），系统SHALL判定为好店（需要裂变的店铺）：
+  - 系统SHALL将该店铺标记为好店
+  - 系统SHALL更新状态为"已处理"
+  - 系统SHALL输出店铺信息到Excel
+  - 系统SHALL标记该店铺需要裂变
+- **AND** 系统SHALL继续下一个店铺的遍历
+- **AND** 系统SHALL提供任务完成统计
+- **AND** 系统SHALL支持利润率阈值和好店比例阈值的配置调整
 
 ### Requirement: 跨平台兼容性
-系统SHALL确保在Windows、macOS、Linux等多种操作系统环境下正常运行，避免任何硬编码和平台特定依赖。
+系统SHALL确保在Windows、macOS、Linux等多种操作系统环境下正常运行。
 
 #### Scenario: 文件路径处理兼容性
 - **WHEN** 处理文件路径（Excel文件、配置文件等）
-- **THEN** 系统SHALL使用跨平台的路径处理方法
+- **THEN** 系统SHALL使用跨平台的路径处理方法（如Python的pathlib.Path）
 - **AND** 系统SHALL支持Windows路径分隔符（\）和Unix路径分隔符（/）
 - **AND** 系统SHALL避免硬编码绝对路径
-- **AND** 系统SHALL使用相对路径或环境变量配置路径
 
 #### Scenario: 浏览器驱动兼容性
 - **WHEN** 启动浏览器进行网页抓取
 - **THEN** 系统SHALL自动检测当前操作系统类型
 - **AND** 系统SHALL使用对应操作系统的浏览器驱动
 - **AND** 系统SHALL支持多种浏览器（Chrome、Firefox、Edge等）
-- **AND** 系统SHALL处理驱动版本兼容性问题
+
+#### Scenario: Excel库跨平台支持
+- **WHEN** 操作Excel文件
+- **THEN** 系统SHALL使用跨平台Excel库（如openpyxl）
+- **AND** 系统SHALL确保在Windows、macOS、Linux下功能一致
+- **AND** 系统SHALL处理不同操作系统的文件权限差异
 
 #### Scenario: 字符编码兼容性
 - **WHEN** 处理文本数据和文件操作
@@ -182,34 +213,7 @@
 - **AND** 系统SHALL处理不同平台的字符编码差异
 - **AND** 系统SHALL支持多语言内容的正确处理
 
-### Requirement: 配置管理和验证
-系统SHALL提供完整的配置管理机制，支持配置验证、热更新和版本管理。
-
-#### Scenario: 配置文件结构
-- **WHEN** 定义配置文件
-- **THEN** 系统SHALL使用标准化的配置格式（JSON/YAML）
-- **AND** 配置SHALL包含以下部分：
-  - 平台定义（platforms）
-  - 选择器映射（selectors）
-  - 业务规则（business_rules）
-  - API配置（api_configs）
-- **AND** 系统SHALL支持配置的模块化和继承
-
-#### Scenario: 配置验证机制
-- **WHEN** 加载配置文件
-- **THEN** 系统SHALL验证配置的语法和结构
-- **AND** 系统SHALL验证必需字段的完整性
-- **AND** 系统SHALL验证配置值的有效性和合理性
-- **AND** 系统SHALL提供详细的配置错误信息
-
-#### Scenario: 配置热更新
-- **WHEN** 更新配置文件
-- **THEN** 系统SHALL支持配置的热更新
-- **AND** 系统SHALL验证新配置的兼容性
-- **AND** 系统SHALL提供配置回滚机制
-- **AND** 系统SHALL记录配置变更历史
-
-### Requirement: 数据验证和清洗
+### Requirement: 数据验证和错误处理
 系统SHALL对抓取的数据进行验证和清洗，确保数据质量和一致性。
 
 #### Scenario: 数据格式验证
@@ -224,11 +228,32 @@
 - **AND** 系统SHALL标准化货币单位和数值格式
 - **AND** 系统SHALL处理缺失数据和异常值
 
-#### Scenario: 数据完整性检查
-- **WHEN** 检查数据完整性
-- **THEN** 系统SHALL验证必需字段的完整性
-- **AND** 系统SHALL标记不完整或异常的数据记录
-- **AND** 系统SHALL提供数据质量报告
+#### Scenario: 计算结果验证
+- **WHEN** 验证计算结果
+- **THEN** 系统SHALL检查利润率的合理范围
+- **AND** 系统SHALL识别异常的计算结果
+- **AND** 系统SHALL提供详细的错误信息
+
+#### Scenario: Excel文件错误处理
+- **WHEN** 处理Excel文件错误
+- **THEN** 系统SHALL处理文件不存在或损坏的情况
+- **AND** 系统SHALL提供文件访问权限错误的处理
+- **AND** 系统SHALL支持Excel文件格式验证
+
+### Requirement: 批量处理和性能优化
+系统SHALL支持大批量商品的数据抓取和利润计算。
+
+#### Scenario: 批量Excel操作
+- **WHEN** 处理大量商品计算
+- **THEN** 系统SHALL优化Excel文件的读写操作
+- **AND** 系统SHALL支持批量参数输入
+- **AND** 系统SHALL提供计算进度反馈
+
+#### Scenario: Excel文件管理
+- **WHEN** 管理Excel文件访问
+- **THEN** 系统SHALL避免频繁打开关闭Excel文件
+- **AND** 系统SHALL处理Excel文件的并发访问
+- **AND** 系统SHALL确保数据的完整性
 
 ### Requirement: Excel结果输出
 系统SHALL将抓取和处理结果输出到Excel文件，支持状态更新和结果汇总。
@@ -238,12 +263,6 @@
 - **THEN** 系统SHALL更新Excel中的"是否为好店"列
 - **AND** 系统SHALL更新"状态"列为"已处理"
 - **AND** 系统SHALL保持原有数据的完整性
-
-#### Scenario: 竞品店铺信息输出
-- **WHEN** 输出竞品店铺信息
-- **THEN** 系统SHALL在Excel中新增竞品店铺信息列
-- **AND** 系统SHALL包含店铺ID和相关详细信息
-- **AND** 系统SHALL保持与好店Excel格式的一致性
 
 #### Scenario: 批量数据导出
 - **WHEN** 导出处理结果

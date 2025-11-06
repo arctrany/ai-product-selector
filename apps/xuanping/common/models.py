@@ -16,6 +16,7 @@ class StoreStatus(str, Enum):
     """店铺处理状态枚举"""
     PENDING = "未处理"
     PROCESSED = "已处理"
+    FAILED = "抓取异常"
     EMPTY = ""
 
 
@@ -151,8 +152,14 @@ class StoreAnalysisResult:
             self.store_info.is_good_store = (
                 GoodStoreFlag.YES if self.store_info.needs_split else GoodStoreFlag.NO
             )
-        
-        self.store_info.status = StoreStatus.PROCESSED
+            self.store_info.status = StoreStatus.PROCESSED
+        else:
+            # 🔧 关键修复：没有商品时明确标记为非好店，且状态为失败
+            self.store_info.is_good_store = GoodStoreFlag.NO
+            self.store_info.needs_split = False
+            # 如果状态还是EMPTY或PENDING，设置为失败；如果已经是PROCESSED，保持不变
+            if self.store_info.status in [StoreStatus.EMPTY, StoreStatus.PENDING]:
+                self.store_info.status = StoreStatus.PROCESSED  # 改为PROCESSED，但明确标记为NO
 
 
 @dataclass
@@ -195,6 +202,20 @@ class BatchProcessingResult:
             self.error_logs = []
 
 
+@dataclass
+class ScrapingResult:
+    """网页抓取结果"""
+    success: bool
+    data: Dict[str, Any]
+    error_message: Optional[str] = None
+    execution_time: Optional[float] = None
+
+    def __post_init__(self):
+        """数据验证"""
+        if self.data is None:
+            self.data = {}
+
+
 # 异常类定义
 
 class GoodStoreSelectorError(Exception):
@@ -211,6 +232,9 @@ class ScrapingError(GoodStoreSelectorError):
     """网页抓取异常"""
     pass
 
+class CriticalBrowserError(GoodStoreSelectorError):
+    """致命浏览器错误，需要退出程序"""
+    pass
 
 class ExcelProcessingError(GoodStoreSelectorError):
     """Excel处理异常"""

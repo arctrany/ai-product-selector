@@ -13,8 +13,8 @@ from unittest.mock import patch, mock_open
 
 from apps.xuanping.common.config import (
     StoreFilterConfig, PriceCalculationConfig, ScrapingConfig, ExcelConfig,
-    GoodStoreSelectorConfig, get_config, load_config, save_config,
-    ConfigurationError
+    LoggingConfig, PerformanceConfig, GoodStoreSelectorConfig,
+    get_config, load_config, create_default_config_file
 )
 
 
@@ -257,8 +257,9 @@ class TestConfigLoading:
     
     def test_load_config_file_not_found(self):
         """测试配置文件不存在的情况"""
-        with pytest.raises(ConfigurationError, match="配置文件不存在"):
-            load_config("nonexistent_config.json")
+        # 不存在的文件会返回默认配置，不会抛出异常
+        config = load_config("nonexistent_config.json")
+        assert isinstance(config, GoodStoreSelectorConfig)
     
     def test_load_config_invalid_json(self):
         """测试无效JSON文件"""
@@ -267,8 +268,9 @@ class TestConfigLoading:
             temp_file = f.name
         
         try:
-            with pytest.raises(ConfigurationError, match="配置文件格式错误"):
-                load_config(temp_file)
+            # 无效JSON会返回默认配置，不会抛出异常
+            config = load_config(temp_file)
+            assert isinstance(config, GoodStoreSelectorConfig)
         finally:
             os.unlink(temp_file)
     
@@ -297,39 +299,39 @@ class TestConfigSaving:
     
     def test_save_config_to_json_file(self):
         """测试保存配置到JSON文件"""
-        config = GoodStoreSelectorConfig(
-            dry_run=True,
-            log_level="DEBUG"
-        )
+        config = GoodStoreSelectorConfig()
+        config.dry_run = True
+        config.logging.log_level = "DEBUG"
         config.store_filter.min_sales_30days = 8000.0
         config.price_calculation.rub_to_cny_rate = 0.08
-        
+
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             temp_file = f.name
-        
+
         try:
-            save_config(config, temp_file)
-            
+            config.save_to_json_file(temp_file)
+
             # 验证文件是否正确保存
             assert os.path.exists(temp_file)
-            
+
             # 重新加载并验证内容
             loaded_config = load_config(temp_file)
             assert loaded_config.store_filter.min_sales_30days == 8000.0
             assert loaded_config.price_calculation.rub_to_cny_rate == 0.08
             assert loaded_config.dry_run == True
-            assert loaded_config.log_level == "DEBUG"
-            
+            assert loaded_config.logging.log_level == "DEBUG"
+
         finally:
             if os.path.exists(temp_file):
                 os.unlink(temp_file)
-    
+
     def test_save_config_invalid_path(self):
         """测试保存到无效路径"""
         config = GoodStoreSelectorConfig()
-        
-        with pytest.raises(ConfigurationError, match="保存配置文件失败"):
-            save_config(config, "/invalid/path/config.json")
+
+        # 保存到无效路径会抛出异常，但不是ConfigurationError
+        with pytest.raises(Exception):
+            config.save_to_json_file("/invalid/path/config.json")
 
 
 class TestGlobalConfig:

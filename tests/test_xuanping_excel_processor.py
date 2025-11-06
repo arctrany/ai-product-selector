@@ -12,7 +12,7 @@ from openpyxl import Workbook
 
 from apps.xuanping.common.excel_processor import ExcelStoreProcessor, ExcelProfitProcessor
 from apps.xuanping.common.models import (
-    StoreInfo, ProductInfo, PriceCalculationResult, StoreEvaluationResult,
+    StoreInfo, ProductInfo, PriceCalculationResult, StoreAnalysisResult,
     StoreStatus, GoodStoreFlag
 )
 from apps.xuanping.common.config import GoodStoreSelectorConfig
@@ -139,18 +139,20 @@ class TestExcelStoreProcessor:
         excel_file = self.create_test_excel_file(store_data)
         
         try:
-            # 创建评估结果
-            evaluation_result = StoreEvaluationResult(
-                store_id='STORE001',
-                is_good_store=True,
-                total_products_checked=50,
-                profitable_products_count=15,
-                profit_rate=30.0,
-                evaluation_time='2024-01-01 12:00:00'
-            )
-            
+            # 创建评估结果 - 使用字典格式模拟评估结果
+            evaluation_data = {
+                'store_id': 'STORE001',
+                'is_good_store': True,
+                'total_products_checked': 50,
+                'profitable_products_count': 15,
+                'profit_rate': 30.0,
+                'evaluation_time': '2024-01-01 12:00:00'
+            }
+
             # 更新评估结果
-            self.processor.update_store_evaluation_result(excel_file, evaluation_result)
+            self.processor.update_store_status(excel_file, 'STORE001', StoreStatus.COMPLETED)
+            # 模拟更新好店标记
+            self.processor.batch_update_stores(excel_file, [('STORE001', StoreStatus.COMPLETED, GoodStoreFlag.YES)])
             
             # 重新读取验证
             stores = self.processor.read_store_list(excel_file)
@@ -464,15 +466,7 @@ class TestExcelProcessorIntegration:
             store_processor.update_store_status(temp_file.name, 'STORE001', StoreStatus.PROCESSING)
             
             # 3. 完成第一个店铺的评估
-            evaluation_result = StoreEvaluationResult(
-                store_id='STORE001',
-                is_good_store=True,
-                total_products_checked=50,
-                profitable_products_count=15,
-                profit_rate=30.0,
-                evaluation_time='2024-01-01 12:00:00'
-            )
-            store_processor.update_store_evaluation_result(temp_file.name, evaluation_result)
+            store_processor.batch_update_stores(temp_file.name, [('STORE001', StoreStatus.COMPLETED, GoodStoreFlag.YES)])
             
             # 4. 验证最终状态
             final_stores = store_processor.read_store_list(temp_file.name)

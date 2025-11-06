@@ -28,9 +28,9 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 try:
-    from apps.xuanping.ui.models import UIConfig, AppState, ui_state_manager
-    from apps.xuanping.ui.task_controller import task_controller
-    from apps.xuanping.ui.log_manager import log_manager
+    from apps.xuanping.cli.models import UIConfig, AppState, ui_state_manager
+    from apps.xuanping.cli.task_controller import task_controller
+    from apps.xuanping.cli.log_manager import log_manager
 except ImportError as e:
     print(f"导入模块失败: {e}")
     print("请确保所有依赖模块都已正确安装")
@@ -153,13 +153,14 @@ class XuanpingCLIController:
             
             print(f"📊 任务状态: {state_text}")
             print(f"📈 进度: {progress.processed_stores}/{progress.total_stores} 店铺")
-            print(f"⏱️  耗时: {progress.elapsed_time:.1f}秒")
+            print(f"⏱️  耗时: {getattr(progress, 'elapsed_time', 0):.1f}秒")
             
             if progress.current_store:
                 print(f"🏪 当前店铺: {progress.current_store}")
             
-            if progress.error_message:
-                print(f"❌ 错误信息: {progress.error_message}")
+            error_msg = getattr(progress, 'error_message', None)
+            if error_msg:
+                print(f"❌ 错误信息: {error_msg}")
                 
         except Exception as e:
             print(f"❌ 获取状态时出错: {e}")
@@ -170,16 +171,12 @@ class XuanpingCLIController:
             progress = ui_state_manager.progress
             
             print("📈 详细进度信息:")
+            print(f"  当前步骤: {progress.current_step}")
             print(f"  总店铺数: {progress.total_stores}")
             print(f"  已处理: {progress.processed_stores}")
-            print(f"  成功: {progress.successful_stores}")
-            print(f"  失败: {progress.failed_stores}")
-            print(f"  跳过: {progress.skipped_stores}")
-            print(f"  进度: {progress.processed_stores/progress.total_stores*100:.1f}%" if progress.total_stores > 0 else "  进度: 0%")
-            print(f"  耗时: {progress.elapsed_time:.1f}秒")
-            
-            if progress.estimated_remaining_time > 0:
-                print(f"  预计剩余时间: {progress.estimated_remaining_time:.1f}秒")
+            print(f"  好店数量: {progress.good_stores}")
+            print(f"  进度: {progress.percentage:.1f}%" if hasattr(progress, 'percentage') else f"  进度: {progress.processed_stores/progress.total_stores*100:.1f}%" if progress.total_stores > 0 else "  进度: 0%")
+            print(f"  步骤耗时: {progress.step_duration:.1f}秒" if hasattr(progress, 'step_duration') else "  步骤耗时: 0.0秒")
             
             if progress.current_store:
                 print(f"  当前店铺: {progress.current_store}")
@@ -190,7 +187,9 @@ class XuanpingCLIController:
     def show_logs(self, lines: int = 50):
         """显示日志"""
         try:
-            logs = log_manager.get_recent_logs(lines)
+            # 从ui_state_manager获取日志
+            all_logs = ui_state_manager.logs
+            logs = all_logs[-lines:] if len(all_logs) > lines else all_logs
             
             print(f"📝 最近 {len(logs)} 条日志:")
             print("-" * 80)

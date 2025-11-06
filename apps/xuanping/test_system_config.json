@@ -1,0 +1,22 @@
+{
+  "scraping": {
+    "browser_type": "chrome",
+    "headless": true,
+    "timeout_seconds": 30,
+    "max_retries": 3
+  },
+  "performance": {
+    "max_concurrent_tasks": 5,
+    "retry_count": 3,
+    "enable_cache": true,
+    "cache_ttl": 3600,
+    "batch_size": 10
+  },
+  "logging": {
+    "log_level": "INFO",
+    "max_log_files": 10,
+    "log_file_size_mb": 50
+  },
+  "debug_mode": false,
+  "dryrun": false
+}

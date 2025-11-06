@@ -151,24 +151,77 @@ class PlaywrightBrowserDriver(IBrowserDriver):
 
     async def open_page(self, url: str, wait_until: str = 'networkidle') -> bool:
         """
-        打开指定URL的页面
-        
+        打开指定URL的页面 - 🔧 关键修复：解决异步事件循环冲突
+
         Args:
             url: 要打开的URL
             wait_until: 等待条件
-            
+
         Returns:
             bool: 操作是否成功
         """
         if not self._initialized or not self.page:
             self._logger.error("Browser driver not initialized")
             return False
-        
+
         try:
-            await self.page.goto(url, wait_until=wait_until)
-            self._logger.info(f"Successfully opened page: {url}")
-            return True
-            
+            # 🔧 关键修复：确保在正确的事件循环中执行页面导航
+            try:
+                # 检查当前事件循环
+                current_loop = asyncio.get_running_loop()
+
+                # 🔧 关键修复：检查页面和上下文对象是否属于当前事件循环
+                page_loop_mismatch = hasattr(self.page, '_loop') and self.page._loop != current_loop
+                context_loop_mismatch = hasattr(self.context, '_loop') and self.context._loop != current_loop
+
+                if page_loop_mismatch or context_loop_mismatch:
+                    self._logger.warning("⚠️ 检测到页面对象属于不同的事件循环，尝试重新创建页面")
+
+                    # 🔧 关键修复：如果上下文也有事件循环冲突，跳过重新创建，直接尝试导航
+                    if context_loop_mismatch:
+                        self._logger.warning("⚠️ 上下文对象也属于不同事件循环，跳过页面重新创建，直接尝试导航")
+                    else:
+                        # 只有页面对象有冲突时才重新创建
+                        try:
+                            # 不尝试关闭旧页面，直接创建新页面
+                            self.page = await self.context.new_page()
+                            self._logger.info("✅ 页面对象已在当前事件循环中重新创建")
+                        except Exception as e:
+                            self._logger.error(f"❌ 重新创建页面失败: {e}")
+                            # 如果重新创建失败，继续使用原页面
+                            pass
+
+                # 🔧 关键修复：使用更安全的页面导航方式
+                await self.page.goto(url, wait_until=wait_until, timeout=30000)
+                self._logger.info(f"Successfully opened page: {url}")
+                return True
+
+            except RuntimeError as re:
+                if "different loop" in str(re).lower():
+                    self._logger.warning(f"⚠️ 事件循环冲突，尝试重新创建页面: {re}")
+
+                    # 🔧 关键修复：检查上下文对象是否也有事件循环冲突
+                    current_loop = asyncio.get_event_loop()
+                    context_loop_mismatch = hasattr(self.context, '_loop') and self.context._loop != current_loop
+
+                    if context_loop_mismatch:
+                        self._logger.warning("⚠️ 上下文对象也属于不同事件循环，无法重新创建页面")
+                        return False
+                    else:
+                        # 只有页面对象有冲突时才重新创建
+                        if self.context:
+                            try:
+                                # 不尝试关闭旧页面，直接创建新页面
+                                self.page = await self.context.new_page()
+                                await self.page.goto(url, wait_until=wait_until, timeout=30000)
+                                self._logger.info(f"✅ 重新创建页面后成功打开: {url}")
+                                return True
+                            except Exception as e2:
+                                self._logger.error(f"❌ 重新创建页面失败: {e2}")
+                                return False
+                else:
+                    raise re
+
         except Exception as e:
             self._logger.error(f"Failed to open page {url}: {e}")
             return False
@@ -550,21 +603,21 @@ class PlaywrightBrowserDriver(IBrowserDriver):
                     '--disable-dev-shm-usage'
                 ])
 
-            # 持久化上下文配置
+            # 🔧 关键修复：恢复使用持久化上下文以支持用户数据目录和 Profile
+            self._logger.info(f"🔧 启动 {browser_type} 浏览器（持久化模式，使用用户数据目录: {profile_dir}）")
+
+            # 构建持久化上下文选项
             context_options = {
                 'headless': headless,
-                'viewport': {'width': 1280, 'height': 800},
-                'locale': self.config.get('locale', 'zh-CN'),  # 修正默认语言
                 'args': launch_args,
-                'ignore_default_args': ignore_list if ignore_list else None
+                'ignore_default_args': ignore_list if ignore_list else None,
+                'viewport': {'width': 1280, 'height': 800},
+                'locale': self.config.get('locale', 'zh-CN')
             }
 
             # 移除 None 值的选项
             context_options = {k: v for k, v in context_options.items() if v is not None}
-            
-            self._logger.info(f"Launching {browser_type} with persistent context")
-            self._logger.info(f"Profile directory: {profile_dir}")
-            
+
             # 检查是否指定了可执行文件路径
             executable_path = self.config.get('executable_path')
 
@@ -576,8 +629,6 @@ class PlaywrightBrowserDriver(IBrowserDriver):
                     executable_path=executable_path,
                     **context_options
                 )
-                self.browser = None
-                self._is_persistent_context = True
 
             elif channel:
                 # 使用系统浏览器channel
@@ -586,24 +637,26 @@ class PlaywrightBrowserDriver(IBrowserDriver):
                     channel=channel,
                     **context_options
                 )
-                self.browser = None
-                self._is_persistent_context = True
-                
+
             else:
-                # Linux/无channel：仍使用持久化上下文
-                self._logger.warning("Channel not available; launching Chromium persistent context")
+                # Linux/无channel：使用默认Chromium
+                self._logger.warning("Channel not available; launching default Chromium with persistent context")
                 self.context = await self.playwright.chromium.launch_persistent_context(
                     user_data_dir=profile_dir,
                     **context_options
                 )
-                self.browser = None
-                self._is_persistent_context = True
-            
-            self._logger.info(f"{browser_type} launched successfully")
+
+            # 持久化上下文不需要单独的 browser 对象
+            self.browser = None
+            self._is_persistent_context = True
+
+            self._logger.info(f"{browser_type} launched successfully with persistent context")
             return True
-            
+
         except Exception as e:
-            self._logger.error(f"Failed to launch {browser_type}: {e}")
+            # 🚫 禁用回退策略：强制使用持久化上下文，不允许回退到普通模式
+            self._logger.error(f"持久化上下文启动失败，不允许回退到普通模式: {e}")
+            self._logger.error("请确保没有其他浏览器实例正在运行，或使用不同的用户数据目录")
             return False
 
     def _get_browser_user_data_dir(self, browser_type: str) -> str:

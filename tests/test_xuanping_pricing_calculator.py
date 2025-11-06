@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 from apps.xuanping.common.business.pricing_calculator import PricingCalculator
 from apps.xuanping.common.models import PriceCalculationResult
-from apps.xuanping.common.config import GoodStoreSelectorConfig, PriceCalculationConfig
+from apps.xuanping.common.config import GoodStoreSelectorConfig
 
 
 class TestPricingCalculator:

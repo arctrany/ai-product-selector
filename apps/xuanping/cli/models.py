@@ -1,7 +1,7 @@
 """
-UI数据模型和状态管理
+CLI数据模型和状态管理
 
-定义桌面应用程序的数据结构、状态枚举和事件模型
+定义CLI应用程序的数据结构、状态枚举和事件模型
 """
 
 from dataclasses import dataclass, field
@@ -9,7 +9,8 @@ from enum import Enum
 from typing import Dict, List, Optional, Any, Callable
 from datetime import datetime
 import threading
-
+import json
+from pathlib import Path
 
 class AppState(Enum):
     """应用程序状态枚举"""
@@ -20,14 +21,13 @@ class AppState(Enum):
     COMPLETED = "completed"     # 已完成
     ERROR = "error"             # 出错
 
-
 class LogLevel(Enum):
     """日志级别枚举"""
+    DEBUG = "debug"
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
     SUCCESS = "success"
-
 
 @dataclass
 class LogEntry:
@@ -47,7 +47,6 @@ class LogEntry:
             'store_id': self.store_id,
             'step': self.step
         }
-
 
 @dataclass
 class ProgressInfo:
@@ -75,7 +74,6 @@ class ProgressInfo:
         self.percentage = (self.processed_stores / self.total_stores) * 100
         return self.percentage
 
-
 @dataclass
 class UIConfig:
     """UI配置参数"""
@@ -100,6 +98,12 @@ class UIConfig:
     output_format: str = "xlsx"
     output_path: str = ""
     
+    # 界面设置
+    remember_settings: bool = False
+
+    # 运行模式
+    dryrun: bool = False
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式"""
         return {
@@ -117,42 +121,42 @@ class UIConfig:
             'g01_item_max_price': self.g01_item_max_price,
             'max_products_per_store': self.max_products_per_store,
             'output_format': self.output_format,
-            'output_path': self.output_path
+            'output_path': self.output_path,
+            'remember_settings': self.remember_settings,
+            'dryrun': self.dryrun
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'UIConfig':
         """从字典创建配置对象"""
         return cls(**{k: v for k, v in data.items() if hasattr(cls, k)})
 
-
-@dataclass
-class ConfigPreset:
-    """配置预设"""
-    name: str
-    description: str
-    config: UIConfig
-    created_at: datetime = field(default_factory=datetime.now)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """转换为字典格式"""
-        return {
-            'name': self.name,
-            'description': self.description,
-            'config': self.config.to_dict(),
-            'created_at': self.created_at.isoformat()
-        }
-    
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ConfigPreset':
-        """从字典创建预设对象"""
-        return cls(
-            name=data['name'],
-            description=data['description'],
-            config=UIConfig.from_dict(data['config']),
-            created_at=datetime.fromisoformat(data['created_at'])
-        )
+    def from_config_file(cls, config_file_path: str) -> 'UIConfig':
+        """从配置文件加载配置"""
+        config_path = Path(config_file_path)
+        if not config_path.exists():
+            raise FileNotFoundError(f"配置文件不存在: {config_file_path}")
 
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return cls.from_dict(data)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"配置文件格式错误: {e}")
+        except Exception as e:
+            raise RuntimeError(f"读取配置文件失败: {e}")
+
+    def save_to_file(self, config_file_path: str) -> None:
+        """保存配置到文件"""
+        config_path = Path(config_file_path)
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            raise RuntimeError(f"保存配置文件失败: {e}")
 
 class EventType(Enum):
     """事件类型枚举"""
@@ -162,14 +166,12 @@ class EventType(Enum):
     CONFIG_CHANGED = "config_changed"
     ERROR_OCCURRED = "error_occurred"
 
-
 @dataclass
 class UIEvent:
     """UI事件"""
     event_type: EventType
     data: Any
     timestamp: datetime = field(default_factory=datetime.now)
-
 
 class UIStateManager:
     """UI状态管理器"""
@@ -293,7 +295,6 @@ class UIStateManager:
                 'old_state': self._state,
                 'new_state': AppState.IDLE
             })
-
 
 # 全局状态管理器实例
 ui_state_manager = UIStateManager()

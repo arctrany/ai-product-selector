@@ -22,10 +22,18 @@ from openpyxl.worksheet.worksheet import Worksheet
 @dataclass
 class ProfitCalculatorInput:
     """利润计算器输入参数数据模型"""
+    # 价格信息
     black_price: float  # 黑标价格（人民币）
     green_price: float  # 绿标价格（人民币）
+    list_price: float  # 定价（人民币）
+    purchase_price: float  # 采购价（人民币）
     commission_rate: float  # 佣金率（如12表示12%）
+
+    # 商品物理属性
     weight: float  # 重量（克）
+    length: float  # 长度（厘米）
+    width: float  # 宽度（厘米）
+    height: float  # 高度（厘米）
 
 
 @dataclass
@@ -57,10 +65,20 @@ class ExcelProfitCalculator:
     
     # 单元格映射配置
     CELL_MAPPING = {
+        # 价格信息
         'black_price': 'A2',      # 黑标价格
         'green_price': 'B2',      # 绿标价格
-        'commission_rate': 'C2',  # 佣金率
-        'weight': 'B3',           # 重量
+        'list_price': 'C2',       # 定价
+        'purchase_price': 'D2',   # 采购价
+        'commission_rate': 'E2',  # 佣金率
+
+        # 商品物理属性
+        'weight': 'A3',           # 重量（克）
+        'length': 'B3',           # 长度（厘米）
+        'width': 'C3',            # 宽度（厘米）
+        'height': 'D3',           # 高度（厘米）
+
+        # 计算结果
         'profit_amount': 'G10',   # 利润金额
         'profit_rate': 'H10'      # 利润率
     }
@@ -174,17 +192,34 @@ class ExcelProfitCalculator:
         Raises:
             ExcelCalculatorError: 输入参数无效
         """
+        # 验证价格信息
         if input_data.black_price <= 0:
             raise ExcelCalculatorError("黑标价格必须为正数")
-        
+
         if input_data.green_price <= 0:
             raise ExcelCalculatorError("绿标价格必须为正数")
-        
+
+        if input_data.list_price <= 0:
+            raise ExcelCalculatorError("定价必须为正数")
+
+        if input_data.purchase_price <= 0:
+            raise ExcelCalculatorError("采购价必须为正数")
+
         if not (0 <= input_data.commission_rate <= 100):
             raise ExcelCalculatorError("佣金率必须在0-100之间")
-        
+
+        # 验证商品物理属性
         if input_data.weight <= 0:
             raise ExcelCalculatorError("重量必须为正数")
+
+        if input_data.length <= 0:
+            raise ExcelCalculatorError("长度必须为正数")
+
+        if input_data.width <= 0:
+            raise ExcelCalculatorError("宽度必须为正数")
+
+        if input_data.height <= 0:
+            raise ExcelCalculatorError("高度必须为正数")
     
     def _read_calculation_config(self) -> Dict[str, Any]:
         """
@@ -231,10 +266,16 @@ class ExcelProfitCalculator:
             # 打印详细入参
             self.logger.info("=" * 60)
             self.logger.info("📥 计算入参:")
+            self.logger.info("💰 价格信息:")
             self.logger.info(f"   黑标价格: {input_data.black_price} 元")
             self.logger.info(f"   绿标价格: {input_data.green_price} 元")
+            self.logger.info(f"   定价: {input_data.list_price} 元")
+            self.logger.info(f"   采购价: {input_data.purchase_price} 元")
             self.logger.info(f"   佣金率: {input_data.commission_rate}%")
+            self.logger.info("📦 商品物理属性:")
             self.logger.info(f"   重量: {input_data.weight} 克")
+            self.logger.info(f"   尺寸: {input_data.length}×{input_data.width}×{input_data.height} 厘米")
+            self.logger.info(f"   体积: {input_data.length * input_data.width * input_data.height:.2f} 立方厘米")
 
             # 获取计算配置
             config = self._read_calculation_config()
@@ -280,9 +321,14 @@ class ExcelProfitCalculator:
     
     def calculate_profit(self, 
                         black_price: float,
-                        green_price: float, 
+                        green_price: float,
+                        list_price: float,
+                        purchase_price: float,
                         commission_rate: float,
-                        weight: float) -> ProfitCalculatorResult:
+                        weight: float,
+                        length: float,
+                        width: float,
+                        height: float) -> ProfitCalculatorResult:
         """
         计算利润
         
@@ -305,8 +351,13 @@ class ExcelProfitCalculator:
             input_data = ProfitCalculatorInput(
                 black_price=black_price,
                 green_price=green_price,
+                list_price=list_price,
+                purchase_price=purchase_price,
                 commission_rate=commission_rate,
-                weight=weight
+                weight=weight,
+                length=length,
+                width=width,
+                height=height
             )
             
             # 验证输入参数

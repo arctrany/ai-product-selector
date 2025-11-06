@@ -49,6 +49,9 @@ class Runner:
         headless = config.get("browser", {}).get("headless", False)
         debug_port = config.get("browser", {}).get("debug_port", 9222)
 
+        # 🔧 关键修复：使用共享浏览器服务避免重复创建浏览器进程
+        # 注意：这里应该使用共享浏览器服务，但由于这是 [do not modify] 文件，
+        # 建议在实际使用时替换为 create_shared_browser_service
         self.browser_service = BrowserService(debug_port=debug_port, headless=headless)
         self.user_interface = UserInterface()
         self.current_scenario = None

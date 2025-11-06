@@ -2,26 +2,34 @@
 Seerfar平台抓取器
 
 负责从Seerfar平台抓取OZON店铺的销售数据和商品信息。
+基于现代化的Playwright浏览器服务。
 """
 
+import asyncio
 import time
+import re
 from typing import Dict, Any, List, Optional
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
+from pathlib import Path
 
-from .base_scraper import BaseScraper, ScrapingResult
-from ..models import StoreInfo, ProductInfo, clean_price_string
+from .xuanping_browser_service import XuanpingBrowserServiceSync
+from ..models import StoreInfo, ProductInfo, clean_price_string, ScrapingResult
 from ..config import GoodStoreSelectorConfig
 
-
-class SeerfarScraper(BaseScraper):
+class SeerfarScraper:
     """Seerfar平台抓取器"""
     
     def __init__(self, config: Optional[GoodStoreSelectorConfig] = None):
         """初始化Seerfar抓取器"""
-        super().__init__(config)
+        from ..config import get_config
+        import logging
+        
+        self.config = config or get_config()
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.base_url = self.config.scraping.seerfar_base_url
         self.store_detail_path = self.config.scraping.seerfar_store_detail_path
+        
+        # 创建浏览器服务
+        self.browser_service = XuanpingBrowserServiceSync()
     
     def scrape_store_sales_data(self, store_id: str) -> ScrapingResult:
         """
@@ -33,51 +41,16 @@ class SeerfarScraper(BaseScraper):
         Returns:
             ScrapingResult: 抓取结果，包含销售数据
         """
-        start_time = time.time()
+        # 构建店铺详情页URL
+        url = f"{self.base_url}{self.store_detail_path}?storeId={store_id}&platform=OZON"
         
-        try:
-            self._init_driver()
-            
-            # 构建店铺详情页URL
-            url = f"{self.base_url}{self.store_detail_path}?storeId={store_id}&platform=OZON"
-            
-            # 导航到页面
-            if not self._navigate_to_url(url):
-                return ScrapingResult(
-                    success=False,
-                    data={},
-                    error_message="无法访问Seerfar店铺详情页",
-                    execution_time=time.time() - start_time
-                )
-            
-            # 等待页面加载完成
-            self._wait_for_page_load()
-            
-            # 抓取销售数据
-            sales_data = self._extract_sales_data()
-            
-            if not sales_data:
-                return ScrapingResult(
-                    success=False,
-                    data={},
-                    error_message="未能提取到销售数据",
-                    execution_time=time.time() - start_time
-                )
-            
-            return ScrapingResult(
-                success=True,
-                data=sales_data,
-                execution_time=time.time() - start_time
-            )
-            
-        except Exception as e:
-            self.logger.error(f"抓取店铺{store_id}销售数据失败: {e}")
-            return ScrapingResult(
-                success=False,
-                data={},
-                error_message=str(e),
-                execution_time=time.time() - start_time
-            )
+        # dryrun模式下记录入参，但仍执行真实的抓取流程
+        if self.config.dryrun:
+            self.logger.info(f"🧪 试运行模式 - Seerfar店铺销售数据抓取入参: 店铺ID={store_id}, URL={url}")
+            self.logger.info("🧪 试运行模式 - 执行真实的销售数据抓取流程（结果不会保存到文件）")
+
+        # 使用浏览器服务抓取数据
+        return self.browser_service.scrape_page_data(url, self._extract_sales_data_async)
     
     def scrape_store_products(self, store_id: str, max_products: Optional[int] = None) -> ScrapingResult:
         """
@@ -90,44 +63,24 @@ class SeerfarScraper(BaseScraper):
         Returns:
             ScrapingResult: 抓取结果，包含商品列表
         """
-        start_time = time.time()
         max_products = max_products or self.config.store_filter.max_products_to_check
         
-        try:
-            self._init_driver()
-            
-            # 构建店铺详情页URL
-            url = f"{self.base_url}{self.store_detail_path}?storeId={store_id}&platform=OZON"
-            
-            # 导航到页面
-            if not self._navigate_to_url(url):
-                return ScrapingResult(
-                    success=False,
-                    data={},
-                    error_message="无法访问Seerfar店铺详情页",
-                    execution_time=time.time() - start_time
-                )
-            
-            # 等待页面加载完成
-            self._wait_for_page_load()
-            
-            # 抓取商品列表
-            products = self._extract_products_list(max_products)
-            
-            return ScrapingResult(
-                success=True,
-                data={'products': products, 'total_count': len(products)},
-                execution_time=time.time() - start_time
-            )
-            
-        except Exception as e:
-            self.logger.error(f"抓取店铺{store_id}商品列表失败: {e}")
-            return ScrapingResult(
-                success=False,
-                data={},
-                error_message=str(e),
-                execution_time=time.time() - start_time
-            )
+        # 构建店铺详情页URL
+        url = f"{self.base_url}{self.store_detail_path}?storeId={store_id}&platform=OZON"
+        
+        # dryrun模式下记录入参，但仍执行真实的抓取流程
+        if self.config.dryrun:
+            self.logger.info(f"🧪 试运行模式 - Seerfar店铺商品抓取入参: 店铺ID={store_id}, "
+                           f"最大商品数={max_products}, URL={url}")
+            self.logger.info("🧪 试运行模式 - 执行真实的商品抓取流程（结果不会保存到文件）")
+
+        # 创建提取函数
+        async def extract_products(browser_service):
+            products = await self._extract_products_list_async(browser_service, max_products)
+            return {'products': products, 'total_count': len(products)}
+        
+        # 使用浏览器服务抓取数据
+        return self.browser_service.scrape_page_data(url, extract_products)
     
     def scrape(self, store_id: str, include_products: bool = True, **kwargs) -> ScrapingResult:
         """
@@ -178,75 +131,146 @@ class SeerfarScraper(BaseScraper):
                 execution_time=time.time() - start_time
             )
     
-    def _wait_for_page_load(self):
-        """等待页面加载完成"""
-        try:
-            # 等待页面主要内容加载
-            self._wait_for_element(By.TAG_NAME, "body", timeout=10)
-            
-            # 额外等待确保动态内容加载
-            time.sleep(2)
-            
-            self.logger.debug("页面加载完成")
-            
-        except Exception as e:
-            self.logger.warning(f"等待页面加载时出现警告: {e}")
-    
-    def _extract_sales_data(self) -> Dict[str, Any]:
+    async def _extract_sales_data_async(self, browser_service) -> Dict[str, Any]:
         """
-        提取销售数据
-        
+        异步提取销售数据 - 使用 automation_scenario.py 中的精确 XPath 方法
+
+        Args:
+            browser_service: 浏览器服务实例
+
         Returns:
             Dict[str, Any]: 销售数据
         """
         sales_data = {}
-        
+
         try:
-            # 根据Seerfar页面结构提取销售数据
-            # 这里使用通用的选择器，实际使用时需要根据真实页面结构调整
-            
-            # 抓取30天销售额
-            sales_amount_element = self._find_element_safe(
-                By.XPATH, 
-                "//span[contains(text(), '销售额')]/following-sibling::span | //div[contains(@class, 'sales-amount')]//span"
-            )
-            if sales_amount_element:
-                sales_text = self._get_text_safe(sales_amount_element)
-                sales_data['sold_30days'] = self._extract_number_from_text(sales_text)
-            
-            # 抓取30天销量
-            orders_element = self._find_element_safe(
-                By.XPATH,
-                "//span[contains(text(), '销量')]/following-sibling::span | //div[contains(@class, 'orders-count')]//span"
-            )
-            if orders_element:
-                orders_text = self._get_text_safe(orders_element)
-                sales_data['sold_count_30days'] = int(self._extract_number_from_text(orders_text) or 0)
-            
-            # 抓取日均销量
-            daily_avg_element = self._find_element_safe(
-                By.XPATH,
-                "//span[contains(text(), '日均')]/following-sibling::span | //div[contains(@class, 'daily-avg')]//span"
-            )
-            if daily_avg_element:
-                daily_text = self._get_text_safe(daily_avg_element)
-                sales_data['daily_avg_sold'] = self._extract_number_from_text(daily_text)
-            
+            # 使用Playwright的页面API进行元素查找
+            page = browser_service.browser_driver.page
+
+            # 🔧 关键修复：使用 automation_scenario.py 中的精确 XPath 提取销售额
+            await self._extract_sales_amount(page, sales_data)
+
+            # 🔧 关键修复：使用 automation_scenario.py 中的精确 XPath 提取销量
+            await self._extract_sales_volume(page, sales_data)
+
+            # 🔧 关键修复：使用 automation_scenario.py 中的精确 XPath 提取日均销量
+            await self._extract_daily_avg_sales(page, sales_data)
+
             # 如果没有找到具体元素，尝试通用方法
             if not sales_data:
-                sales_data = self._extract_sales_data_generic()
-            
+                sales_data = await self._extract_sales_data_generic_async(page)
+
+            # 🔧 新增：合并日志输出店铺数据摘要
+            if sales_data:
+                sales_amount = sales_data.get('sold_30days', 0)
+                sales_volume = sales_data.get('sold_count_30days', 0)
+                daily_avg = sales_data.get('daily_avg_sold', 0)
+                self.logger.info(f"📊 店铺数据提取完成 - 销售额: {sales_amount:.0f}₽, 销量: {sales_volume}, 日均: {daily_avg}")
+
             self.logger.debug(f"提取的销售数据: {sales_data}")
             return sales_data
-            
+
         except Exception as e:
             self.logger.error(f"提取销售数据失败: {e}")
             return {}
+
+    async def _extract_sales_amount(self, page, sales_data: Dict[str, Any]):
+        """提取销售额 - 使用 automation_scenario.py 中的精确XPath"""
+        try:
+            self.logger.debug("📊 提取销售额...")
+
+            # 使用 automation_scenario.py 中的精确XPath
+            sales_amount_xpath = "/html/body/div[1]/div/div/div/div/div/div/div[1]/div/div[2]/div[3]/div[1]/div[3]"
+
+            # 等待元素出现
+            try:
+                await page.wait_for_selector(f'xpath={sales_amount_xpath}', timeout=5000)
+            except:
+                self.logger.debug("销售额元素等待超时，继续尝试提取")
+
+            element = await page.query_selector(f'xpath={sales_amount_xpath}')
+            if element:
+                text = await element.text_content()
+                if text and text.strip():
+                    # 提取数字并转换为销售额
+                    number = self._extract_number_from_text(text.strip())
+                    if number:
+                        sales_data['sold_30days'] = number
+                        self.logger.debug(f"✅ 销售额: {number} (原文: {text.strip()})")
+                        return
+
+            self.logger.warning("⚠️ 未能提取到销售额数据")
+
+        except Exception as e:
+            self.logger.error(f"❌ 销售额提取失败: {str(e)}")
+
+    async def _extract_sales_volume(self, page, sales_data: Dict[str, Any]):
+        """提取销量 - 使用 automation_scenario.py 中的精确XPath"""
+        try:
+            self.logger.debug("📊 提取销量...")
+
+            # 使用 automation_scenario.py 中的精确XPath
+            sales_volume_xpath = "/html/body/div[1]/div/div/div/div/div/div/div[1]/div/div[2]/div[3]/div[2]/div[3]"
+
+            # 等待元素出现
+            try:
+                await page.wait_for_selector(f'xpath={sales_volume_xpath}', timeout=5000)
+            except:
+                self.logger.debug("销量元素等待超时，继续尝试提取")
+
+            element = await page.query_selector(f'xpath={sales_volume_xpath}')
+            if element:
+                text = await element.text_content()
+                if text and text.strip():
+                    # 提取数字并转换为销量
+                    number = self._extract_number_from_text(text.strip())
+                    if number:
+                        sales_data['sold_count_30days'] = int(number)
+                        self.logger.debug(f"✅ 销量: {int(number)} (原文: {text.strip()})")
+                        return
+
+            self.logger.warning("⚠️ 未能提取到销量数据")
+
+        except Exception as e:
+            self.logger.error(f"❌ 销量提取失败: {str(e)}")
+
+    async def _extract_daily_avg_sales(self, page, sales_data: Dict[str, Any]):
+        """提取日均销量 - 使用 automation_scenario.py 中的精确XPath"""
+        try:
+            self.logger.debug("📊 提取日均销量...")
+
+            # 使用 automation_scenario.py 中的精确XPath
+            daily_avg_xpath = "/html/body/div[1]/div/div/div/div/div/div/div[1]/div/div[2]/div[3]/div[3]/div[3]"
+
+            # 等待元素出现
+            try:
+                await page.wait_for_selector(f'xpath={daily_avg_xpath}', timeout=5000)
+            except:
+                self.logger.debug("日均销量元素等待超时，继续尝试提取")
+
+            element = await page.query_selector(f'xpath={daily_avg_xpath}')
+            if element:
+                text = await element.text_content()
+                if text and text.strip():
+                    # 提取数字并转换为日均销量
+                    number = self._extract_number_from_text(text.strip())
+                    if number:
+                        sales_data['daily_avg_sold'] = number
+                        self.logger.debug(f"✅ 日均销量: {number} (原文: {text.strip()})")
+                        return
+
+            self.logger.warning("⚠️ 未能提取到日均销量数据")
+
+        except Exception as e:
+            self.logger.error(f"❌ 日均销量提取失败: {str(e)}")
     
-    def _extract_sales_data_generic(self) -> Dict[str, Any]:
+    async def _extract_sales_data_generic_async(self, page) -> Dict[str, Any]:
         """
-        通用方法提取销售数据
+        异步通用方法提取销售数据
         
+        Args:
+            page: Playwright页面对象
+            
         Returns:
             Dict[str, Any]: 销售数据
         """
@@ -254,24 +278,28 @@ class SeerfarScraper(BaseScraper):
         
         try:
             # 查找所有包含数字的元素
-            number_elements = self._find_elements_safe(By.XPATH, "//*[contains(text(), '₽') or contains(text(), '万') or contains(text(), '千')]")
+            number_elements = await page.query_selector_all("//*[contains(text(), '₽') or contains(text(), '万') or contains(text(), '千')]")
             
             for element in number_elements[:10]:  # 限制检查前10个元素
-                text = self._get_text_safe(element)
-                if not text:
+                try:
+                    text = await element.text_content()
+                    if not text:
+                        continue
+                    
+                    # 判断是否为销售额
+                    if any(keyword in text for keyword in ['销售额', '营业额', '收入', '₽']):
+                        number = self._extract_number_from_text(text)
+                        if number and number > 1000:  # 销售额通常较大
+                            sales_data['sold_30days'] = number
+                    
+                    # 判断是否为销量
+                    elif any(keyword in text for keyword in ['销量', '订单', '件数']):
+                        number = self._extract_number_from_text(text)
+                        if number and 10 <= number <= 10000:  # 销量通常在合理范围内
+                            sales_data['sold_count_30days'] = int(number)
+                except Exception as e:
+                    self.logger.debug(f"处理元素文本失败: {e}")
                     continue
-                
-                # 判断是否为销售额
-                if any(keyword in text for keyword in ['销售额', '营业额', '收入', '₽']):
-                    number = self._extract_number_from_text(text)
-                    if number and number > 1000:  # 销售额通常较大
-                        sales_data['sold_30days'] = number
-                
-                # 判断是否为销量
-                elif any(keyword in text for keyword in ['销量', '订单', '件数']):
-                    number = self._extract_number_from_text(text)
-                    if number and 10 <= number <= 10000:  # 销量通常在合理范围内
-                        sales_data['sold_count_30days'] = int(number)
             
             # 如果找到销售额和销量，计算日均销量
             if 'sold_30days' in sales_data and 'sold_count_30days' in sales_data:
@@ -283,11 +311,12 @@ class SeerfarScraper(BaseScraper):
             self.logger.error(f"通用方法提取销售数据失败: {e}")
             return {}
     
-    def _extract_products_list(self, max_products: int) -> List[Dict[str, Any]]:
+    async def _extract_products_list_async(self, browser_service, max_products: int) -> List[Dict[str, Any]]:
         """
-        提取商品列表
+        异步提取商品列表
         
         Args:
+            browser_service: 浏览器服务实例
             max_products: 最大商品数量
             
         Returns:
@@ -296,19 +325,20 @@ class SeerfarScraper(BaseScraper):
         products = []
         
         try:
+            page = browser_service.browser_driver.page
+            
             # 查找商品表格或列表
-            product_rows = self._find_elements_safe(
-                By.XPATH,
+            product_rows = await page.query_selector_all(
                 "//table//tr[position()>1] | //div[contains(@class, 'product-item')] | //li[contains(@class, 'product')]"
             )
             
             if not product_rows:
                 # 尝试其他可能的选择器
-                product_rows = self._find_elements_safe(By.XPATH, "//*[contains(@class, 'item') or contains(@class, 'row')]")
+                product_rows = await page.query_selector_all("//*[contains(@class, 'item') or contains(@class, 'row')]")
             
             for i, row in enumerate(product_rows[:max_products]):
                 try:
-                    product_data = self._extract_product_from_row(row)
+                    product_data = await self._extract_product_from_row_async(row)
                     if product_data:
                         products.append(product_data)
                         
@@ -316,16 +346,19 @@ class SeerfarScraper(BaseScraper):
                     self.logger.warning(f"提取第{i+1}个商品信息失败: {e}")
                     continue
             
-            self.logger.info(f"成功提取{len(products)}个商品信息")
+            if products:
+                self.logger.info(f"成功提取{len(products)}个有效商品信息")
+            else:
+                self.logger.warning("未提取到有效的商品信息")
             return products
             
         except Exception as e:
             self.logger.error(f"提取商品列表失败: {e}")
             return []
     
-    def _extract_product_from_row(self, row_element) -> Optional[Dict[str, Any]]:
+    async def _extract_product_from_row_async(self, row_element) -> Optional[Dict[str, Any]]:
         """
-        从行元素中提取商品信息
+        异步从行元素中提取商品信息
         
         Args:
             row_element: 行元素
@@ -337,32 +370,38 @@ class SeerfarScraper(BaseScraper):
             product_data = {}
             
             # 提取商品图片URL（通常在第二列或第一个img标签）
-            img_element = self._find_element_safe(row_element, By.TAG_NAME, "img")
-            if img_element:
-                product_data['image_url'] = self._get_attribute_safe(img_element, 'src')
+            try:
+                img_element = await row_element.query_selector("img")
+                if img_element:
+                    image_url = await img_element.get_attribute('src')
+                    if image_url:
+                        product_data['image_url'] = image_url
+            except Exception as e:
+                self.logger.debug(f"提取图片URL失败: {e}")
             
             # 提取品牌名称
-            brand_element = self._find_element_safe(
-                row_element, 
-                By.XPATH, 
-                ".//td[2] | .//div[contains(@class, 'brand')] | .//span[contains(@class, 'brand')]"
-            )
-            if brand_element:
-                product_data['brand_name'] = self._get_text_safe(brand_element)
+            try:
+                brand_element = await row_element.query_selector(".//td[2] | .//div[contains(@class, 'brand')] | .//span[contains(@class, 'brand')]")
+                if brand_element:
+                    brand_text = await brand_element.text_content()
+                    if brand_text:
+                        product_data['brand_name'] = brand_text.strip()
+            except Exception as e:
+                self.logger.debug(f"提取品牌名称失败: {e}")
             
             # 提取SKU信息
-            sku_element = self._find_element_safe(
-                row_element,
-                By.XPATH,
-                ".//td[3] | .//div[contains(@class, 'sku')] | .//span[contains(@class, 'sku')]"
-            )
-            if sku_element:
-                product_data['sku'] = self._get_text_safe(sku_element)
+            try:
+                sku_element = await row_element.query_selector(".//td[3] | .//div[contains(@class, 'sku')] | .//span[contains(@class, 'sku')]")
+                if sku_element:
+                    sku_text = await sku_element.text_content()
+                    if sku_text:
+                        product_data['sku'] = sku_text.strip()
+            except Exception as e:
+                self.logger.debug(f"提取SKU失败: {e}")
             
             # 生成商品ID（如果没有明确的ID，使用图片URL或其他唯一标识）
             if 'image_url' in product_data:
                 # 从图片URL中提取ID
-                import re
                 url_match = re.search(r'/(\d+)', product_data['image_url'])
                 if url_match:
                     product_data['product_id'] = url_match.group(1)
@@ -371,10 +410,12 @@ class SeerfarScraper(BaseScraper):
             else:
                 product_data['product_id'] = f"product_{len(product_data)}"
             
-            # 验证数据完整性
-            if any(product_data.values()):
+            # 验证数据完整性 - 🔧 修复：确保至少有有效的关键字段
+            if (product_data.get('image_url') and
+                (product_data.get('brand_name') or product_data.get('sku'))):
                 return product_data
             else:
+                self.logger.debug(f"商品数据不完整，跳过: {product_data}")
                 return None
                 
         except Exception as e:
@@ -410,3 +451,48 @@ class SeerfarScraper(BaseScraper):
         except Exception as e:
             self.logger.error(f"验证店铺筛选条件失败: {e}")
             return False
+    
+    def _extract_number_from_text(self, text: str) -> Optional[float]:
+        """
+        从文本中提取数字
+        
+        Args:
+            text: 包含数字的文本
+            
+        Returns:
+            float: 提取的数字，如果提取失败返回None
+        """
+        if not text:
+            return None
+
+        # 移除常见的非数字字符
+        cleaned_text = re.sub(r'[^\d.,\-+]', '', text.replace(',', '').replace(' ', ''))
+
+        try:
+            # 尝试转换为浮点数
+            return float(cleaned_text)
+        except (ValueError, TypeError):
+            # 尝试提取第一个数字
+            numbers = re.findall(r'-?\d+\.?\d*', text)
+            if numbers:
+                try:
+                    return float(numbers[0])
+                except (ValueError, TypeError):
+                    pass
+
+            return None
+    
+
+
+    def close(self):
+        """关闭抓取器"""
+        if hasattr(self, 'browser_service'):
+            self.browser_service.close()
+    
+    def __enter__(self):
+        """上下文管理器入口"""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """上下文管理器出口"""
+        self.close()

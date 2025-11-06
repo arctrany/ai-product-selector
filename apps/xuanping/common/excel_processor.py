@@ -14,7 +14,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from .models import (
     ExcelStoreData, StoreInfo, StoreStatus, GoodStoreFlag,
-    ExcelProcessingError, DataValidationError
+    ExcelProcessingError, DataValidationError, PriceCalculationError
 )
 from .config import GoodStoreSelectorConfig, get_config
 from .excel_calculator import ExcelProfitCalculator, ProfitCalculatorResult
@@ -135,7 +135,7 @@ class ExcelStoreProcessor:
         """
         pending_stores = [
             store for store in store_data_list 
-            if store.status == StoreStatus.PENDING
+            if store.status in [StoreStatus.PENDING, StoreStatus.EMPTY]
         ]
         
         self.logger.info(f"筛选出{len(pending_stores)}个待处理店铺（总共{len(store_data_list)}个）")

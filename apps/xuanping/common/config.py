@@ -23,7 +23,7 @@ class StoreFilterConfig:
     # 好店判定阈值
     profit_rate_threshold: float = 20.0  # 利润率阈值（百分比）
     good_store_ratio_threshold: float = 20.0  # 好店判定比例阈值（百分比）
-    max_products_to_check: int = 50  # 每个店铺最多检查的商品数量
+    max_products_to_check: int = 10  # 每个店铺最多检查的商品数量
 
 
 @dataclass
@@ -51,8 +51,8 @@ class PriceCalculationConfig:
 class ScrapingConfig:
     """网页抓取配置"""
     # 浏览器配置
-    browser_type: str = "chrome"  # 浏览器类型
-    headless: bool = True  # 是否无头模式
+    browser_type: str = "edge"  # 浏览器类型
+    headless: bool = False  # 是否无头模式
     window_width: int = 1920
     window_height: int = 1080
     
@@ -128,7 +128,7 @@ class GoodStoreSelectorConfig:
     
     # 全局配置
     debug_mode: bool = False
-    dry_run: bool = False  # 干运行模式，不实际修改数据
+    dryrun: bool = False  # 试运行模式，执行抓取但不写入文件，不调用1688接口
     
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'GoodStoreSelectorConfig':
@@ -167,7 +167,7 @@ class GoodStoreSelectorConfig:
                     setattr(config.performance, key, value)
         
         # 更新全局配置
-        for key in ['debug_mode', 'dry_run']:
+        for key in ['debug_mode', 'dryrun']:
             if key in config_dict:
                 setattr(config, key, config_dict[key])
         
@@ -229,8 +229,8 @@ class GoodStoreSelectorConfig:
         # 全局配置
         if os.getenv('DEBUG_MODE'):
             config.debug_mode = os.getenv('DEBUG_MODE').lower() == 'true'
-        if os.getenv('DRY_RUN'):
-            config.dry_run = os.getenv('DRY_RUN').lower() == 'true'
+        if os.getenv('DRYRUN'):
+            config.dryrun = os.getenv('DRYRUN').lower() == 'true'
         
         return config
     
@@ -294,7 +294,7 @@ class GoodStoreSelectorConfig:
                 'batch_size': self.performance.batch_size,
             },
             'debug_mode': self.debug_mode,
-            'dry_run': self.dry_run,
+            'dryrun': self.dryrun,
         }
     
     def save_to_json_file(self, file_path: str):

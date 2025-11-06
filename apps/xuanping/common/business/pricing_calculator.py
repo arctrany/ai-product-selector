@@ -169,7 +169,11 @@ class PricingCalculator:
                 calculation_details=calculation_details
             )
             
-            self.logger.info(f"定价计算完成: 真实售价={real_selling_price:.2f}, 商品定价={product_pricing:.2f}, 利润率={profit_rate:.2f}%")
+            # 🔧 修复：只有在有效价格时才输出日志
+            if real_selling_price > 0:
+                self.logger.info(f"定价计算完成: 真实售价={real_selling_price:.2f}, 商品定价={product_pricing:.2f}, 利润率={profit_rate:.2f}%")
+            else:
+                self.logger.debug(f"价格计算结果为0，跳过日志输出")
             return result
             
         except Exception as e:

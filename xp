@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+"""
+选评自动化CLI应用可执行入口
+
+这是一个可执行脚本，用户可以直接运行而不需要使用python3命令
+使用方法: ./xuanping [命令] [选项]
+"""
+
+import sys
+import os
+from pathlib import Path
+
+# 添加项目根目录到Python路径
+script_dir = Path(__file__).parent.absolute()
+sys.path.insert(0, str(script_dir))
+
+# 导入并运行主程序
+from apps.xuanping.cli.main import main
+
+if __name__ == '__main__':
+    sys.exit(main())

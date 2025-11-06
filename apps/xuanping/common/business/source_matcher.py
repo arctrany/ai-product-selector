@@ -36,6 +36,12 @@ class SourceMatcher:
             Dict[str, Any]: 匹配结果
         """
         try:
+            # dryrun模式下记录入参，但仍执行真实的匹配流程
+            if self.config.dryrun:
+                self.logger.info(f"🧪 试运行模式 - 1688货源匹配入参: 商品ID={product_info.product_id}, "
+                               f"绿价={product_info.green_price}, 黑价={product_info.black_price}")
+                self.logger.info("🧪 试运行模式 - 执行真实的1688货源匹配流程（不会保存结果）")
+
             # 模拟货源匹配过程
             match_result = self._simulate_source_matching(product_info)
             
@@ -121,6 +127,26 @@ class SourceMatcher:
             'error': error_message
         }
     
+
+
+        return {
+            'success': True,
+            'matched': True,
+            'source_price': round(source_price, 2),
+            'source_info': {
+                'supplier_id': f"dryrun_supplier_{product_info.product_id}",
+                'supplier_name': f'试运行模拟供应商_{product_info.product_id}',
+                'location': '广东省广州市',
+                'min_order_quantity': 1,
+                'delivery_time': '3-7天',
+                'quality_score': 4.5,
+                'price_trend': 'stable'
+            },
+            'cost_ratio': 40.0,
+            'match_confidence': 0.85,
+            'dryrun': True
+        }
+
     def batch_match_sources(self, products: list[ProductInfo]) -> Dict[str, Dict[str, Any]]:
         """
         批量匹配货源
