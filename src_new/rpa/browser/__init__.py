@@ -10,12 +10,11 @@ from .core.interfaces.browser_driver import IBrowserDriver
 
 # 导入主要服务类
 from .browser_service import (
-    BrowserService,
-    create_browser_service,
-    create_browser_service_from_dict,
+    SimplifiedBrowserService,
+    create_simplified_browser_service,
+    create_shared_browser_service,
     create_headless_browser_service,
-    create_debug_browser_service,
-    create_fast_browser_service
+    create_debug_browser_service
 )
 
 # 导入实现类
@@ -59,12 +58,11 @@ __all__ = [
     'IBrowserDriver',
 
     # 主要服务类
-    'BrowserService',
-    'create_browser_service',
-    'create_browser_service_from_dict',
+    'SimplifiedBrowserService',
+    'create_simplified_browser_service',
+    'create_shared_browser_service',
     'create_headless_browser_service',
     'create_debug_browser_service',
-    'create_fast_browser_service',
 
     # 实现类
     'PlaywrightBrowserDriver',

@@ -17,7 +17,7 @@ src_new_path = project_root / "src_new"
 if str(src_new_path) not in sys.path:
     sys.path.insert(0, str(src_new_path))
 
-from src_new.rpa.browser import BrowserService, create_debug_browser_service
+from src_new.rpa.browser.browser_service import SimplifiedBrowserService, create_debug_browser_service
 from src_new.rpa.browser.core.models.browser_config import create_default_config
 from src_new.rpa.browser.core.exceptions.browser_exceptions import BrowserError
 
@@ -77,12 +77,12 @@ class XuanpingBrowserService:
         """创建浏览器配置 - 🔧 关键修复：优先连接现有浏览器"""
         # 从环境变量获取配置
         browser_type = os.environ.get('PREFERRED_BROWSER', 'edge').lower()
-        profile_name = os.environ.get('BROWSER_PROFILE', 'Default')
+        profile_name = os.environ.get('BROWSER_PROFILE', None)  # 不指定 Profile，使用默认
         debug_port = os.environ.get('BROWSER_DEBUG_PORT', '9222')
         headless = os.environ.get('HEADLESS_MODE', 'false').lower() == 'true'
 
-        # 获取用户数据目录
-        user_data_dir = self._get_user_data_dir(browser_type, profile_name)
+        # 获取用户数据目录 - 使用默认用户目录
+        user_data_dir = None  # 不指定用户数据目录，让浏览器使用默认位置
 
         # 🔧 关键修复：检查是否有现有浏览器在运行
         existing_browser = self._check_existing_browser(debug_port)
@@ -102,12 +102,11 @@ class XuanpingBrowserService:
                 'launch_args': [
                     '--no-first-run',
                     '--no-default-browser-check',
-                    f'--profile-directory={profile_name}',  # 指定Profile
                     f'--remote-debugging-port={debug_port}',
-                    '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor',
-                    '--lang=zh-CN'
-                ]
+                    '--lang=zh-CN',
+                    # 🔧 最激进修复：最小化启动参数，让浏览器尽可能接近手动启动
+                    # 移除所有可能干扰扩展加载的参数
+                ] + ([f'--profile-directory={profile_name}'] if profile_name else [])
             },
             # 🔧 关键修复：根据现有浏览器状态决定连接方式
             'use_persistent_context': not existing_browser,  # 如果有现有浏览器，不使用持久化上下文
@@ -118,9 +117,11 @@ class XuanpingBrowserService:
         if existing_browser:
             self.logger.info(f"🔗 检测到现有浏览器实例，将连接到调试端口: {debug_port}")
         else:
-            self.logger.info(f"🔧 未检测到现有浏览器，将创建新实例: {browser_type}, Profile: {profile_name}")
+            profile_info = f"Profile: {profile_name}" if profile_name else "默认 Profile"
+            self.logger.info(f"🔧 未检测到现有浏览器，将创建新实例: {browser_type}, {profile_info}")
 
-        self.logger.info(f"🔄 配置为复用现有浏览器进程，用户数据目录: {user_data_dir}")
+        user_dir_info = f"用户数据目录: {user_data_dir}" if user_data_dir else "使用默认用户数据目录"
+        self.logger.info(f"🔄 配置为使用默认浏览器设置，{user_dir_info}")
 
         return config
 

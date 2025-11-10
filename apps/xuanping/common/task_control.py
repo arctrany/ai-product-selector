@@ -141,6 +141,15 @@ class TaskExecutionController:
         """获取当前状态"""
         return self._signal
 
+    def _cleanup_state_file(self):
+        """清理状态文件"""
+        try:
+            if os.path.exists(self.state_file_path):
+                os.remove(self.state_file_path)
+                self.logger.info(f"状态文件已清理: {self.state_file_path}")
+        except Exception as e:
+            self.logger.warning(f"清理状态文件失败: {e}")
+
 
 class ControllableTask(ABC):
     """可控制的任务接口"""

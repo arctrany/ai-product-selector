@@ -206,7 +206,8 @@ class TaskController:
         finally:
             # 清理资源
             if self._task_execution_controller:
-                # TaskExecutionController 有自己的清理逻辑
+                # 🔧 关键修复：清理状态文件
+                self._task_execution_controller._cleanup_state_file()
                 self._task_execution_controller = None
             self._selector = None
 

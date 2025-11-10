@@ -211,6 +211,16 @@ class OzonScraper:
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(page_content, 'html.parser')
             
+            # 🖼️ 提取商品图片地址
+            image_url = await self._extract_product_image_from_content(soup)
+            if image_url:
+                price_data['image_url'] = image_url
+
+            # 📊 提取跟卖数量
+            competitor_count = await self._extract_competitor_count_from_content(soup)
+            if competitor_count is not None:
+                price_data['competitor_count'] = competitor_count
+
             # 抓取绿标价格（促销价格）
             green_price_selectors = [
                 "[data-widget='webPrice'] .price_discount",
@@ -279,6 +289,175 @@ class OzonScraper:
             self.logger.error(f"从页面内容提取价格数据失败: {e}")
             return {}
     
+    async def _extract_product_image_from_content(self, soup) -> Optional[str]:
+        """
+        从页面内容中提取商品图片地址
+
+        Args:
+            soup: BeautifulSoup对象
+
+        Returns:
+            str: 商品图片URL，如果提取失败返回None
+        """
+        try:
+            # 🖼️ 使用用户提供的精确XPath对应的CSS选择器
+            # XPath: //*[@id="layoutPage"]/div[1]/div[3]/div[3]/div[1]/div[1]/div[1]/div/div/div/div[1]/div/div/div[1]/div[1]/div/div/div[2]/div/div/div/img
+            image_selectors = [
+                "#layoutPage > div:nth-child(1) > div:nth-child(3) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div > div > div > div:nth-child(1) > div > div > div:nth-child(1) > div:nth-child(1) > div > div > div:nth-child(2) > div > div > div > img",
+                "[class*='pdp_y3']",  # 从用户提供的HTML中提取的class
+                "[class*='b95_3_3-a']",  # 备用class选择器
+                "img[src*='multimedia']",  # 通用的OZON图片选择器
+                "img[src*='ozone.ru']"  # 更通用的选择器
+            ]
+
+            for selector in image_selectors:
+                img_element = soup.select_one(selector)
+                if img_element:
+                    # 获取src属性
+                    src = img_element.get('src')
+                    if src:
+                        # 🔧 将wc50或wc100替换为wc1000获取高清图片
+                        high_res_url = self._convert_to_high_res_image(src)
+                        self.logger.info(f"✅ 成功提取商品图片: {high_res_url}")
+                        return high_res_url
+
+            # 如果没有找到，尝试通用方法
+            return await self._extract_image_generic(soup)
+
+        except Exception as e:
+            self.logger.error(f"提取商品图片失败: {e}")
+            return None
+
+    def _convert_to_high_res_image(self, image_url: str) -> str:
+        """
+        将图片URL转换为高清版本
+
+        Args:
+            image_url: 原始图片URL
+
+        Returns:
+            str: 高清图片URL
+        """
+        try:
+            import re
+            # 将wc50或wc100替换为wc1000
+            high_res_url = re.sub(r'/wc\d+/', '/wc1000/', image_url)
+            return high_res_url
+        except Exception as e:
+            self.logger.warning(f"转换高清图片URL失败: {e}")
+            return image_url
+
+    async def _extract_competitor_count_from_content(self, soup) -> Optional[int]:
+        """
+        从页面内容中提取跟卖数量
+
+        Args:
+            soup: BeautifulSoup对象
+
+        Returns:
+            int: 跟卖数量，如果提取失败返回None
+        """
+        try:
+            # 📊 使用用户提供的精确XPath对应的CSS选择器
+            # XPath: //*[@id="product-preview-info"]/div[7]/div[3]/span
+            competitor_count_selectors = [
+                "#product-preview-info > div:nth-child(7) > div:nth-child(3) > span",
+                "#product-preview-info div:nth-child(7) div:nth-child(3) span",
+                "[id='product-preview-info'] div:nth-child(7) div:nth-child(3) span",
+                # 备用选择器
+                "[class*='competitor'] span",
+                "[class*='seller'] span",
+                "span[class*='count']"
+            ]
+
+            for selector in competitor_count_selectors:
+                element = soup.select_one(selector)
+                if element:
+                    text = element.get_text(strip=True)
+                    if text:
+                        # 提取数字
+                        import re
+                        numbers = re.findall(r'\d+', text)
+                        if numbers:
+                            count = int(numbers[0])
+                            self.logger.info(f"✅ 成功提取跟卖数量: {count}")
+                            return count
+
+            # 如果没有找到，尝试通用方法
+            return await self._extract_competitor_count_generic(soup)
+
+        except Exception as e:
+            self.logger.error(f"提取跟卖数量失败: {e}")
+            return None
+
+    async def _extract_competitor_count_generic(self, soup) -> Optional[int]:
+        """
+        通用方法提取跟卖数量
+
+        Args:
+            soup: BeautifulSoup对象
+
+        Returns:
+            int: 跟卖数量
+        """
+        try:
+            # 查找包含跟卖相关关键词的元素
+            keywords = ['跟卖', 'seller', 'competitor', 'offer', '卖家']
+
+            for keyword in keywords:
+                elements = soup.find_all(text=lambda text: text and keyword in text.lower())
+                for element in elements:
+                    parent = element.parent if hasattr(element, 'parent') else None
+                    if parent:
+                        # 在父元素及其兄弟元素中查找数字
+                        siblings = parent.find_next_siblings() + parent.find_previous_siblings()
+                        for sibling in siblings[:3]:  # 限制查找范围
+                            text = sibling.get_text(strip=True)
+                            if text:
+                                import re
+                                numbers = re.findall(r'\d+', text)
+                                if numbers:
+                                    count = int(numbers[0])
+                                    if 0 <= count <= 1000:  # 合理的跟卖数量范围
+                                        return count
+
+            return 0  # 默认返回0表示没有跟卖
+
+        except Exception as e:
+            self.logger.error(f"通用方法提取跟卖数量失败: {e}")
+            return 0
+
+    async def _extract_image_generic(self, soup) -> Optional[str]:
+        """
+        通用方法提取商品图片
+
+        Args:
+            soup: BeautifulSoup对象
+
+        Returns:
+            str: 图片URL
+        """
+        try:
+            # 查找所有可能的商品图片
+            img_elements = soup.find_all('img')
+
+            for img in img_elements:
+                src = img.get('src')
+                if src and ('multimedia' in src or 'ozone.ru' in src):
+                    # 过滤掉明显不是商品图片的URL
+                    if any(keyword in src.lower() for keyword in ['logo', 'icon', 'banner', 'avatar']):
+                        continue
+
+                    # 转换为高清版本
+                    high_res_url = self._convert_to_high_res_image(src)
+                    return high_res_url
+
+            return None
+
+        except Exception as e:
+            self.logger.error(f"通用方法提取商品图片失败: {e}")
+            return None
+
     async def _extract_price_data_generic(self, soup) -> Dict[str, Any]:
         """
         通用方法提取价格数据

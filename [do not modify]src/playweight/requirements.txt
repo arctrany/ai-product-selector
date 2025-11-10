@@ -1,8 +1,0 @@
-# Playwright Python 依赖
-playwright>=1.40.0
-openpyxl>=3.1.0
-pandas>=2.0.0
-asyncio
-# Web服务依赖
-flask>=2.3.0
-werkzeug>=2.3.0

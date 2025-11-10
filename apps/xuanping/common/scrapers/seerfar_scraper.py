@@ -177,7 +177,7 @@ class SeerfarScraper:
     async def _extract_sales_amount(self, page, sales_data: Dict[str, Any]):
         """提取销售额 - 使用 automation_scenario.py 中的精确XPath"""
         try:
-            self.logger.debug("📊 提取销售额...")
+
 
             # 使用 automation_scenario.py 中的精确XPath
             sales_amount_xpath = "/html/body/div[1]/div/div/div/div/div/div/div[1]/div/div[2]/div[3]/div[1]/div[3]"
@@ -196,7 +196,7 @@ class SeerfarScraper:
                     number = self._extract_number_from_text(text.strip())
                     if number:
                         sales_data['sold_30days'] = number
-                        self.logger.debug(f"✅ 销售额: {number} (原文: {text.strip()})")
+
                         return
 
             self.logger.warning("⚠️ 未能提取到销售额数据")
@@ -207,7 +207,7 @@ class SeerfarScraper:
     async def _extract_sales_volume(self, page, sales_data: Dict[str, Any]):
         """提取销量 - 使用 automation_scenario.py 中的精确XPath"""
         try:
-            self.logger.debug("📊 提取销量...")
+
 
             # 使用 automation_scenario.py 中的精确XPath
             sales_volume_xpath = "/html/body/div[1]/div/div/div/div/div/div/div[1]/div/div[2]/div[3]/div[2]/div[3]"
@@ -226,7 +226,7 @@ class SeerfarScraper:
                     number = self._extract_number_from_text(text.strip())
                     if number:
                         sales_data['sold_count_30days'] = int(number)
-                        self.logger.debug(f"✅ 销量: {int(number)} (原文: {text.strip()})")
+
                         return
 
             self.logger.warning("⚠️ 未能提取到销量数据")
@@ -237,7 +237,7 @@ class SeerfarScraper:
     async def _extract_daily_avg_sales(self, page, sales_data: Dict[str, Any]):
         """提取日均销量 - 使用 automation_scenario.py 中的精确XPath"""
         try:
-            self.logger.debug("📊 提取日均销量...")
+
 
             # 使用 automation_scenario.py 中的精确XPath
             daily_avg_xpath = "/html/body/div[1]/div/div/div/div/div/div/div[1]/div/div[2]/div[3]/div[3]/div[3]"
@@ -256,7 +256,7 @@ class SeerfarScraper:
                     number = self._extract_number_from_text(text.strip())
                     if number:
                         sales_data['daily_avg_sold'] = number
-                        self.logger.debug(f"✅ 日均销量: {number} (原文: {text.strip()})")
+
                         return
 
             self.logger.warning("⚠️ 未能提取到日均销量数据")
@@ -358,69 +358,125 @@ class SeerfarScraper:
     
     async def _extract_product_from_row_async(self, row_element) -> Optional[Dict[str, Any]]:
         """
-        异步从行元素中提取商品信息
-        
+        异步从行元素中提取商品信息并点击进入OZON详情页
+
         Args:
             row_element: 行元素
-            
+
         Returns:
-            Dict[str, Any]: 商品信息
+            Dict[str, Any]: 完整的商品信息（包含OZON详情页数据）
         """
         try:
             product_data = {}
-            
-            # 提取商品图片URL（通常在第二列或第一个img标签）
+
+            # 🔧 简化：直接查找并点击商品图片
             try:
-                img_element = await row_element.query_selector("img")
-                if img_element:
-                    image_url = await img_element.get_attribute('src')
-                    if image_url:
-                        product_data['image_url'] = image_url
-            except Exception as e:
-                self.logger.debug(f"提取图片URL失败: {e}")
-            
-            # 提取品牌名称
-            try:
-                brand_element = await row_element.query_selector(".//td[2] | .//div[contains(@class, 'brand')] | .//span[contains(@class, 'brand')]")
-                if brand_element:
-                    brand_text = await brand_element.text_content()
-                    if brand_text:
-                        product_data['brand_name'] = brand_text.strip()
-            except Exception as e:
-                self.logger.debug(f"提取品牌名称失败: {e}")
-            
-            # 提取SKU信息
-            try:
-                sku_element = await row_element.query_selector(".//td[3] | .//div[contains(@class, 'sku')] | .//span[contains(@class, 'sku')]")
-                if sku_element:
-                    sku_text = await sku_element.text_content()
-                    if sku_text:
-                        product_data['sku'] = sku_text.strip()
-            except Exception as e:
-                self.logger.debug(f"提取SKU失败: {e}")
-            
-            # 生成商品ID（如果没有明确的ID，使用图片URL或其他唯一标识）
-            if 'image_url' in product_data:
-                # 从图片URL中提取ID
-                url_match = re.search(r'/(\d+)', product_data['image_url'])
-                if url_match:
-                    product_data['product_id'] = url_match.group(1)
+                # 获取页面对象
+                page = self.browser_service.async_service.browser_service.browser_driver.page
+
+                # 🔧 修复：查找第三列中有onclick事件的元素
+                # 根据用户提供的XPath，商品在第三列（td[3]）
+                td3_element = await row_element.query_selector("td:nth-child(3)")
+                if not td3_element:
+                    self.logger.warning("⚠️ 未找到第三列，跳过此商品")
+                    return None
+
+                # 查找有onclick事件的可点击元素（优先查找span.avatar）
+                clickable_element = await td3_element.query_selector("span[onclick], [onclick]")
+                if not clickable_element:
+                    # 如果没有onclick，尝试查找其他可点击元素
+                    clickable_element = await td3_element.query_selector("img, a, span.avatar, .cursor-pointer")
+                    if not clickable_element:
+                        self.logger.warning("⚠️ 未找到可点击的商品元素，跳过此商品")
+                        return None
+
+                # 记录找到的元素类型，便于调试
+                element_tag = await clickable_element.evaluate("el => el.tagName")
+                element_class = await clickable_element.evaluate("el => el.className")
+                self.logger.info(f"🔗 找到可点击元素: {element_tag}.{element_class}")
+
+                # 直接提取onclick中的URL并打开
+                onclick_attr = await clickable_element.get_attribute("onclick")
+                if onclick_attr and "window.open" in onclick_attr:
+                    # 提取URL并在新标签页打开
+                    import re
+                    url_match = re.search(r"window\.open\('([^']+)'\)", onclick_attr)
+                    if url_match:
+                        ozon_url = url_match.group(1)
+                        self.logger.info(f"打开OZON URL: {ozon_url}")
+                        new_page = await page.context.new_page()
+                        await new_page.goto(ozon_url)
+                        await new_page.wait_for_load_state('domcontentloaded', timeout=5000)
+
+                        # 🔧 调用现有的OzonScraper来处理OZON详情页
+                        self.logger.info("📊 调用OzonScraper处理OZON商品详情页...")
+                        from .ozon_scraper import OzonScraper
+
+                        # 创建OzonScraper实例并提取数据
+                        ozon_scraper = OzonScraper(self.config)
+                        page_content = await new_page.content()
+                        ozon_price_data = await ozon_scraper._extract_price_data_from_content(page_content)
+                        ozon_competitor_data = await ozon_scraper._extract_competitor_stores_from_content(page_content, 10)
+
+                        # 合并OZON数据
+                        product_data.update(ozon_price_data)
+                        if ozon_competitor_data:
+                            product_data['competitors'] = ozon_competitor_data
+
+                        self.logger.info(f"✅ OZON数据提取完成: 价格数据={len(ozon_price_data)}项, 跟卖店铺={len(ozon_competitor_data)}个")
+
+                        await new_page.close()
+                        return product_data
                 else:
-                    product_data['product_id'] = str(hash(product_data['image_url']))[:10]
-            else:
-                product_data['product_id'] = f"product_{len(product_data)}"
-            
-            # 验证数据完整性 - 🔧 修复：确保至少有有效的关键字段
-            if (product_data.get('image_url') and
-                (product_data.get('brand_name') or product_data.get('sku'))):
-                return product_data
-            else:
-                self.logger.debug(f"商品数据不完整，跳过: {product_data}")
+                    self.logger.warning("未找到有效的onclick事件")
+                    return None
+
+                # 等待页面跳转
+                await page.wait_for_load_state('domcontentloaded', timeout=3000)
+
+                # 🔧 调用现有的OzonScraper来处理OZON详情页
+                self.logger.info("📊 调用OzonScraper处理OZON商品详情页...")
+                from .ozon_scraper import OzonScraper
+
+                # 创建OzonScraper实例并提取数据
+                ozon_scraper = OzonScraper(self.config)
+                page_content = await page.content()
+                ozon_price_data = await ozon_scraper._extract_price_data_from_content(page_content)
+                ozon_competitor_data = await ozon_scraper._extract_competitor_stores_from_content(page_content, 10)
+
+                # 合并OZON数据
+                product_data.update(ozon_price_data)
+                if ozon_competitor_data:
+                    product_data['competitors'] = ozon_competitor_data
+
+                self.logger.info(f"✅ OZON数据提取完成: 价格数据={len(ozon_price_data)}项, 跟卖店铺={len(ozon_competitor_data)}个")
+
+                # 返回原页面
+                await page.go_back()
+                await page.wait_for_load_state('domcontentloaded', timeout=3000)
+
+            except Exception as e:
+                self.logger.error(f"点击商品图片或提取OZON数据失败: {e}")
                 return None
-                
+
+            # 生成商品ID
+            if not product_data.get('product_id'):
+                if product_data.get('image_url'):
+                    url_match = re.search(r'/(\d+)', product_data['image_url'])
+                    if url_match:
+                        product_data['product_id'] = url_match.group(1)
+                    else:
+                        product_data['product_id'] = str(hash(product_data['image_url']))[:10]
+                else:
+                    product_data['product_id'] = f"product_{int(time.time())}"
+
+            return product_data if product_data else None
+
         except Exception as e:
-            self.logger.warning(f"从行元素提取商品信息失败: {e}")
+            self.logger.error(f"提取商品信息失败: {e}")
             return None
+
+
     
     def validate_store_filter_conditions(self, sales_data: Dict[str, Any]) -> bool:
         """
@@ -452,6 +508,8 @@ class SeerfarScraper:
             self.logger.error(f"验证店铺筛选条件失败: {e}")
             return False
     
+
+
     def _extract_number_from_text(self, text: str) -> Optional[float]:
         """
         从文本中提取数字

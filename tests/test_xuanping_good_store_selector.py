@@ -281,20 +281,7 @@ class TestGoodStoreSelector:
         result = self.selector._validate_store_filter_conditions(sales_data_fail_orders)
         assert result == False
     
-    def test_convert_image_url_to_product_url(self):
-        """测试图片URL转换为商品URL"""
-        # 测试正常的图片URL
-        image_url = "https://cdn1.ozone.ru/s3/multimedia-1/wc1000/6123456789.jpg"
-        product_url = self.selector._convert_image_url_to_product_url(image_url)
-        
-        # 验证转换结果（这里需要根据实际的转换逻辑来验证）
-        assert product_url is not None
-        assert isinstance(product_url, str)
-        
-        # 测试无效的URL
-        invalid_url = "invalid_url"
-        product_url = self.selector._convert_image_url_to_product_url(invalid_url)
-        assert product_url == invalid_url  # 应该返回原URL
+    # 🔧 已删除：_convert_image_url_to_product_url 方法已删除，因为商品页面通过点击打开，不需要URL转换
     
     def test_generate_processing_summary(self):
         """测试生成处理摘要"""

@@ -10,6 +10,8 @@ import os
 import argparse
 import logging
 import time
+import signal
+import threading
 from pathlib import Path
 
 # 添加项目根目录到Python路径
@@ -23,6 +25,51 @@ from apps.xuanping.cli.log_manager import LogManager
 from apps.xuanping.common.config import GoodStoreSelectorConfig
 from apps.xuanping.common.task_control import TaskControlInterface
 from apps.xuanping.common.logging_config import setup_logging
+
+def _handle_interactive_exit():
+    """处理任务完成后的交互式退出"""
+    print("\n" + "="*60)
+    print("🎉 任务执行完成！")
+    print("="*60)
+
+    # 使用线程来实现超时功能
+    user_input = [None]  # 使用列表来在闭包中修改值
+    input_received = threading.Event()
+
+    def get_user_input():
+        try:
+            user_input[0] = input("\n💡 按 Enter 键退出程序，或输入任意内容后按 Enter 继续等待: ").strip()
+            input_received.set()
+        except (EOFError, KeyboardInterrupt):
+            input_received.set()
+
+    # 启动输入线程
+    input_thread = threading.Thread(target=get_user_input, daemon=True)
+    input_thread.start()
+
+    # 等待用户输入或超时
+    timeout_seconds = 60
+    print(f"⏰ 程序将在 {timeout_seconds} 秒后自动退出...")
+
+    if input_received.wait(timeout=timeout_seconds):
+        # 用户有输入
+        if user_input[0] is not None and user_input[0] != "":
+            print(f"📝 收到输入: {user_input[0]}")
+            print("⏸️ 程序将保持运行状态，您可以手动关闭...")
+            # 无限等待，直到用户手动关闭
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\n🛑 用户手动中断，程序退出")
+                return 0
+        else:
+            print("✅ 用户确认退出")
+            return 0
+    else:
+        # 超时自动退出
+        print(f"\n⏰ {timeout_seconds} 秒超时，程序自动退出")
+        return 0
 
 
 def setup_cli_logging(log_level: LogLevel = LogLevel.INFO):
@@ -305,7 +352,8 @@ def handle_start_command(args):
 
                 if current_state == AppState.COMPLETED:
                     print("🎉 选评任务已完成！")
-                    break
+                    # 任务完成后的交互式退出
+                    return _handle_interactive_exit()
                 elif current_state == AppState.ERROR:
                     print("❌ 任务执行出错")
                     return 1
