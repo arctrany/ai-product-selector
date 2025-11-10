@@ -147,34 +147,6 @@ class XuanpingBrowserService:
             self.logger.debug(f"检查现有浏览器失败: {e}")
             return False
     
-    def _get_user_data_dir(self, browser_type: str, profile_name: str) -> Optional[str]:
-        """获取用户数据目录 - 复用现有浏览器进程，指定用户数据目录"""
-        # 根据浏览器类型和操作系统确定用户数据目录
-        import platform
-
-        system = platform.system()
-
-        if browser_type.lower() == 'edge':
-            if system == 'Darwin':  # macOS
-                user_data_dir = f"/Users/{os.environ.get('USER', 'default')}/Library/Application Support/Microsoft Edge"
-            elif system == 'Windows':
-                user_data_dir = f"{os.environ.get('LOCALAPPDATA', '')}/Microsoft/Edge/User Data"
-            else:  # Linux
-                user_data_dir = f"{os.environ.get('HOME', '')}/.config/microsoft-edge"
-        elif browser_type.lower() == 'chrome':
-            if system == 'Darwin':  # macOS
-                user_data_dir = f"/Users/{os.environ.get('USER', 'default')}/Library/Application Support/Google/Chrome"
-            elif system == 'Windows':
-                user_data_dir = f"{os.environ.get('LOCALAPPDATA', '')}/Google/Chrome/User Data"
-            else:  # Linux
-                user_data_dir = f"{os.environ.get('HOME', '')}/.config/google-chrome"
-        else:
-            # 默认使用临时目录
-            user_data_dir = None
-
-        self.logger.info(f"🔄 配置为复用现有浏览器进程，用户数据目录: {user_data_dir}")
-        return user_data_dir
-    
     async def initialize(self) -> bool:
         """
         初始化浏览器服务

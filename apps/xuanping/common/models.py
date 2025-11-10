@@ -279,19 +279,34 @@ def clean_price_string(price_str: str) -> Optional[float]:
     if not price_str or not isinstance(price_str, str):
         return None
     
-    # 移除常见的货币符号和空白字符
-    cleaned = price_str.strip().replace('₽', '').replace('¥', '').replace('$', '').replace(',', '')
-    
-    try:
-        return float(cleaned)
-    except (ValueError, TypeError):
-        return None
+    # 🔧 修复：正确处理俄语网站中的特殊字符和前缀词
+    import re
 
+    # 处理 "From 3 800 ₽" 格式，移除前缀词
+    # 移除常见的前缀词：From, от, с, до, etc.
+    text = re.sub(r'^(From|от|с|до)\s+', '', price_str, flags=re.IGNORECASE)
+
+    # 移除货币符号和特殊空格字符（包括不间断空格 \u00a0 和窄空格 \u202f）
+    cleaned = re.sub(r'[₽руб\s\u00a0\u202f]', '', text)
+
+    # 处理千位分隔符（俄语中使用窄空格作为千位分隔符）
+    cleaned = cleaned.replace(',', '.').replace(' ', '').replace(' ', '')
+
+    # 使用正则表达式提取数字
+    # 匹配数字模式：可能包含小数点
+    number_match = re.search(r'(\d+(?:[.,]\d+)?)', cleaned)
+    if number_match:
+        number_str = number_match.group(1).replace(',', '.')
+        try:
+            return float(number_str)
+        except (ValueError, TypeError):
+            return None
+
+    return None
 
 def format_currency(amount: float, currency: str = '¥') -> str:
     """格式化货币显示"""
     return f"{currency}{amount:.2f}"
-
 
 def calculate_profit_rate(profit: float, cost: float) -> float:
     """计算利润率"""

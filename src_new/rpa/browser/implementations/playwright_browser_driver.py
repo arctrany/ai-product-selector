@@ -138,15 +138,20 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
 
     # ==================== 页面操作 ====================
 
-    async def open_page(self, url: str, wait_until: str = 'networkidle') -> bool:
+    async def open_page(self, url: str, wait_until: str = 'load') -> bool:
         """打开页面"""
         if not self._initialized or not self.page:
             self._logger.error("Browser driver not initialized")
             return False
-        
+
         try:
             self._logger.info(f"Navigating to: {url}")
-            await self.page.goto(url, wait_until=wait_until, timeout=30000)
+            # 🔧 优化页面加载性能：减少等待时间并使用更高效的等待策略
+            # 对于Ozon等电商平台，'domcontentloaded'通常比'load'更快且足够
+            # 进一步优化：使用networkidle但设置更短的超时时间
+            await self.page.goto(url, wait_until='domcontentloaded', timeout=10000)
+            # 额外等待一小段时间确保关键元素加载，但使用更智能的等待
+            await asyncio.sleep(0.5)
             return True
             
         except Exception as e:
@@ -365,15 +370,8 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             if channel:
                 launch_options['channel'] = channel
             
-            # 🔍 DEBUG: 打印详细的启动参数
-            self._logger.info("=" * 80)
-            self._logger.info("🔍 浏览器启动参数详细信息:")
-            self._logger.info(f"   browser_type: {browser_type}")
-            self._logger.info(f"   headless: {headless}")
-            self._logger.info(f"   user_data_dir: {user_data_dir}")
-            self._logger.info(f"   channel: {channel}")
-            self._logger.info(f"   launch_args: {launch_options['args']}")
-            self._logger.info("=" * 80)
+            # 🔧 优化：简化日志输出，只显示关键信息
+            self._logger.info(f"🔧 启动浏览器: {browser_type}, headless={headless}")
 
             # 🔧 关键修复：当 user_data_dir 为 None 时，使用默认用户数据目录
             if user_data_dir is not None:
@@ -427,15 +425,14 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
 
                     if os.path.exists(default_profile_dir):
                         extensions_dir = os.path.join(default_profile_dir, "Extensions")
-                        self._logger.info(f"🔍 扩展目录: {extensions_dir}")
-                        self._logger.info(f"🔍 扩展目录是否存在: {os.path.exists(extensions_dir)}")
+
 
                         if os.path.exists(extensions_dir):
                             try:
                                 extensions = [d for d in os.listdir(extensions_dir) if os.path.isdir(os.path.join(extensions_dir, d))]
-                                self._logger.info(f"🔍 发现 {len(extensions)} 个扩展目录: {extensions[:5]}...")  # 只显示前5个
+                                self._logger.debug(f"🔍 发现 {len(extensions)} 个扩展目录: {extensions[:5]}...")  # 只显示前5个
                             except Exception as e:
-                                self._logger.warning(f"🔍 无法读取扩展目录: {e}")
+                                self._logger.debug(f"🔍 无法读取扩展目录: {e}")
 
                     # 使用系统默认的用户数据目录，并明确指定默认 Profile
                     # 在启动参数中添加默认 Profile 目录
@@ -485,6 +482,12 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
                             '--disable-features=AutofillShowTypePredictions',
                             '--disable-features=PasswordGeneration',
                             '--disable-background-timer-throttling',
+                            # 🔧 性能优化：禁用不必要的功能以提高页面加载速度
+                            '--disable-backgrounding-occluded-windows',
+                            '--disable-renderer-backgrounding',
+                            '--disable-ipc-flooding-protection',
+                            '--disable-background-media-suspend',
+                            '--no-proxy-server',  # 禁用代理以提高速度
                         ]
                     })
 

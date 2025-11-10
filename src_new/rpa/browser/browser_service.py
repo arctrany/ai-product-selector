@@ -155,7 +155,7 @@ class SimplifiedBrowserService:
             self.logger.error(f"❌ 浏览器启动失败: {e}")
             return False
 
-    async def navigate_to(self, url: str, wait_until: str = "networkidle") -> bool:
+    async def navigate_to(self, url: str, wait_until: str = "load") -> bool:
         """导航到指定URL"""
         try:
             if not self._browser_started:
