@@ -26,24 +26,32 @@ from ..models import ScrapingError, ScrapingResult
 
 class XuanpingBrowserService:
     """
-    选评专用浏览器服务（单例模式）
+    选评专用浏览器服务（线程安全单例模式）
 
     基于现有的 BrowserService，提供选评系统所需的特定功能：
     - 自动配置用户数据目录和Profile
     - 支持调试端口和会话复用
     - 集成选评系统的配置和异常处理
-    - 🔧 关键修复：使用单例模式确保所有 Scraper 共享同一个浏览器进程
+    - 🔧 关键修复：线程安全的单例模式，确保所有 Scraper 共享同一个浏览器进程
     """
 
     _instance = None
-    _lock = asyncio.Lock()
+    _lock = None  # 将在类方法中初始化
+    _initialized = False
 
     def __new__(cls, config: Optional[Dict[str, Any]] = None):
-        """单例模式：确保只有一个浏览器服务实例"""
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized_singleton = False
-        return cls._instance
+        """线程安全的单例模式：确保只有一个浏览器服务实例"""
+        import threading
+
+        # 使用线程锁而不是异步锁，因为 __new__ 是同步的
+        if cls._lock is None:
+            cls._lock = threading.Lock()
+
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+                cls._instance._initialized_singleton = False
+            return cls._instance
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
@@ -384,107 +392,36 @@ class XuanpingBrowserServiceSync:
         self.logger = logging.getLogger(__name__)
     
     def _run_async(self, coro):
-        """运行异步函数 - 🔧 关键修复：确保所有操作在同一个事件循环中执行"""
+        """运行异步函数 - 🔧 性能优化：简化事件循环管理，避免复杂的嵌套和线程切换"""
         try:
-            # 🔧 关键修复：使用类级别的事件循环管理，确保一致性
-            if not hasattr(self.__class__, '_shared_loop'):
-                # 创建共享的事件循环
-                self.__class__._shared_loop = None
-                self.__class__._shared_thread = None
-
-            # 🔧 关键修复：检查当前是否在事件循环中
+            # 🔧 性能优化：优先使用现有事件循环
             try:
-                current_loop = asyncio.get_running_loop()
-
-                # 如果已经有共享循环且是同一个，直接使用
-                if (self.__class__._shared_loop and
-                    self.__class__._shared_loop == current_loop):
-                    # 使用 nest_asyncio 允许嵌套执行
-                    try:
-                        import nest_asyncio
-                        nest_asyncio.apply()
-                        return current_loop.run_until_complete(coro)
-                    except ImportError:
-                        # 创建任务而不是直接运行
-                        task = current_loop.create_task(coro)
-                        # 等待任务完成（这里可能需要特殊处理）
-                        import concurrent.futures
-                        with concurrent.futures.ThreadPoolExecutor() as executor:
-                            future = executor.submit(self._run_task_in_thread, task)
-                            return future.result()
-
-                # 如果在不同的事件循环中，使用共享线程
-                return self._run_in_shared_thread(coro)
-
+                loop = asyncio.get_running_loop()
+                # 如果在事件循环中，使用 nest_asyncio 支持嵌套
+                try:
+                    import nest_asyncio
+                    nest_asyncio.apply()
+                    return loop.run_until_complete(coro)
+                except ImportError:
+                    # 如果没有 nest_asyncio，创建任务并等待
+                    task = loop.create_task(coro)
+                    return self._wait_for_task(task)
             except RuntimeError:
-                # 没有运行的事件循环，创建或使用共享线程
-                return self._run_in_shared_thread(coro)
+                # 没有运行的事件循环，直接运行
+                return asyncio.run(coro)
 
         except Exception as e:
             self.logger.error(f"❌ 异步函数执行失败: {e}")
             raise
 
-    def _run_task_in_thread(self, task):
-        """在线程中运行任务"""
-        import asyncio
+    def _wait_for_task(self, task):
+        """等待任务完成 - 避免阻塞事件循环"""
         import time
-
-        # 等待任务完成
         while not task.done():
-            time.sleep(0.01)
-
+            time.sleep(0.01)  # 短暂休眠，避免CPU占用过高
         return task.result()
 
-    def _run_in_shared_thread(self, coro):
-        """在共享线程中运行协程 - 🔧 关键修复：确保浏览器对象的事件循环一致性"""
-        import threading
-        import queue
 
-        if (not self.__class__._shared_loop or
-            not self.__class__._shared_thread or
-            not self.__class__._shared_thread.is_alive()):
-
-            # 创建共享的事件循环线程
-            result_queue = queue.Queue()
-
-            def run_shared_loop():
-                """运行共享事件循环"""
-                try:
-                    # 创建新的事件循环
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    self.__class__._shared_loop = loop
-
-                    self.logger.info("🔄 创建共享事件循环线程")
-
-                    # 运行事件循环
-                    loop.run_forever()
-
-                except Exception as e:
-                    self.logger.error(f"❌ 共享事件循环异常: {e}")
-                finally:
-                    if loop:
-                        loop.close()
-                    self.__class__._shared_loop = None
-
-            # 启动共享线程
-            self.__class__._shared_thread = threading.Thread(target=run_shared_loop, daemon=True)
-            self.__class__._shared_thread.start()
-
-            # 等待事件循环准备就绪
-            import time
-            max_wait = 5  # 最多等待5秒
-            waited = 0
-            while not self.__class__._shared_loop and waited < max_wait:
-                time.sleep(0.1)
-                waited += 0.1
-
-            if not self.__class__._shared_loop:
-                raise RuntimeError("共享事件循环创建失败")
-
-        # 在共享事件循环中执行协程
-        future = asyncio.run_coroutine_threadsafe(coro, self.__class__._shared_loop)
-        return future.result(timeout=60)  # 60秒超时
     
     def initialize(self) -> bool:
         """同步初始化"""

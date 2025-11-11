@@ -274,20 +274,47 @@ def validate_weight(weight: Optional[float]) -> bool:
     return isinstance(weight, (int, float)) and weight > 0
 
 
-def clean_price_string(price_str: str) -> Optional[float]:
-    """清理价格字符串，提取数值"""
+def clean_price_string(price_str: str, selectors_config=None) -> Optional[float]:
+    """
+    清理价格字符串，提取数值
+
+    Args:
+        price_str: 价格字符串
+        selectors_config: 选择器配置对象，包含货币符号等配置
+
+    Returns:
+        Optional[float]: 提取的价格数值，失败返回None
+    """
     if not price_str or not isinstance(price_str, str):
         return None
-    
-    # 🔧 修复：正确处理俄语网站中的特殊字符和前缀词
+
+    # 🔧 修复：支持配置化的货币匹配
     import re
 
-    # 处理 "From 3 800 ₽" 格式，移除前缀词
-    # 移除常见的前缀词：From, от, с, до, etc.
-    text = re.sub(r'^(From|от|с|до)\s+', '', price_str, flags=re.IGNORECASE)
+    # 获取配置，如果没有提供则使用默认配置
+    if selectors_config is None:
+        from .config.ozon_selectors import get_ozon_selectors_config
+        selectors_config = get_ozon_selectors_config()
 
-    # 移除货币符号和特殊空格字符（包括不间断空格 \u00a0 和窄空格 \u202f）
-    cleaned = re.sub(r'[₽руб\s\u00a0\u202f]', '', text)
+    # 处理价格前缀词，移除前缀词
+    prefix_pattern = '|'.join(re.escape(prefix) for prefix in selectors_config.PRICE_PREFIX_WORDS)
+    if prefix_pattern:
+        text = re.sub(f'^({prefix_pattern})\\s+', '', price_str, flags=re.IGNORECASE)
+    else:
+        text = price_str
+
+    # 移除货币符号和特殊空格字符
+    # 构建货币符号模式
+    currency_pattern = '|'.join(re.escape(symbol) for symbol in selectors_config.CURRENCY_SYMBOLS)
+
+    # 构建特殊空格字符模式
+    space_chars = ''.join(selectors_config.SPECIAL_SPACE_CHARS)
+
+    # 移除货币符号、特殊空格字符和普通空格
+    if currency_pattern:
+        cleaned = re.sub(f'[{re.escape(space_chars)}\\s]|({currency_pattern})', '', text, flags=re.IGNORECASE)
+    else:
+        cleaned = re.sub(f'[{re.escape(space_chars)}\\s]', '', text)
 
     # 处理千位分隔符（俄语中使用窄空格作为千位分隔符）
     cleaned = cleaned.replace(',', '.').replace(' ', '').replace(' ', '')

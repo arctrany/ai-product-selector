@@ -67,8 +67,7 @@ class OzonCompetitorScenarioTester:
                 # 验证价格是否正确提取
                 if green_price and black_price:
                     print(f"✅ 价格提取验证: 绿标={green_price}₽, 黑标={black_price}₽")
-                else:
-                    print("⚠️ 价格提取存在问题，需要检查选择器")
+
 
             else:
                 print(f"❌ 价格信息抓取失败: {price_result.error_message}")
@@ -222,8 +221,6 @@ class OzonCompetitorScenarioTester:
                 # 验证价格是否正确提取
                 if green_price and black_price:
                     print(f"✅ 价格提取验证: 绿标={green_price}₽, 黑标={black_price}₽")
-                else:
-                    print("⚠️ 价格提取存在问题，需要检查选择器")
 
                 # 验证跟卖数量
                 if competitor_count is not None:

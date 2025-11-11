@@ -14,25 +14,24 @@ from .xuanping_browser_service import XuanpingBrowserServiceSync
 from .competitor_scraper import CompetitorScraper
 from ..models import ProductInfo, CompetitorStore, clean_price_string, ScrapingResult
 from ..config import GoodStoreSelectorConfig
-
-
-# 🚫 删除重复的全局函数 - 价格提取逻辑已集成到 OzonScraper 类中
+from ..config.ozon_selectors import get_ozon_selectors_config, OzonSelectorsConfig
 
 
 class OzonScraper:
     """OZON平台抓取器 - 基于browser_service架构"""
 
-    def __init__(self, config: Optional[GoodStoreSelectorConfig] = None):
+    def __init__(self, config: Optional[GoodStoreSelectorConfig] = None, selectors_config: Optional[OzonSelectorsConfig] = None):
         """初始化OZON抓取器"""
         self.config = config or GoodStoreSelectorConfig()
+        self.selectors_config = selectors_config or get_ozon_selectors_config()
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.base_url = self.config.scraping.ozon_base_url
 
-        # 创建浏览器服务
+        # 🔧 性能优化：使用共享的浏览器服务，避免重复创建
         self.browser_service = XuanpingBrowserServiceSync()
 
         # 创建跟卖抓取器
-        self.competitor_scraper = CompetitorScraper()
+        self.competitor_scraper = CompetitorScraper(selectors_config=self.selectors_config)
 
     def scrape_product_prices(self, product_url: str) -> ScrapingResult:
         """
@@ -51,8 +50,8 @@ class OzonScraper:
             async def extract_price_data(browser_service):
                 """异步提取价格数据"""
                 try:
-                    # 等待页面加载
-                    await asyncio.sleep(1)
+                    # 🔧 性能优化：减少不必要的等待时间
+                    await asyncio.sleep(0.5)
 
                     # 获取页面内容
                     page_content = await browser_service.get_page_content()
@@ -102,7 +101,7 @@ class OzonScraper:
         Args:
             product_url: 商品URL
             max_competitors: 最大跟卖店铺数量，默认10个
-            
+
         Returns:
             ScrapingResult: 抓取结果，包含跟卖店铺信息
         """
@@ -112,8 +111,8 @@ class OzonScraper:
             async def extract_competitor_data(browser_service):
                 """异步提取跟卖店铺数据"""
                 try:
-                    # 等待页面加载
-                    await asyncio.sleep(2)
+                    # 🔧 性能优化：减少不必要的等待时间
+                    await asyncio.sleep(0.5)
 
                     # 🔧 修复：使用CompetitorScraper的严格跟卖检测方法
                     page = browser_service.browser_driver.page
@@ -220,34 +219,7 @@ class OzonScraper:
                 execution_time=time.time() - start_time
             )
 
-    # 价格选择器配置 - ✅ 根据用户提供的准确选择器修复 + 降级选择器
-    PRICE_SELECTORS = [
-        # 🎯 用户提供的精确选择器（优先级最高）
-        ("#layoutPage > div.b6 > div.container.c > div.pdp_sa1.pdp_as5.pdp_as7 > div.pdp_mb9 > div > div > div.pdp_sa1.pdp_as8.pdp_as5.pdp_sa5 > div.pdp_i6b.pdp_bi9 > div > div.pdp_bi7 > div > div > div.pdp_f2b > div.pdp_b1f.a25_3_7-a.a25_3_7-a3 > button > span > div > div.pdp_t2.pdp_t4 > div > div > span", "green"),  # ✅ 绿标价格：用户提供的精确选择器
-        ("#layoutPage > div.b6 > div.container.c > div.pdp_sa1.pdp_as5.pdp_as7 > div.pdp_mb9 > div > div > div.pdp_sa1.pdp_as8.pdp_as5.pdp_sa5 > div.pdp_i6b.pdp_bi9 > div > div.pdp_bi7 > div > div > div.pdp_f2b > div.pdp_fb6.pdp_bg > div > div.pdp_bf9 > span.pdp_b7f.tsHeadline500Medium", "black"),   # ✅ 黑标价格：用户提供的精确选择器
 
-        # 🔄 降级选择器（当主选择器获取不到时使用）
-        ("#layoutPage > div.b6 > div.container.c > div.pdp_sa1.pdp_as5.pdp_as7 > div.pdp_mb9 > div > div > div.pdp_sa1.pdp_as8.pdp_as5.pdp_sa5 > div.pdp_i6b.pdp_bi9 > div.pdp_b8i.pdp_i8b > div.pdp_bi7 > div > div > div.pdp_f2b > div > div > div.pdp_bf9 > span.pdp_b7f.tsHeadline600Large", "black"),  # 🎯 用户提供的降级黑标选择器
-        ("[data-widget='webPrice'] .tsHeadline500Medium", "green"),  # 备用绿标价格选择器
-        ("[data-widget='webPrice'] .tsHeadline600Large", "black"),   # 备用黑标价格选择器
-
-        # ⚠️ 最后的通用选择器（可能匹配到错误内容，谨慎使用）
-        # 注意：这些选择器可能会匹配到页面上的其他内容，需要在价格提取逻辑中进行严格过滤
-        # ("span.tsHeadline500Medium", "green"),  # 更通用的绿标选择器（暂时禁用，避免误匹配）
-        # ("span.tsHeadline600Large", "black"),   # 更通用的黑标选择器（暂时禁用，避免误匹配）
-
-        # 🚫 删除可能导致数据覆盖的 auto 选择器
-        # ("[data-widget='webPrice'] span", "auto"),  # 这个选择器可能意外提取到跟卖价格
-    ]
-
-    # 图片选择器配置 - 统一配置避免重复
-    IMAGE_SELECTORS = [
-        "#layoutPage > div:nth-child(1) > div:nth-child(3) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div > div > div > div:nth-child(1) > div > div > div:nth-child(1) > div:nth-child(1) > div > div > div:nth-child(2) > div > div > div > img",
-        "[class*='pdp_y3']",
-        "[class*='b95_3_3-a']",
-        "img[src*='multimedia']",
-        "img[src*='ozone.ru']"
-    ]
 
     def _extract_price_data_core(self, soup, is_async=False) -> Dict[str, Any]:
         """
@@ -274,17 +246,9 @@ class OzonScraper:
 
             # 🔧 修复：直接在主流程中检测跟卖关键词并提取价格
             page_text = soup.get_text()
-            # 🌐 支持多语言：俄文和英文跟卖关键词
-            competitor_keywords = [
-                # 俄文关键词
-                'у других продавцов', 'есть дешевле', 'есть быстрее',
-                # 英文关键词
-                'from other sellers', 'available cheaper', 'available faster',
-                'other sellers', 'cheaper available', 'faster delivery'
-            ]
 
             # 检测跟卖关键词
-            for keyword in competitor_keywords:
+            for keyword in self.selectors_config.COMPETITOR_KEYWORDS:
                 if keyword.lower() in page_text.lower():
                     self.logger.info(f"🔍 检测到跟卖关键词: {keyword}")
                     price_data.update({
@@ -312,7 +276,7 @@ class OzonScraper:
         black_price = None
 
         # 🔧 修复：严格按照选择器类型提取价格，避免混淆
-        for selector, price_type in self.PRICE_SELECTORS:
+        for selector, price_type in self.selectors_config.PRICE_SELECTORS:
             try:
                 elements = soup.select(selector)
                 self.logger.debug(f"🔍 使用选择器 '{selector}' (类型: {price_type}) 找到 {len(elements)} 个元素")
@@ -371,7 +335,7 @@ class OzonScraper:
                 return None
 
             # 使用clean_price_string函数提取价格
-            price = clean_price_string(text)
+            price = clean_price_string(text, self.selectors_config)
             return price
 
         except Exception as e:
@@ -379,13 +343,10 @@ class OzonScraper:
             return None
 
     def _extract_competitor_price_value(self, soup) -> Optional[float]:
-        """提取具体的跟卖价格数值 - 使用用户提供的精确选择器"""
+        """提取具体的跟卖价格数值 - 使用配置的精确选择器"""
         try:
-            # 🎯 使用用户提供的精确跟卖价格选择器
-            # 选择器：span.q6b3_0_2-a1
-            # 元素：<span class="q6b3_0_2-a1">From 3 800 ₽</span>
-
-            competitor_price_selector = "span.q6b3_0_2-a1"
+            # 🎯 使用配置的精确跟卖价格选择器
+            competitor_price_selector = self.selectors_config.COMPETITOR_PRICE_SELECTOR
 
             self.logger.debug(f"🔍 使用精确跟卖价格选择器: {competitor_price_selector}")
 
@@ -397,7 +358,9 @@ class OzonScraper:
                 self.logger.debug(f"🔍 找到跟卖价格元素文本: '{text}'")
 
                 # 🔧 修复：只处理包含价格符号的元素，过滤掉配送时间等非价格信息
-                if '₽' not in text and 'руб' not in text and 'rub' not in text:
+                # 使用配置化的货币符号检查
+                has_currency = any(symbol.lower() in text.lower() for symbol in self.selectors_config.CURRENCY_SYMBOLS)
+                if not has_currency:
                     self.logger.debug(f"⚠️ 跳过非价格元素: '{text}'")
                     continue
 
@@ -430,7 +393,7 @@ class OzonScraper:
             str: 商品图片URL，如果提取失败返回None
         """
         try:
-            for selector in self.IMAGE_SELECTORS:
+            for selector in self.selectors_config.IMAGE_SELECTORS:
                 img_element = soup.select_one(selector)
                 if img_element:
                     src = img_element.get('src')

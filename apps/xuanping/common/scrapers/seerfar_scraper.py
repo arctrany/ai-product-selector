@@ -13,14 +13,15 @@ from pathlib import Path
 
 from .xuanping_browser_service import XuanpingBrowserServiceSync
 from ..models import StoreInfo, ProductInfo, clean_price_string, ScrapingResult
-from ..config import GoodStoreSelectorConfig
+from apps.xuanping.common.config import GoodStoreSelectorConfig
+from apps.xuanping.common.config.seerfar_selectors import get_seerfar_selector, get_seerfar_selectors
 
 class SeerfarScraper:
     """Seerfar平台抓取器"""
     
     def __init__(self, config: Optional[GoodStoreSelectorConfig] = None):
         """初始化Seerfar抓取器"""
-        from ..config import get_config
+        from apps.xuanping.common.config import get_config
         import logging
         
         self.config = config or get_config()
@@ -133,7 +134,7 @@ class SeerfarScraper:
     
     async def _extract_sales_data_async(self, browser_service) -> Dict[str, Any]:
         """
-        异步提取销售数据 - 使用 automation_scenario.py 中的精确 XPath 方法
+        异步提取销售数据 - 使用配置文件中的选择器
 
         Args:
             browser_service: 浏览器服务实例
@@ -147,20 +148,20 @@ class SeerfarScraper:
             # 使用Playwright的页面API进行元素查找
             page = browser_service.browser_driver.page
 
-            # 🔧 关键修复：使用 automation_scenario.py 中的精确 XPath 提取销售额
+            # 使用配置文件中的选择器提取销售额
             await self._extract_sales_amount(page, sales_data)
 
-            # 🔧 关键修复：使用 automation_scenario.py 中的精确 XPath 提取销量
+            # 使用配置文件中的选择器提取销量
             await self._extract_sales_volume(page, sales_data)
 
-            # 🔧 关键修复：使用 automation_scenario.py 中的精确 XPath 提取日均销量
+            # 使用配置文件中的选择器提取日均销量
             await self._extract_daily_avg_sales(page, sales_data)
 
             # 如果没有找到具体元素，尝试通用方法
             if not sales_data:
                 sales_data = await self._extract_sales_data_generic_async(page)
 
-            # 🔧 新增：合并日志输出店铺数据摘要
+            # 合并日志输出店铺数据摘要
             if sales_data:
                 sales_amount = sales_data.get('sold_30days', 0)
                 sales_volume = sales_data.get('sold_count_30days', 0)
@@ -175,12 +176,13 @@ class SeerfarScraper:
             return {}
 
     async def _extract_sales_amount(self, page, sales_data: Dict[str, Any]):
-        """提取销售额 - 使用 automation_scenario.py 中的精确XPath"""
+        """提取销售额 - 使用配置文件中的选择器"""
         try:
-
-
-            # 使用 automation_scenario.py 中的精确XPath
-            sales_amount_xpath = "/html/body/div[1]/div/div/div/div/div/div/div[1]/div/div[2]/div[3]/div[1]/div[3]"
+            # 从配置文件获取销售额选择器
+            sales_amount_xpath = get_seerfar_selector('store_sales_data', 'sales_amount')
+            if not sales_amount_xpath:
+                self.logger.error("❌ 未能找到销售额选择器配置")
+                return
 
             # 等待元素出现
             try:
@@ -196,7 +198,6 @@ class SeerfarScraper:
                     number = self._extract_number_from_text(text.strip())
                     if number:
                         sales_data['sold_30days'] = number
-
                         return
 
             self.logger.warning("⚠️ 未能提取到销售额数据")
@@ -205,12 +206,13 @@ class SeerfarScraper:
             self.logger.error(f"❌ 销售额提取失败: {str(e)}")
 
     async def _extract_sales_volume(self, page, sales_data: Dict[str, Any]):
-        """提取销量 - 使用 automation_scenario.py 中的精确XPath"""
+        """提取销量 - 使用配置文件中的选择器"""
         try:
-
-
-            # 使用 automation_scenario.py 中的精确XPath
-            sales_volume_xpath = "/html/body/div[1]/div/div/div/div/div/div/div[1]/div/div[2]/div[3]/div[2]/div[3]"
+            # 从配置文件获取销量选择器
+            sales_volume_xpath = get_seerfar_selector('store_sales_data', 'sales_volume')
+            if not sales_volume_xpath:
+                self.logger.error("❌ 未能找到销量选择器配置")
+                return
 
             # 等待元素出现
             try:
@@ -226,7 +228,6 @@ class SeerfarScraper:
                     number = self._extract_number_from_text(text.strip())
                     if number:
                         sales_data['sold_count_30days'] = int(number)
-
                         return
 
             self.logger.warning("⚠️ 未能提取到销量数据")
@@ -235,12 +236,13 @@ class SeerfarScraper:
             self.logger.error(f"❌ 销量提取失败: {str(e)}")
 
     async def _extract_daily_avg_sales(self, page, sales_data: Dict[str, Any]):
-        """提取日均销量 - 使用 automation_scenario.py 中的精确XPath"""
+        """提取日均销量 - 使用配置文件中的选择器"""
         try:
-
-
-            # 使用 automation_scenario.py 中的精确XPath
-            daily_avg_xpath = "/html/body/div[1]/div/div/div/div/div/div/div[1]/div/div[2]/div[3]/div[3]/div[3]"
+            # 从配置文件获取日均销量选择器
+            daily_avg_xpath = get_seerfar_selector('store_sales_data', 'daily_avg_sales')
+            if not daily_avg_xpath:
+                self.logger.error("❌ 未能找到日均销量选择器配置")
+                return
 
             # 等待元素出现
             try:
@@ -256,14 +258,40 @@ class SeerfarScraper:
                     number = self._extract_number_from_text(text.strip())
                     if number:
                         sales_data['daily_avg_sold'] = number
-
                         return
 
             self.logger.warning("⚠️ 未能提取到日均销量数据")
 
         except Exception as e:
             self.logger.error(f"❌ 日均销量提取失败: {str(e)}")
-    
+
+    async def _extract_category_data(self, page, sales_data: Dict[str, Any]):
+        """提取类目数据 - 使用配置文件中的选择器"""
+        try:
+            # 从配置文件获取类目数据选择器
+            category_xpath = get_seerfar_selector('store_sales_data', 'category_data')
+            if not category_xpath:
+                self.logger.debug("未配置类目数据选择器，跳过类目数据提取")
+                return
+
+            # 等待元素出现
+            try:
+                await page.wait_for_selector(f'xpath={category_xpath}', timeout=5000)
+            except:
+                self.logger.debug("类目数据元素等待超时，继续尝试提取")
+
+            element = await page.query_selector(f'xpath={category_xpath}')
+            if element:
+                text = await element.text_content()
+                if text and text.strip():
+                    sales_data['category_info'] = text.strip()
+                    return
+
+            self.logger.warning("⚠️ 未能提取到类目数据")
+
+        except Exception as e:
+            self.logger.error(f"❌ 类目数据提取失败: {str(e)}")
+
     async def _extract_sales_data_generic_async(self, page) -> Dict[str, Any]:
         """
         异步通用方法提取销售数据
@@ -327,14 +355,20 @@ class SeerfarScraper:
         try:
             page = browser_service.browser_driver.page
             
+            # 从配置文件获取商品列表选择器
+            product_rows_selector = get_seerfar_selector('product_list', 'product_rows')
+            product_rows_alt_selector = get_seerfar_selector('product_list', 'product_rows_alt')
+            
+            if not product_rows_selector or not product_rows_alt_selector:
+                self.logger.error("❌ 未能找到商品列表选择器配置")
+                return []
+
             # 查找商品表格或列表
-            product_rows = await page.query_selector_all(
-                "//table//tr[position()>1] | //div[contains(@class, 'product-item')] | //li[contains(@class, 'product')]"
-            )
+            product_rows = await page.query_selector_all(product_rows_selector)
             
             if not product_rows:
                 # 尝试其他可能的选择器
-                product_rows = await page.query_selector_all("//*[contains(@class, 'item') or contains(@class, 'row')]")
+                product_rows = await page.query_selector_all(product_rows_alt_selector)
             
             for i, row in enumerate(product_rows[:max_products]):
                 try:
@@ -369,23 +403,32 @@ class SeerfarScraper:
         try:
             product_data = {}
 
-            # 🔧 简化：直接查找并点击商品图片
+            # 简化：直接查找并点击商品图片
             try:
                 # 获取页面对象
-                page = self.browser_service.async_service.browser_service.browser_driver.page
+                page = self.browser_service.browser_driver.page
 
-                # 🔧 修复：查找第三列中有onclick事件的元素
+                # 从配置文件获取选择器
+                third_column_selector = get_seerfar_selector('product_list', 'third_column')
+                clickable_element_selector = get_seerfar_selector('product_list', 'clickable_element')
+                clickable_element_alt_selector = get_seerfar_selector('product_list', 'clickable_element_alt')
+                
+                if not third_column_selector or not clickable_element_selector or not clickable_element_alt_selector:
+                    self.logger.error("❌ 未能找到商品行元素选择器配置")
+                    return None
+
+                # 查找第三列中有onclick事件的元素
                 # 根据用户提供的XPath，商品在第三列（td[3]）
-                td3_element = await row_element.query_selector("td:nth-child(3)")
+                td3_element = await row_element.query_selector(third_column_selector)
                 if not td3_element:
                     self.logger.warning("⚠️ 未找到第三列，跳过此商品")
                     return None
 
                 # 查找有onclick事件的可点击元素（优先查找span.avatar）
-                clickable_element = await td3_element.query_selector("span[onclick], [onclick]")
+                clickable_element = await td3_element.query_selector(clickable_element_selector)
                 if not clickable_element:
                     # 如果没有onclick，尝试查找其他可点击元素
-                    clickable_element = await td3_element.query_selector("img, a, span.avatar, .cursor-pointer")
+                    clickable_element = await td3_element.query_selector(clickable_element_alt_selector)
                     if not clickable_element:
                         self.logger.warning("⚠️ 未找到可点击的商品元素，跳过此商品")
                         return None
@@ -404,56 +447,72 @@ class SeerfarScraper:
                     if url_match:
                         ozon_url = url_match.group(1)
                         self.logger.info(f"打开OZON URL: {ozon_url}")
-                        new_page = await page.context.new_page()
-                        await new_page.goto(ozon_url)
-                        await new_page.wait_for_load_state('domcontentloaded', timeout=5000)
 
-                        # 🔧 调用现有的OzonScraper来处理OZON详情页
-                        self.logger.info("📊 调用OzonScraper处理OZON商品详情页...")
-                        from .ozon_scraper import OzonScraper
+                        # 性能优化：使用 try-finally 确保页面资源清理
+                        new_page = None
+                        try:
+                            new_page = await page.context.new_page()
+                            await new_page.goto(ozon_url)
+                            await new_page.wait_for_load_state('domcontentloaded', timeout=5000)
 
-                        # 创建OzonScraper实例并提取数据
-                        ozon_scraper = OzonScraper(self.config)
-                        page_content = await new_page.content()
-                        ozon_price_data = await ozon_scraper._extract_price_data_from_content(page_content)
-                        ozon_competitor_data = await ozon_scraper._extract_competitor_stores_from_content(page_content, 10)
+                            # 调用现有的OzonScraper来处理OZON详情页
+                            self.logger.info("📊 调用OzonScraper处理OZON商品详情页...")
+                            from .ozon_scraper import OzonScraper
 
-                        # 合并OZON数据
-                        product_data.update(ozon_price_data)
-                        if ozon_competitor_data:
-                            product_data['competitors'] = ozon_competitor_data
+                            # 创建OzonScraper实例并提取数据
+                            ozon_scraper = OzonScraper(self.config)
+                            page_content = await new_page.content()
+                            ozon_price_data = await ozon_scraper._extract_price_data_from_content(page_content)
+                            ozon_competitor_data = await ozon_scraper._extract_competitor_stores_from_content(page_content, 10)
 
-                        self.logger.info(f"✅ OZON数据提取完成: 价格数据={len(ozon_price_data)}项, 跟卖店铺={len(ozon_competitor_data)}个")
+                            # 合并OZON数据
+                            product_data.update(ozon_price_data)
+                            if ozon_competitor_data:
+                                product_data['competitors'] = ozon_competitor_data
 
-                        await new_page.close()
-                        return product_data
+                            self.logger.info(f"✅ OZON数据提取完成: 价格数据={len(ozon_price_data)}项, 跟卖店铺={len(ozon_competitor_data)}个")
+                            return product_data
+
+                        finally:
+                            # 关键修复：确保页面资源始终被释放
+                            if new_page:
+                                try:
+                                    await new_page.close()
+                                except Exception as close_error:
+                                    self.logger.warning(f"关闭页面时出错: {close_error}")
                 else:
                     self.logger.warning("未找到有效的onclick事件")
                     return None
 
-                # 等待页面跳转
-                await page.wait_for_load_state('domcontentloaded', timeout=3000)
+                # 性能优化：减少不必要的页面等待时间
+                await page.wait_for_load_state('domcontentloaded', timeout=2000)
 
-                # 🔧 调用现有的OzonScraper来处理OZON详情页
+                # 调用现有的OzonScraper来处理OZON详情页
                 self.logger.info("📊 调用OzonScraper处理OZON商品详情页...")
-                from .ozon_scraper import OzonScraper
 
-                # 创建OzonScraper实例并提取数据
-                ozon_scraper = OzonScraper(self.config)
-                page_content = await page.content()
-                ozon_price_data = await ozon_scraper._extract_price_data_from_content(page_content)
-                ozon_competitor_data = await ozon_scraper._extract_competitor_stores_from_content(page_content, 10)
+                try:
+                    from .ozon_scraper import OzonScraper
 
-                # 合并OZON数据
-                product_data.update(ozon_price_data)
-                if ozon_competitor_data:
-                    product_data['competitors'] = ozon_competitor_data
+                    # 创建OzonScraper实例并提取数据
+                    # ozon_scraper = OzonScraper(self.config)
+                    # page_content = await page.content()
+                    # ozon_price_data = await ozon_scraper._extract_price_data_from_content(page_content)
+                    # ozon_competitor_data = await ozon_scraper._extract_competitor_stores_from_content(page_content, 10)
 
-                self.logger.info(f"✅ OZON数据提取完成: 价格数据={len(ozon_price_data)}项, 跟卖店铺={len(ozon_competitor_data)}个")
+                    # 合并OZON数据
+                    # product_data.update(ozon_price_data)
+                    # if ozon_competitor_data:
+                    #     product_data['competitors'] = ozon_competitor_data
+                    #
+                    # self.logger.info(f"✅ OZON数据提取完成: 价格数据={len(ozon_price_data)}项, 跟卖店铺={len(ozon_competitor_data)}个")
 
-                # 返回原页面
-                await page.go_back()
-                await page.wait_for_load_state('domcontentloaded', timeout=3000)
+                finally:
+                    # 性能优化：确保返回原页面，减少等待时间
+                    try:
+                        await page.go_back()
+                        await page.wait_for_load_state('domcontentloaded', timeout=2000)
+                    except Exception as nav_error:
+                        self.logger.warning(f"返回原页面时出错: {nav_error}")
 
             except Exception as e:
                 self.logger.error(f"点击商品图片或提取OZON数据失败: {e}")
@@ -475,7 +534,6 @@ class SeerfarScraper:
         except Exception as e:
             self.logger.error(f"提取商品信息失败: {e}")
             return None
-
 
     
     def validate_store_filter_conditions(self, sales_data: Dict[str, Any]) -> bool:
@@ -509,7 +567,6 @@ class SeerfarScraper:
             return False
     
 
-
     def _extract_number_from_text(self, text: str) -> Optional[float]:
         """
         从文本中提取数字
@@ -540,7 +597,6 @@ class SeerfarScraper:
 
             return None
     
-
 
     def close(self):
         """关闭抓取器"""

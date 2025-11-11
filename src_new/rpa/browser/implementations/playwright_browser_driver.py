@@ -83,6 +83,9 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
                 # 创建页面
                 self.page = await self.context.new_page()
                 
+                # 设置资源拦截（如果需要）
+                # await self._setup_resource_blocking()
+
                 # 注入反检测脚本
                 await self._inject_stealth_scripts()
                 
@@ -138,7 +141,7 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
 
     # ==================== 页面操作 ====================
 
-    async def open_page(self, url: str, wait_until: str = 'load') -> bool:
+    async def open_page(self, url: str, wait_until: str = 'load', timeout: int = 30000) -> bool:
         """打开页面"""
         if not self._initialized or not self.page:
             self._logger.error("Browser driver not initialized")
@@ -146,12 +149,7 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
 
         try:
             self._logger.info(f"Navigating to: {url}")
-            # 🔧 优化页面加载性能：减少等待时间并使用更高效的等待策略
-            # 对于Ozon等电商平台，'domcontentloaded'通常比'load'更快且足够
-            # 进一步优化：使用networkidle但设置更短的超时时间
-            await self.page.goto(url, wait_until='domcontentloaded', timeout=30000)
-            # 额外等待一小段时间确保关键元素加载，但使用更智能的等待
-            await asyncio.sleep(0.5)
+            await self.page.goto(url, wait_until=wait_until, timeout=timeout)
             return True
             
         except Exception as e:
