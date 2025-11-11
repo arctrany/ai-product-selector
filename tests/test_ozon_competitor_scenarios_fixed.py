@@ -59,27 +59,16 @@ class OzonCompetitorScenarioTester:
                 green_price = price_result.data.get('green_price')
                 black_price = price_result.data.get('black_price')
                 image_url = price_result.data.get('image_url')
-                competitor_count = price_result.data.get('competitor_count')
 
                 print(f"💰 绿标价格: {green_price}₽" if green_price else "💰 绿标价格: 未找到")
                 print(f"💰 黑标价格: {black_price}₽" if black_price else "💰 黑标价格: 未找到")
                 print(f"🖼️ 商品图片: {image_url}" if image_url else "🖼️ 商品图片: 未找到")
-                print(f"📊 跟卖数量: {competitor_count}" if competitor_count is not None else "📊 跟卖数量: 未检测")
 
                 # 验证价格是否正确提取
                 if green_price and black_price:
                     print(f"✅ 价格提取验证: 绿标={green_price}₽, 黑标={black_price}₽")
                 else:
                     print("⚠️ 价格提取存在问题，需要检查选择器")
-
-                # 验证跟卖数量
-                if competitor_count is not None:
-                    if competitor_count == 0:
-                        print("✅ 跟卖数量正确: 0 (无跟卖区域)")
-                    else:
-                        print(f"⚠️ 跟卖数量可能不正确: {competitor_count} (预期为0)")
-                else:
-                    print("⚠️ 跟卖数量未检测到")
 
             else:
                 print(f"❌ 价格信息抓取失败: {price_result.error_message}")

@@ -16,15 +16,18 @@ from ..models import ProductInfo, CompetitorStore, clean_price_string, ScrapingR
 from ..config import GoodStoreSelectorConfig
 
 
+# 🚫 删除重复的全局函数 - 价格提取逻辑已集成到 OzonScraper 类中
+
+
 class OzonScraper:
     """OZON平台抓取器 - 基于browser_service架构"""
-    
+
     def __init__(self, config: Optional[GoodStoreSelectorConfig] = None):
         """初始化OZON抓取器"""
         self.config = config or GoodStoreSelectorConfig()
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.base_url = self.config.scraping.ozon_base_url
-        
+
         # 创建浏览器服务
         self.browser_service = XuanpingBrowserServiceSync()
 
@@ -42,14 +45,14 @@ class OzonScraper:
             ScrapingResult: 抓取结果，包含价格信息
         """
         start_time = time.time()
-        
+
         try:
             # 使用浏览器服务抓取数据
             async def extract_price_data(browser_service):
                 """异步提取价格数据"""
                 try:
                     # 等待页面加载
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(1)
 
                     # 获取页面内容
                     page_content = await browser_service.get_page_content()
@@ -91,45 +94,60 @@ class OzonScraper:
                 error_message=str(e),
                 execution_time=time.time() - start_time
             )
-    
+
     def scrape_competitor_stores(self, product_url: str, max_competitors: int = 15) -> ScrapingResult:
         """
         抓取跟卖店铺信息
 
         Args:
             product_url: 商品URL
-            max_competitors: 最大跟卖店铺数量，默认15个（原默认10个）
+            max_competitors: 最大跟卖店铺数量，默认10个
             
         Returns:
             ScrapingResult: 抓取结果，包含跟卖店铺信息
         """
         start_time = time.time()
-        
+
         try:
             async def extract_competitor_data(browser_service):
                 """异步提取跟卖店铺数据"""
                 try:
                     # 等待页面加载
                     await asyncio.sleep(2)
-                    
-                    # 尝试打开跟卖浮层
-                    await self._open_competitor_popup_async(browser_service)
-                    
+
+                    # 🔧 修复：使用CompetitorScraper的严格跟卖检测方法
+                    page = browser_service.browser_driver.page
+                    popup_result = await self.competitor_scraper.open_competitor_popup(page)
+
+                    # 🎯 根据严格检测结果决定后续处理
+                    if not popup_result['success']:
+                        self.logger.error(f"跟卖检测失败: {popup_result['error_message']}")
+                        return {'competitors': [], 'total_count': 0}
+
+                    if not popup_result['has_competitors']:
+                        self.logger.info("✅ 确认无跟卖，跳过跟卖信息提取")
+                        return {'competitors': [], 'total_count': 0}
+
+                    if not popup_result['popup_opened']:
+                        self.logger.warning("⚠️ 有跟卖但浮层未打开，跳过跟卖信息提取")
+                        return {'competitors': [], 'total_count': 0}
+
                     # 获取页面内容
                     page_content = await browser_service.get_page_content()
-                    
+
                     # 解析跟卖店铺信息 - 修复：使用CompetitorScraper
-                    competitors = await self.competitor_scraper.extract_competitors_from_content(page_content, max_competitors)
-                    
+                    competitors = await self.competitor_scraper.extract_competitors_from_content(page_content,
+                                                                                                 max_competitors)
+
                     return {'competitors': competitors, 'total_count': len(competitors)}
-                    
+
                 except Exception as e:
                     self.logger.error(f"提取跟卖店铺数据失败: {e}")
                     return {'competitors': [], 'total_count': 0}
-            
+
             # 使用浏览器服务抓取页面数据
             result = self.browser_service.scrape_page_data(product_url, extract_competitor_data)
-            
+
             if result.success:
                 return ScrapingResult(
                     success=True,
@@ -143,7 +161,7 @@ class OzonScraper:
                     error_message=result.error_message or "无法抓取跟卖店铺信息",
                     execution_time=time.time() - start_time
                 )
-            
+
         except Exception as e:
             self.logger.error(f"抓取跟卖店铺信息失败: {e}")
             return ScrapingResult(
@@ -152,7 +170,7 @@ class OzonScraper:
                 error_message=str(e),
                 execution_time=time.time() - start_time
             )
-    
+
     def scrape(self, product_url: str, include_competitors: bool = False, **kwargs) -> ScrapingResult:
         """
         综合抓取商品信息
@@ -166,18 +184,18 @@ class OzonScraper:
             ScrapingResult: 抓取结果
         """
         start_time = time.time()
-        
+
         try:
             # 抓取价格信息
             price_result = self.scrape_product_prices(product_url)
             if not price_result.success:
                 return price_result
-            
+
             result_data = {
                 'product_url': product_url,
                 'price_data': price_result.data
             }
-            
+
             # 如果需要，抓取跟卖店铺信息
             if include_competitors:
                 competitors_result = self.scrape_competitor_stores(product_url)
@@ -186,13 +204,13 @@ class OzonScraper:
                 else:
                     self.logger.warning(f"抓取跟卖店铺信息失败: {competitors_result.error_message}")
                     result_data['competitors'] = []
-            
+
             return ScrapingResult(
                 success=True,
                 data=result_data,
                 execution_time=time.time() - start_time
             )
-            
+
         except Exception as e:
             self.logger.error(f"综合抓取商品信息失败: {e}")
             return ScrapingResult(
@@ -202,15 +220,24 @@ class OzonScraper:
                 execution_time=time.time() - start_time
             )
 
-    # 价格选择器配置 - 修正：只提取商品本身价格，排除跟卖价格
+    # 价格选择器配置 - ✅ 根据用户提供的准确选择器修复 + 降级选择器
     PRICE_SELECTORS = [
-        ("[data-widget='webPrice'] .tsHeadline500Medium", "green"),  # 修正：中等字体通常是绿标
-        ("[data-widget='webPrice'] .tsHeadline600Large", "black"),   # 修正：大字体通常是黑标
-        ("[data-widget='webPrice'] span", "auto"),                   # 🔧 限制在webPrice容器内，避免跟卖价格
-        # 🚫 删除过于宽泛的选择器，避免误提取跟卖价格
-        # (".b5v3 span", "auto"),                                   # 太宽泛，会匹配跟卖价格
-        # ("[class*='price'] span", "auto"),                        # 太宽泛，会匹配跟卖价格
-        # ("[data-test-id*='price'] span", "auto"),                 # 太宽泛，会匹配跟卖价格
+        # 🎯 用户提供的精确选择器（优先级最高）
+        ("#layoutPage > div.b6 > div.container.c > div.pdp_sa1.pdp_as5.pdp_as7 > div.pdp_mb9 > div > div > div.pdp_sa1.pdp_as8.pdp_as5.pdp_sa5 > div.pdp_i6b.pdp_bi9 > div > div.pdp_bi7 > div > div > div.pdp_f2b > div.pdp_b1f.a25_3_7-a.a25_3_7-a3 > button > span > div > div.pdp_t2.pdp_t4 > div > div > span", "green"),  # ✅ 绿标价格：用户提供的精确选择器
+        ("#layoutPage > div.b6 > div.container.c > div.pdp_sa1.pdp_as5.pdp_as7 > div.pdp_mb9 > div > div > div.pdp_sa1.pdp_as8.pdp_as5.pdp_sa5 > div.pdp_i6b.pdp_bi9 > div > div.pdp_bi7 > div > div > div.pdp_f2b > div.pdp_fb6.pdp_bg > div > div.pdp_bf9 > span.pdp_b7f.tsHeadline500Medium", "black"),   # ✅ 黑标价格：用户提供的精确选择器
+
+        # 🔄 降级选择器（当主选择器获取不到时使用）
+        ("#layoutPage > div.b6 > div.container.c > div.pdp_sa1.pdp_as5.pdp_as7 > div.pdp_mb9 > div > div > div.pdp_sa1.pdp_as8.pdp_as5.pdp_sa5 > div.pdp_i6b.pdp_bi9 > div.pdp_b8i.pdp_i8b > div.pdp_bi7 > div > div > div.pdp_f2b > div > div > div.pdp_bf9 > span.pdp_b7f.tsHeadline600Large", "black"),  # 🎯 用户提供的降级黑标选择器
+        ("[data-widget='webPrice'] .tsHeadline500Medium", "green"),  # 备用绿标价格选择器
+        ("[data-widget='webPrice'] .tsHeadline600Large", "black"),   # 备用黑标价格选择器
+
+        # ⚠️ 最后的通用选择器（可能匹配到错误内容，谨慎使用）
+        # 注意：这些选择器可能会匹配到页面上的其他内容，需要在价格提取逻辑中进行严格过滤
+        # ("span.tsHeadline500Medium", "green"),  # 更通用的绿标选择器（暂时禁用，避免误匹配）
+        # ("span.tsHeadline600Large", "black"),   # 更通用的黑标选择器（暂时禁用，避免误匹配）
+
+        # 🚫 删除可能导致数据覆盖的 auto 选择器
+        # ("[data-widget='webPrice'] span", "auto"),  # 这个选择器可能意外提取到跟卖价格
     ]
 
     # 图片选择器配置 - 统一配置避免重复
@@ -247,7 +274,14 @@ class OzonScraper:
 
             # 🔧 修复：直接在主流程中检测跟卖关键词并提取价格
             page_text = soup.get_text()
-            competitor_keywords = ['у других продавцов', 'есть дешевле', 'есть быстрее']
+            # 🌐 支持多语言：俄文和英文跟卖关键词
+            competitor_keywords = [
+                # 俄文关键词
+                'у других продавцов', 'есть дешевле', 'есть быстрее',
+                # 英文关键词
+                'from other sellers', 'available cheaper', 'available faster',
+                'other sellers', 'cheaper available', 'faster delivery'
+            ]
 
             # 检测跟卖关键词
             for keyword in competitor_keywords:
@@ -276,49 +310,73 @@ class OzonScraper:
         prices = {}
         green_price = None
         black_price = None
-        auto_prices = []  # 收集auto类型的价格
 
+        # 🔧 修复：严格按照选择器类型提取价格，避免混淆
         for selector, price_type in self.PRICE_SELECTORS:
-            if green_price and black_price:
-                break
-
             try:
                 elements = soup.select(selector)
+                self.logger.debug(f"🔍 使用选择器 '{selector}' (类型: {price_type}) 找到 {len(elements)} 个元素")
+
                 for element in elements:
                     price = self._extract_price_from_element(element)
-                    if not price:
+                    if not price or price <= 0:
                         continue
 
-                    if price_type == "green" and not green_price:
+                    # 🔧 修复：严格按照价格类型分配，避免重复赋值
+                    if price_type == "green" and green_price is None:
                         green_price = price
                         self.logger.info(f"✅ 绿标价格: {green_price}₽")
-                    elif price_type == "black" and not black_price:
+                        break  # 找到绿标价格后立即跳出内层循环
+                    elif price_type == "black" and black_price is None:
                         black_price = price
                         self.logger.info(f"✅ 黑标价格: {black_price}₽")
-                    elif price_type == "auto":
-                        auto_prices.append((price, element))
+                        break  # 找到黑标价格后立即跳出内层循环
 
-                    if green_price and black_price:
-                        break
-            except Exception:
+            except Exception as e:
+                self.logger.debug(f"选择器 '{selector}' 处理失败: {e}")
                 continue
 
-        # 🔧 修复：删除智能分配逻辑，OzonScraper只负责原样提取价格
-        # auto_prices 中的价格不应该被自动分配，应该由上层业务逻辑处理
-        if auto_prices:
-            self.logger.debug(f"🔍 发现auto类型价格: {auto_prices}，但不进行自动分配")
+        # 🔧 修复：明确记录价格提取结果
+        if green_price is None:
+            self.logger.info("ℹ️ 未找到绿标价格")
+        if black_price is None:
+            self.logger.warning("⚠️ 未找到黑标价格")
 
-        # 🔧 修复：绿标价格不存在时应该为空，不要添加到返回数据中
-        if green_price:
+        # 🔧 修复：只有当价格确实存在时才添加到返回数据中
+        if green_price is not None:
             prices['green_price'] = green_price
-        if black_price:
+        if black_price is not None:
             prices['black_price'] = black_price
 
+        self.logger.debug(f"🎯 最终提取的价格数据: {prices}")
         return prices
 
-    # 🚫 删除智能价格分配逻辑 - 用户明确要求不要进行任何价格计算！
+    def _extract_price_from_element(self, element) -> Optional[float]:
+        """
+        从元素中提取价格数值
 
-    # 🚫 删除冗余的跟卖价格提取方法 - 功能已集成到主要价格提取流程中
+        Args:
+            element: BeautifulSoup元素
+
+        Returns:
+            float: 价格数值，如果提取失败返回None
+        """
+        try:
+            if not element:
+                return None
+
+            # 获取元素文本
+            text = element.get_text(strip=True)
+            if not text:
+                return None
+
+            # 使用clean_price_string函数提取价格
+            price = clean_price_string(text)
+            return price
+
+        except Exception as e:
+            self.logger.debug(f"从元素提取价格失败: {e}")
+            return None
 
     def _extract_competitor_price_value(self, soup) -> Optional[float]:
         """提取具体的跟卖价格数值 - 使用用户提供的精确选择器"""
@@ -338,13 +396,18 @@ class OzonScraper:
                 text = element.get_text(strip=True)
                 self.logger.debug(f"🔍 找到跟卖价格元素文本: '{text}'")
 
+                # 🔧 修复：只处理包含价格符号的元素，过滤掉配送时间等非价格信息
+                if '₽' not in text and 'руб' not in text and 'rub' not in text:
+                    self.logger.debug(f"⚠️ 跳过非价格元素: '{text}'")
+                    continue
+
                 # 提取价格数值 - 处理 "From 3 800 ₽" 格式
                 price = self._extract_price_from_element(element)
                 if price and price > 0:
                     self.logger.debug(f"🎯 成功提取跟卖价格: {price}₽")
                     return price
 
-            self.logger.debug("⚠️ 未找到跟卖价格元素")
+            self.logger.debug("⚠️ 未找到包含价格符号的跟卖价格元素")
             return None
 
         except Exception as e:
@@ -355,20 +418,6 @@ class OzonScraper:
     # 删除了大量重复的跟卖店铺相关代码，职责分离：
     # - OzonScraper: 负责价格提取
     # - CompetitorScraper: 负责跟卖店铺交互和提取
-
-    def _extract_price_from_element(self, element) -> Optional[float]:
-        """从元素中提取价格 - 修复价格截断bug"""
-        try:
-            text = element.get_text(strip=True)
-            if '₽' in text or 'руб' in text:
-                # 🔧 修复：直接使用 clean_price_string 函数，避免价格截断
-                from apps.xuanping.common.models import clean_price_string
-                price = clean_price_string(text)
-                if price and price > 0:
-                    return price
-            return None
-        except Exception:
-            return None
 
     def _extract_product_image_core(self, soup) -> Optional[str]:
         """
@@ -441,98 +490,6 @@ class OzonScraper:
             return image_url
 
 
-
-
-    
-    async def _open_competitor_popup_async(self, browser_service):
-        """
-        异步打开跟卖店铺浮层
-        
-        Args:
-            browser_service: 浏览器服务
-        """
-        try:
-            page = browser_service.browser_driver.page
-            self.logger.info("🔍 开始查找并点击跟卖区域...")
-
-            # 🔧 使用更准确的XPath和CSS选择器，按成功率排序
-            # 根据测试日志，最有效的选择器是 "button span div.pdp_t1"
-            competitor_button_selectors = [
-                # 高成功率选择器
-                "button span div.pdp_t1",
-                # 基于文本内容的选择器（添加更多变体）
-                "button:has-text('Есть дешевле')",
-                "div:has-text('Есть дешевле')",
-                "button:has-text('Есть быстрее')",
-                "div:has-text('Есть быстрее')",
-                # 简化版选择器
-                "[class*='pdp_t1'] button",
-                ".pdp_t1 button",
-                "div.pdp_t1 button"
-            ]
-
-            clicked = False
-
-            for selector in competitor_button_selectors:
-                try:
-                    self.logger.debug(f"🔍 尝试使用选择器: {selector}")
-                    # 等待元素出现
-                    try:
-                        if selector.startswith("#layoutPage"):
-                            # 使用XPath
-                            xpath = "//*[@id='layoutPage']/div[1]/div[3]/div[3]/div[2]/div/div/div[2]/div[3]/div[2]/div/div/div/button/span/div"
-                            self.logger.debug(f"🔍 使用XPath: {xpath}")
-                            await page.wait_for_selector(f'xpath={xpath}', timeout=3000)
-                            element = await page.query_selector(f'xpath={xpath}')
-                        else:
-                            # 使用CSS选择器
-                            self.logger.debug(f"🔍 使用CSS选择器: {selector}")
-                            await page.wait_for_selector(selector, timeout=3000)
-                            element = await page.query_selector(selector)
-                    except Exception as wait_e:
-                        self.logger.debug(f"等待元素出现失败: {wait_e}")
-                        continue
-
-                    if element:
-                        # 检查元素是否可见和可点击
-                        is_visible = await element.is_visible()
-                        self.logger.debug(f"元素可见性: {is_visible}")
-                        if is_visible:
-                            # 获取元素文本内容用于日志
-                            try:
-                                text_content = await element.text_content()
-                                self.logger.debug(f"元素文本内容: {text_content[:100] if text_content else 'N/A'}")
-                            except:
-                                pass
-
-                            # 尝试点击元素
-                            await element.click()
-                            self.logger.info(f"✅ 成功点击跟卖区域: {selector}")
-                            clicked = True
-
-                            # 等待页面响应
-                            self.logger.info("⏳ 等待页面响应...")
-                            await asyncio.sleep(3)
-                            break
-                        else:
-                            self.logger.debug(f"元素不可见: {selector}")
-
-                except Exception as e:
-                    self.logger.debug(f"选择器 {selector} 点击失败: {e}")
-                    continue
-
-
-
-            if clicked:
-                self.logger.info("🎯 跟卖浮层已打开，等待内容加载...")
-                await asyncio.sleep(5)  # 增加等待时间确保浮层内容加载
-                self.logger.info("✅ 跟卖浮层内容加载完成")
-            else:
-                self.logger.warning("⚠️ 未能找到或点击跟卖区域，可能页面结构已变化")
-
-        except Exception as e:
-            self.logger.error(f"打开跟卖店铺浮层失败: {e}")
-
     def close(self):
         """
         关闭抓取器，清理资源
@@ -552,14 +509,3 @@ class OzonScraper:
             self.close()
         except:
             pass
-
-
-
-
-    
-
-    
-
-
-
-
