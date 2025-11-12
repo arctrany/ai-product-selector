@@ -232,11 +232,15 @@ class OzonSelectorsConfig:
         ]
     
     def _get_default_competitor_container_selectors(self) -> List[str]:
-        """获取默认跟卖店铺容器选择器配置"""
+        """获取默认跟卖店铺容器选择器配置 - 🔧 修复：基于真实HTML结构"""
         return [
+            # 🎯 基于真实HTML结构的精确选择器（优先级最高）
+            "div.pdp_k1b",  # 具体的容器类（最重要）
             "#seller-list",  # 主容器ID
             "[data-widget='webSellerList']",  # 数据组件选择器
-            "div.pdp_k1b",  # 具体的容器类
+            "div.pdp_a6b div.pdp_k1b",  # 通过父容器匹配
+
+            # 🔄 备用选择器
             "[data-widget='sellerList']",
             "[class*='seller-list']",
             "[class*='sellerList']",
@@ -252,22 +256,39 @@ class OzonSelectorsConfig:
         ]
     
     def _get_default_competitor_element_selectors(self) -> List[str]:
-        """获取默认跟卖店铺元素选择器配置"""
+        """获取默认跟卖店铺元素选择器配置 - 🔧 修复：精确匹配真实店铺，避免额外元素"""
         return [
-            "div.pdp_kb2",  # 🎯 精确的店铺元素选择器（最高优先级）
-            ":scope > div.pdp_kb2",  # 直接子元素
-            ":scope > div",  # 直接div子元素
-            ":scope div[class*='seller']",
-            ":scope div[class*='competitor']",
-            ":scope > div > div",  # 二级div元素
-            ":scope [data-test-id*='seller']",
-            ":scope div[class*='item']"
-            # 🔧 移除 ":scope li" 和 ":scope > *" 因为它们会匹配到配送信息元素而不是店铺信息
+            # 🎯 最精确的店铺元素选择器（基于真实HTML结构，优先级最高）
+            "div.pdp_kb2",  # 精确匹配每个跟卖店铺元素（避免匹配到"с Ozon Картой"）
+            ":scope > div.pdp_b2k > div.pdp_kb2",  # 完整路径匹配
+            ":scope div.pdp_kb2",  # 所有层级的店铺元素
+
+            # 🔧 修复：基于结构的选择器（降低优先级）
+            ":scope > div.pdp_b2k div.pdp_kb2",  # 通过父容器匹配
+            ":scope div[class*='pdp_kb2']",  # 包含pdp_kb2的类
+
+            # 🔧 备用选择器（避免使用过宽泛的选择器）
+            ":scope div[class*='seller']",  # 包含seller的类
+            ":scope div[class*='competitor']",  # 包含competitor的类
+            ":scope div[data-test-id*='seller']",  # 测试ID包含seller
+            ":scope div[class*='item']",  # 包含item的类
+
+            # 🔧 最后的备用选择器（保留有class限制的选择器）
+            ":scope > div[class]",  # 只选择有class的直接div子元素
+            ":scope div[class*='store']"  # 包含store的类
         ]
     
     def _get_default_store_name_selectors(self) -> List[str]:
-        """获取默认店铺名称选择器配置"""
+        """获取默认店铺名称选择器配置 - 🔧 修复：基于真实HTML结构"""
         return [
+            # 🎯 基于真实HTML结构的精确选择器（优先级最高）
+            "a.pdp_ae5",  # 店铺名称链接的精确类
+            "div.pdp_ea4 > a.pdp_ae5",  # 完整路径的店铺名称
+            "div.pdp_a4e > div.pdp_ea4 > a.pdp_ae5",  # 更完整的路径
+            "a[title]",  # 有title属性的链接（通常是店铺名称）
+            "a[href*='/seller/']",  # 指向seller页面的链接
+
+            # 🔄 备用选择器
             "[data-test-id*='seller']",
             "[class*='sellerName']",
             "[class*='seller-name']",
