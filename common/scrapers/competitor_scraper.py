@@ -29,7 +29,7 @@ class CompetitorScraper:
         self.selectors_config = selectors_config or get_ozon_selectors_config()
 
     async def _find_element_by_selectors(self, page_or_element, selectors: List[str],
-                                       timeout: int = 2000) -> Tuple[Optional[Any], Optional[str]]:
+                                         timeout: int = 2000) -> Tuple[Optional[Any], Optional[str]]:
         """
         通用选择器查找方法，避免重复代码
 
@@ -50,7 +50,8 @@ class CompetitorScraper:
                 continue
         return None, None
 
-    async def _find_elements_by_selectors(self, page_or_element, selectors: List[str]) -> Tuple[List[Any], Optional[str]]:
+    async def _find_elements_by_selectors(self, page_or_element, selectors: List[str]) -> Tuple[
+        List[Any], Optional[str]]:
         """
         通用多元素选择器查找方法
 
@@ -74,8 +75,6 @@ class CompetitorScraper:
                 continue
 
         return best_elements, best_selector
-
-
 
     async def open_competitor_popup(self, page) -> Dict[str, Any]:
         """
@@ -166,7 +165,7 @@ class CompetitorScraper:
                     await asyncio.sleep(0.5)
 
                 except Exception as e:
-                    self.logger.debug(f"等待浮层第{attempt+1}次尝试失败: {e}")
+                    self.logger.debug(f"等待浮层第{attempt + 1}次尝试失败: {e}")
                     await asyncio.sleep(0.5)
                     continue
 
@@ -181,11 +180,9 @@ class CompetitorScraper:
         """验证跟卖浮层是否打开 - 保留用于兼容性"""
         return await self._wait_for_popup_with_retry(page, max_wait_seconds=3)
 
-
-
     async def expand_competitor_list_if_needed(self, page) -> bool:
         """
-        检查并展开跟卖店铺列表（如果需要）
+        🎯 智能检查并展开跟卖店铺列表（基于数量智能决策）
 
         Args:
             page: Playwright页面对象
@@ -194,26 +191,42 @@ class CompetitorScraper:
             bool: 是否成功展开或无需展开
         """
         try:
-            self.logger.info("🔍 检查是否需要展开跟卖店铺列表...")
+            self.logger.info("🎯 开始智能检测跟卖数量，决定是否需要展开...")
+
+            # 🎯 第一步：智能检测跟卖数量
+            competitor_count = await self._get_competitor_count(page)
+
+            if competitor_count is None:
+                # 🔧 失败处理：无法获取数量时直接结束，不尝试展开
+                self.logger.warning("❌ 无法获取跟卖数量，结束跟卖获取逻辑")
+                return False
+
+            # 🎯 第二步：基于数量阈值智能决策
+            threshold = self.selectors_config.COMPETITOR_COUNT_THRESHOLD
+            self.logger.info(f"🔍 检测到跟卖数量: {competitor_count}, 阈值: {threshold}")
+
+            if competitor_count <= threshold:
+                # 🔧 数量不超过阈值，无需展开
+                self.logger.info(f"✅ 跟卖数量({competitor_count}) <= 阈值({threshold})，无需展开，直接提取当前店铺")
+                return True
+
+            # 🎯 第三步：数量超过阈值，需要展开获取更多店铺
+            self.logger.info(f"🎯 跟卖数量({competitor_count}) > 阈值({threshold})，需要展开获取更多店铺")
 
             await asyncio.sleep(0.5)
-
-
 
             # 使用配置的展开按钮选择器
             expand_selectors = self.selectors_config.EXPAND_SELECTORS
 
-            # 🔧 修复：先检查是否存在展开按钮，再决定是否点击
+            # 🔧 查找展开按钮
             expand_button_found = False
             expand_button_element = None
             used_selector = None
 
-            # 查找展开按钮
             for selector in expand_selectors:
                 try:
                     self.logger.debug(f"🔍 检查展开按钮选择器: {selector}")
 
-                    # 短时间等待，检查按钮是否存在
                     element = await page.query_selector(selector)
                     if element and await element.is_visible():
                         expand_button_element = element
@@ -226,7 +239,7 @@ class CompetitorScraper:
                     self.logger.debug(f"展开按钮选择器 {selector} 检查失败: {e}")
                     continue
 
-            # 第二步：如果找到展开按钮，则进行展开操作
+            # 🎯 第四步：执行展开操作
             if expand_button_found and expand_button_element and used_selector:
                 self.logger.info(f"🔍 开始展开跟卖店铺列表，使用选择器: {used_selector}")
 
@@ -277,17 +290,17 @@ class CompetitorScraper:
 
                 return True
             else:
-                # 🔧 修复：如果没有找到展开按钮，说明当前显示的就是全部跟卖店铺，无需展开
-                self.logger.info("ℹ️ 未找到展开按钮，当前显示的就是全部跟卖店铺，无需展开")
+                # 🔧 未找到展开按钮，但数量超过阈值，可能页面结构有变化
+                self.logger.warning(f"⚠️ 跟卖数量({competitor_count})超过阈值但未找到展开按钮，继续提取当前显示的店铺")
                 return True
 
         except Exception as e:
-            self.logger.warning(f"展开跟卖店铺列表失败: {e}")
-            # 即使展开失败，也继续抓取当前显示的内容
-            return True
+            self.logger.error(f"智能展开跟卖店铺列表失败: {e}")
+            # 🔧 出错时返回False，表示无法继续
+            return False
 
-
-    async def extract_competitors_from_content(self, page_content: str, max_competitors: int = 10) -> List[Dict[str, Any]]:
+    async def extract_competitors_from_content(self, page_content: str, max_competitors: int = 10) -> List[
+        Dict[str, Any]]:
         """从页面内容中提取跟卖店铺信息"""
         try:
             soup = BeautifulSoup(page_content, 'html.parser')
@@ -314,9 +327,10 @@ class CompetitorScraper:
                     competitor_data = self._extract_competitor_from_element(element, i + 1)
                     if competitor_data:
                         competitors.append(competitor_data)
-                        self.logger.info(f"✅ 提取店铺{i+1}: {competitor_data.get('store_name', 'N/A')} - {competitor_data.get('price', 'N/A')}₽")
+                        self.logger.info(
+                            f"✅ 提取店铺{i + 1}: {competitor_data.get('store_name', 'N/A')} - {competitor_data.get('price', 'N/A')}₽")
                 except Exception as e:
-                    self.logger.warning(f"提取第{i+1}个店铺失败: {e}")
+                    self.logger.warning(f"提取第{i + 1}个店铺失败: {e}")
                     continue
 
             self.logger.info(f"🎉 成功提取{len(competitors)}个跟卖店铺")
@@ -385,9 +399,9 @@ class CompetitorScraper:
                     for text in text_elements:
                         stripped_text = text.strip()
                         if (stripped_text and
-                            len(stripped_text) > 1 and
-                            '₽' not in stripped_text and
-                            not stripped_text.replace('.', '').replace(',', '').isdigit()):
+                                len(stripped_text) > 1 and
+                                '₽' not in stripped_text and
+                                not stripped_text.replace('.', '').replace(',', '').isdigit()):
                             competitor_data['store_name'] = stripped_text
                             self.logger.debug(f"✅ 通过文本查找提取到店铺名称: {stripped_text}")
                             break
@@ -519,11 +533,11 @@ class CompetitorScraper:
         try:
             patterns = [
                 r'/seller/[^/]+-(\d+)/?$',  # /seller/name-123619/
-                r'/seller/(\d+)/?$',       # /seller/123619/
-                r'seller[/_](\d+)',        # seller/123619 或 seller_123619
-                r'sellerId=(\d+)',         # sellerId=123619
-                r'/shop/(\d+)',            # /shop/123619
-                r'/store/(\d+)'            # /store/123619
+                r'/seller/(\d+)/?$',  # /seller/123619/
+                r'seller[/_](\d+)',  # seller/123619 或 seller_123619
+                r'sellerId=(\d+)',  # sellerId=123619
+                r'/shop/(\d+)',  # /shop/123619
+                r'/store/(\d+)'  # /store/123619
             ]
 
             for pattern in patterns:
@@ -660,7 +674,7 @@ class CompetitorScraper:
                     await asyncio.sleep(0.5)
 
                 except Exception as e:
-                    self.logger.debug(f"等待内容稳定第{attempt+1}次失败: {e}")
+                    self.logger.debug(f"等待内容稳定第{attempt + 1}次失败: {e}")
                     await asyncio.sleep(0.5)
                     continue
 
@@ -671,6 +685,75 @@ class CompetitorScraper:
             self.logger.debug(f"等待浮层内容稳定失败: {e}")
             return True
 
+    async def _get_competitor_count(self, page) -> Optional[int]:
+        """
+        🎯 智能检测跟卖数量，支持多种格式
 
+        Args:
+            page: Playwright页面对象
 
+        Returns:
+            Optional[int]: 跟卖数量，如果无法检测则返回None
+        """
+        try:
+            self.logger.info("🔍 开始检测跟卖数量...")
 
+            # 🎯 使用配置的选择器查找数量显示元素
+            count_element = None
+            used_selector = None
+
+            for selector in self.selectors_config.COMPETITOR_COUNT_SELECTORS:
+                try:
+                    element = await page.query_selector(selector)
+                    if element and await element.is_visible():
+                        count_element = element
+                        used_selector = selector
+                        self.logger.debug(f"✅ 找到数量元素，使用选择器: {selector}")
+                        break
+                except Exception as e:
+                    self.logger.debug(f"选择器 {selector} 检查失败: {e}")
+                    continue
+
+            if not count_element:
+                self.logger.warning("⚠️ 未找到跟卖数量显示元素")
+                return None
+
+            # 🔧 获取元素文本内容
+            count_text = await count_element.text_content()
+            if not count_text:
+                self.logger.warning("⚠️ 跟卖数量元素无文本内容")
+                return None
+
+            count_text = count_text.strip()
+            self.logger.debug(f"🔍 获取到数量文本: '{count_text}'")
+
+            # 🎯 使用配置的正则表达式模式解析数量
+            import re
+
+            for pattern in self.selectors_config.COMPETITOR_COUNT_PATTERNS:
+                try:
+                    match = re.search(pattern, count_text, re.IGNORECASE)
+                    if match:
+                        count = int(match.group(1))
+                        self.logger.info(f"✅ 成功解析跟卖数量: {count} (模式: {pattern}, 文本: '{count_text}')")
+                        return count
+                except (ValueError, IndexError) as e:
+                    self.logger.debug(f"模式 {pattern} 解析失败: {e}")
+                    continue
+
+            # 🔄 如果所有模式都失败，尝试提取纯数字
+            try:
+                numbers = re.findall(r'\d+', count_text)
+                if numbers:
+                    count = int(numbers[0])  # 取第一个数字
+                    self.logger.info(f"✅ 通过数字提取获得跟卖数量: {count} (文本: '{count_text}')")
+                    return count
+            except ValueError:
+                pass
+
+            self.logger.warning(f"⚠️ 无法解析跟卖数量，文本: '{count_text}'")
+            return None
+
+        except Exception as e:
+            self.logger.error(f"检测跟卖数量失败: {e}")
+            return None

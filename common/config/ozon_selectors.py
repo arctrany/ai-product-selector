@@ -66,6 +66,11 @@ class OzonSelectorsConfig:
     # ========== 店铺链接选择器配置 ==========
     STORE_LINK_SELECTORS: List[str] = None
     
+    # ========== 🎯 跟卖数量检测配置 ==========
+    COMPETITOR_COUNT_SELECTORS: List[str] = None
+    COMPETITOR_COUNT_THRESHOLD: int = None
+    COMPETITOR_COUNT_PATTERNS: List[str] = None
+
     def __post_init__(self):
         """初始化默认配置"""
         if self.PRICE_SELECTORS is None:
@@ -103,6 +108,16 @@ class OzonSelectorsConfig:
         
         if self.STORE_LINK_SELECTORS is None:
             self.STORE_LINK_SELECTORS = self._get_default_store_link_selectors()
+
+        # 🎯 初始化跟卖数量检测配置
+        if self.COMPETITOR_COUNT_SELECTORS is None:
+            self.COMPETITOR_COUNT_SELECTORS = self._get_default_competitor_count_selectors()
+
+        if self.COMPETITOR_COUNT_THRESHOLD is None:
+            self.COMPETITOR_COUNT_THRESHOLD = self._get_default_competitor_count_threshold()
+
+        if self.COMPETITOR_COUNT_PATTERNS is None:
+            self.COMPETITOR_COUNT_PATTERNS = self._get_default_competitor_count_patterns()
 
         if self.CURRENCY_SYMBOLS is None:
             self.CURRENCY_SYMBOLS = self._get_default_currency_symbols()
@@ -237,6 +252,67 @@ class OzonSelectorsConfig:
             "#seller-list button"  # seller-list内的任何按钮
         ]
     
+    def _get_default_competitor_count_selectors(self) -> List[str]:
+        """获取默认跟卖数量检测选择器配置"""
+        return [
+            # 🎯 用户提供的正确选择器（优先级最高）- 在弹出浮层之前获取
+            "div.pdp_a9g",  # 用户提供的精确跟卖数量元素：<div class="pdp_a9g">12</div>
+
+            # 🔄 备用选择器 - 其他可能的数量显示位置
+            "#seller-list > button > div.b25_4_4-a",  # 主要数量显示容器
+            "#seller-list > button div.b25_4_4-a9.tsBodyControl500Medium",  # 俄文格式："Еще 数量"
+            "#seller-list > button div.b25_4_4-a9",  # 俄文数量容器（简化版）
+
+            # 🔄 更多备用选择器
+            "#seller-list button div[class*='b25_4_4-a']",  # 包含b25_4_4-a的类
+            "#seller-list button div[class*='tsBodyControl']",  # 包含文本控制类
+            "#seller-list button span",  # 按钮内的span元素
+            "#seller-list button div",  # 按钮内的div元素
+
+            # 🔄 最宽泛的备用选择器
+            "[data-widget='sellerList'] button div",  # 数据组件内的按钮div
+            "button[class*='b25_4_4'] div",  # 展开按钮内的div
+            "button div[class*='count']",  # 包含count的类
+            "button div[class*='more']",  # 包含more的类
+        ]
+
+    def _get_default_competitor_count_threshold(self) -> int:
+        """获取默认跟卖数量阈值配置"""
+        return 5
+
+    def _get_default_competitor_count_patterns(self) -> List[str]:
+        """获取默认跟卖数量匹配模式配置"""
+        return [
+            # 🎯 俄文模式（优先级最高）
+            r'Еще\s+(\d+)',  # "Еще 8" -> 8
+            r'еще\s+(\d+)',  # "еще 8" -> 8 (小写)
+
+            # 🔄 数字+符号模式
+            r'(\d+)\+',  # "5+" -> 5
+            r'(\d+)＋',  # "5＋" -> 5 (全角加号)
+
+            # 🔄 俄文产品数量模式
+            r'(\d+)\s*продавцов?',  # "10 продавцов" -> 10
+            r'(\d+)\s*продавца',  # "3 продавца" -> 3
+            r'(\d+)\s*магазинов?',  # "8 магазинов" -> 8
+            r'(\d+)\s*магазина',  # "2 магазина" -> 2
+
+            # 🔄 中文模式
+            r'还有(\d+)个',  # "还有8个卖家" -> 8
+            r'另有(\d+)个',  # "另有5个商家" -> 5
+            r'(\d+)个卖家',  # "10个卖家" -> 10
+            r'(\d+)个商家',  # "7个商家" -> 7
+
+            # 🔄 英文模式
+            r'(\d+)\s*more',  # "5 more" -> 5
+            r'(\d+)\s*others?',  # "3 other" -> 3
+            r'(\d+)\s*sellers?',  # "10 sellers" -> 10
+            r'(\d+)\s*stores?',  # "8 stores" -> 8
+
+            # 🔄 纯数字模式（最后备用）
+            r'^(\d+)$',  # "8" -> 8
+        ]
+
     def _get_default_competitor_container_selectors(self) -> List[str]:
         """获取默认跟卖店铺容器选择器配置 - 🔧 修复：基于真实HTML结构"""
         return [
