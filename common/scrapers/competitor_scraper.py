@@ -25,7 +25,7 @@ class CompetitorScraper:
         """初始化跟卖抓取器"""
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.selectors_config = selectors_config or get_ozon_selectors_config()
-    
+
     async def open_competitor_popup(self, page) -> Dict[str, Any]:
         """
         🔧 修复：严格的跟卖区域检测和点击逻辑
@@ -88,9 +88,9 @@ class CompetitorScraper:
                 await element.click()
                 self.logger.info("✅ 成功点击跟卖区域")
 
-                # 等待页面响应
+                # 等待浮层加载
                 self.logger.info("⏳ 等待跟卖浮层加载...")
-                await asyncio.sleep(1.5)  # 🔧 性能优化：减少等待时间
+                await asyncio.sleep(2.0)
 
                 # 🔧 验证浮层是否真的打开并包含跟卖内容
                 popup_opened = await self._verify_competitor_popup_opened(page)
@@ -145,10 +145,9 @@ class CompetitorScraper:
             bool: 浮层是否正确打开
         """
         try:
-            # 等待浮层内容加载
-            await asyncio.sleep(0.5)  # 🔧 性能优化：减少等待时间
+            await asyncio.sleep(0.5)
 
-            # 🔧 使用配置化的浮层指示器选择器
+            # 使用配置化的浮层指示器选择器
             popup_indicators = self.selectors_config.POPUP_INDICATORS
 
             for indicator in popup_indicators:
@@ -177,15 +176,25 @@ class CompetitorScraper:
                     self.logger.debug(f"检查指示器 {indicator} 失败: {e}")
                     continue
 
-            # 🆕 如果所有指示器都没找到，尝试检查页面是否有新的元素出现
+            # 🆕 如果所有指示器都没找到，尝试通过JavaScript检查页面内容
             try:
-                # 检查页面是否有新增的包含价格或seller相关的元素
-                new_elements = await page.query_selector_all("div:has-text('₽'), div:has-text('продавц'), div:has-text('seller')")
-                if new_elements:
-                    for element in new_elements:
-                        if await element.is_visible():
-                            self.logger.debug("✅ 通过内容检测找到浮层")
-                            return True
+                # 使用JavaScript检查页面是否有包含价格或seller相关的新元素
+                has_price_elements = await page.evaluate("""
+                    () => {
+                        const elements = document.querySelectorAll('div');
+                        for (let element of elements) {
+                            const text = element.textContent || '';
+                            if ((text.includes('₽') || text.includes('продавц') || text.includes('seller')) && 
+                                element.offsetWidth > 0 && element.offsetHeight > 0) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
+                """)
+                if has_price_elements:
+                    self.logger.debug("✅ 通过内容检测找到浮层")
+                    return True
             except:
                 pass
 
@@ -209,8 +218,7 @@ class CompetitorScraper:
         try:
             self.logger.info("🔍 检查是否需要展开跟卖店铺列表...")
 
-            # 等待页面稳定
-            await asyncio.sleep(0.5)  # 🔧 性能优化：减少等待时间  # 🔧 性能优化：减少等待时间
+            await asyncio.sleep(0.5)
 
             # 使用配置的展开按钮选择器
             expand_selectors = self.selectors_config.EXPAND_SELECTORS
@@ -220,7 +228,7 @@ class CompetitorScraper:
             expand_button_element = None
             used_selector = None
 
-            # 第一步：查找展开按钮 - 只要找到一个就停止
+            # 查找展开按钮
             for selector in expand_selectors:
                 try:
                     self.logger.debug(f"🔍 检查展开按钮选择器: {selector}")
@@ -252,19 +260,34 @@ class CompetitorScraper:
                         current_element = await page.query_selector(used_selector)
                         if current_element and await current_element.is_visible():
                             self.logger.info(f"🔍 点击展开按钮 (第{expanded_count + 1}次)...")
-                            await current_element.click()
-                            expanded_count += 1
 
-                            # 等待内容加载
-                            await asyncio.sleep(1.5)  # 🔧 性能优化：减少等待时间
+                            try:
+                                await current_element.scroll_into_view_if_needed()
+                                await asyncio.sleep(0.5)
 
-                            self.logger.info(f"✅ 成功点击展开按钮 (第{expanded_count}次)")
+                                await current_element.click(timeout=10000)
+                                expanded_count += 1
+                                self.logger.info(f"✅ 成功点击展开按钮 (第{expanded_count}次)")
+
+                                await asyncio.sleep(2.0)
+
+                            except Exception as click_error:
+                                self.logger.warning(f"⚠️ 点击展开按钮失败: {click_error}")
+                                # 🔧 尝试使用JavaScript点击作为备选方案
+                                try:
+                                    await page.evaluate(f'document.querySelector("{used_selector}").click()')
+                                    expanded_count += 1
+                                    self.logger.info(f"✅ 通过JavaScript成功点击展开按钮 (第{expanded_count}次)")
+                                    await asyncio.sleep(2.0)
+                                except Exception as js_error:
+                                    self.logger.error(f"❌ JavaScript点击也失败: {js_error}")
+                                    break
                         else:
                             self.logger.info("✅ 展开按钮消失，展开完成")
                             break
 
                     except Exception as click_e:
-                        self.logger.debug(f"点击展开按钮失败: {click_e}")
+                        self.logger.error(f"❌ 点击展开按钮失败: {click_e}")
                         break
 
                 if expanded_count > 0:
@@ -302,34 +325,33 @@ class CompetitorScraper:
 
             self.logger.info("🔍 开始提取跟卖店铺信息...")
 
-            # 🔧 简化选择器查找逻辑 - 删除过度复杂的选择器尝试
             seller_list_container = None
 
-            # 使用配置的容器选择器
-            primary_selectors = self.selectors_config.COMPETITOR_CONTAINER_SELECTORS
-
-            for selector in primary_selectors:
+            for selector in self.selectors_config.COMPETITOR_CONTAINER_SELECTORS:
                 seller_list_container = soup.select_one(selector)
                 if seller_list_container:
                     self.logger.debug(f"✅ 找到跟卖店铺列表容器: {selector}")
                     break
 
-            # 🔧 增强店铺元素查找逻辑 - 使用多种选择器确保找到所有店铺
+            # 查找店铺元素
             competitor_elements = []
+            best_selector = None
             if seller_list_container:
-                # 使用配置的元素选择器
-                element_selectors = self.selectors_config.COMPETITOR_ELEMENT_SELECTORS
-
-                for selector in element_selectors:
+                for selector in self.selectors_config.COMPETITOR_ELEMENT_SELECTORS:
                     try:
                         elements = seller_list_container.select(selector)
-                        if elements and len(elements) > len(competitor_elements):
-                            competitor_elements = elements
-                            self.logger.debug(f"✅ 使用选择器 '{selector}' 找到 {len(elements)} 个跟卖店铺元素")
-                            # 如果找到了多个元素，继续尝试其他选择器看是否能找到更多
+                        if elements and len(elements) >= len(competitor_elements):
+                            # 优先选择找到更多元素的选择器，数量相同时选择后面的（通常更精确）
+                            if len(elements) > len(competitor_elements) or (len(elements) == len(competitor_elements) and elements):
+                                competitor_elements = elements
+                                best_selector = selector
+                                self.logger.debug(f"✅ 使用选择器 '{selector}' 找到 {len(elements)} 个跟卖店铺元素")
                     except Exception as e:
                         self.logger.debug(f"选择器 '{selector}' 失败: {e}")
                         continue
+
+                if best_selector:
+                    self.logger.debug(f"🎯 最终选择选择器: {best_selector}，找到 {len(competitor_elements)} 个元素")
 
             # 如果仍未找到，尝试在整个页面中查找
             if not competitor_elements:
@@ -395,75 +417,46 @@ class CompetitorScraper:
                 'ranking': ranking
             }
 
-            # 使用配置的店铺名称选择器
-            name_selectors = self.selectors_config.STORE_NAME_SELECTORS
+            # 🔧 修复：基于用户提供的实际页面结构的精确选择器
+            store_link_selectors = [
+                # 🎯 基于用户提供的实际HTML结构的精确选择器（优先级最高）
+                "div.pdp_jb5.pdp_b6j > div.pdp_ae4 > div.pdp_a4e > div.pdp_ea4 > a.pdp_ae5",  # 完整路径
+                "div.pdp_ae4 > div.pdp_a4e > div.pdp_ea4 > a.pdp_ae5",  # 简化路径
+                "div.pdp_a4e > div.pdp_ea4 > a.pdp_ae5",  # 更简化路径
+                "div.pdp_ea4 > a.pdp_ae5",  # 最简化路径
+                "a.pdp_ae5[href*='/seller/']",  # 店铺链接的具体类
 
-            store_name = None
-            for selector in name_selectors:
-                name_element = element.select_one(selector)
-                if name_element:
-                    store_name = name_element.get_text(strip=True)
-                    if store_name and len(store_name) > 0:
-                        competitor_data['store_name'] = store_name
-                        self.logger.debug(f"✅ 提取到店铺名称: {store_name}")
+                # 🔄 备用选择器
+                "a[href*='/seller/']",          # 任何包含/seller/的链接
+                "a[href*='sellerId=']",         # sellerId参数的链接
+                "a[href*='seller']",            # 包含seller的链接
+                "a"                             # 最后备用：任何链接
+            ]
+
+            store_link_element = None
+            used_selector = None
+            for selector in store_link_selectors:
+                try:
+                    store_link_element = element.select_one(selector)
+                    if store_link_element and store_link_element.get('href'):
+                        used_selector = selector
+                        self.logger.debug(f"✅ 使用选择器 '{selector}' 找到店铺链接")
                         break
+                except Exception as e:
+                    self.logger.debug(f"选择器 '{selector}' 查找失败: {e}")
+                    continue
 
-            # 如果仍未找到店铺名称，尝试查找所有包含文本的元素
-            if 'store_name' not in competitor_data:
-                # 查找所有文本节点，过滤出可能的店铺名称
-                text_elements = element.find_all(text=True)
-                for text in text_elements:
-                    # 过滤掉纯空白字符和价格信息
-                    stripped_text = text.strip()
-                    if (stripped_text and
-                        len(stripped_text) > 1 and
-                        '₽' not in stripped_text and
-                        not stripped_text.replace('.', '').replace(',', '').isdigit()):
-                        competitor_data['store_name'] = stripped_text
-                        self.logger.debug(f"✅ 通过文本查找提取到店铺名称: {stripped_text}")
-                        break
+            if store_link_element and store_link_element.get('href'):
+                # 提取店铺名称
+                store_name = store_link_element.get_text(strip=True)
+                if store_name:
+                    competitor_data['store_name'] = store_name
+                    self.logger.debug(f"✅ 提取到店铺名称: {store_name}")
 
-            # 使用配置的价格选择器
-            price_selectors = self.selectors_config.STORE_PRICE_SELECTORS
+                # 提取店铺URL和ID
+                href = store_link_element.get('href')
+                self.logger.debug(f"✅ 提取到店铺链接: {href} (使用选择器: {used_selector})")
 
-            price = None
-            for selector in price_selectors:
-                price_element = element.select_one(selector)
-                if price_element:
-                    price_text = price_element.get_text(strip=True)
-                    self.logger.debug(f"🔍 尝试解析价格文本: '{price_text}'")
-                    price = clean_price_string(price_text, self.selectors_config)
-                    if price and price > 0:
-                        competitor_data['price'] = price
-                        self.logger.debug(f"✅ 提取到店铺价格: {price}₽")
-                        break
-
-            # 如果没有找到价格，尝试查找包含₽符号的文本
-            if not price:
-                price_elements = element.find_all(text=lambda text: text and '₽' in text)
-                for price_text in price_elements:
-                    price = clean_price_string(str(price_text), self.selectors_config)
-                    if price and price > 0:
-                        competitor_data['price'] = price
-                        self.logger.debug(f"✅ 通过文本查找提取到店铺价格: {price}₽")
-                        break
-
-            # 使用配置的链接选择器
-            link_element = None
-            link_selectors = self.selectors_config.STORE_LINK_SELECTORS
-
-            for selector in link_selectors:
-                link_element = element.select_one(selector)
-                if link_element and link_element.get('href'):
-                    href = link_element.get('href')
-                    if href and len(href) > 0:
-                        self.logger.debug(f"🔍 找到店铺链接: {href}")
-                        break
-                link_element = None
-
-            if link_element and link_element.get('href'):
-                href = link_element.get('href')
-                self.logger.debug(f"🔍 店铺链接: {href}")
                 # 从URL中提取店铺ID
                 store_id = self._extract_store_id_from_url(href)
                 if store_id:
@@ -471,23 +464,80 @@ class CompetitorScraper:
                     self.logger.debug(f"✅ 提取到店铺ID: {store_id}")
                 else:
                     competitor_data['store_id'] = f"store_{ranking}"
-                    self.logger.debug(f"⚠️ 未找到店铺ID，使用默认ID: store_{ranking}")
+                    self.logger.debug(f"⚠️ 未能从URL提取店铺ID，使用默认ID: store_{ranking}")
             else:
-                competitor_data['store_id'] = f"store_{ranking}"
-                self.logger.debug(f"⚠️ 未找到店铺链接，使用默认ID: store_{ranking}")
+                # 🔧 调试：输出元素的HTML结构以便分析
+                element_html = str(element)[:500] + "..." if len(str(element)) > 500 else str(element)
+                self.logger.debug(f"⚠️ 未找到店铺链接，元素HTML结构: {element_html}")
 
-            # 如果没有提取到店铺名称，使用默认名称
+                competitor_data['store_id'] = f"store_{ranking}"
+                competitor_data['store_name'] = f"店铺{ranking}"
+
+            # 🔧 修复：基于用户提供的实际HTML结构的精确价格选择器
+            price_selectors = [
+                # 🎯 基于用户提供的正确选择器路径（优先级最高）
+                "div.pdp_jb5.pdp_jb6 > div > div",  # 用户提供的正确路径
+                "div.pdp_jb5.pdp_jb6 > div.pdp_bk0 > div.pdp_b1k",  # 完整路径的价格选择器
+                "div.pdp_bk0 > div.pdp_b1k",      # 简化路径的价格选择器
+                "div.pdp_b1k",                    # 主要价格类
+
+                # 🔄 备用价格选择器
+                "div.pdp_jb5.pdp_jb6 div.pdp_b1k", # 后代选择器版本
+                "span[class*='price']",           # 价格相关的span
+                "div[class*='price']",            # 价格相关的div
+                "[class*='pdp_b1k']",            # 包含价格类的元素
+                "span[class*='pdp_b']",          # 价格相关的span类
+                "div[class*='pdp_b']"            # 价格相关的div类
+            ]
+
+            price = None
+            used_price_selector = None
+
+            # 首先尝试使用具体的选择器
+            for selector in price_selectors:
+                try:
+                    price_element = element.select_one(selector)
+                    if price_element:
+                        price_text = price_element.get_text(strip=True)
+                        self.logger.debug(f"🔍 尝试解析价格文本: '{price_text}' (选择器: {selector})")
+                        price = clean_price_string(price_text, self.selectors_config)
+                        if price and price > 0:
+                            competitor_data['price'] = price
+                            used_price_selector = selector
+                            self.logger.debug(f"✅ 提取到店铺价格: {price}₽ (使用选择器: {selector})")
+                            break
+                except Exception as e:
+                    self.logger.debug(f"价格选择器 '{selector}' 查找失败: {e}")
+                    continue
+
+            # 如果具体选择器都失败了，尝试查找包含₽符号的文本
+            if not price:
+                try:
+                    price_elements = element.find_all(text=lambda text: text and '₽' in text)
+                    for price_text in price_elements:
+                        price_text_str = str(price_text).strip()
+                        self.logger.debug(f"🔍 尝试解析包含₽的文本: '{price_text_str}'")
+                        price = clean_price_string(price_text_str, self.selectors_config)
+                        if price and price > 0:
+                            competitor_data['price'] = price
+                            used_price_selector = "text_search"
+                            self.logger.debug(f"✅ 通过文本查找提取到店铺价格: {price}₽")
+                            break
+                except Exception as e:
+                    self.logger.debug(f"文本价格查找失败: {e}")
+
+            # 如果还是没找到价格，输出调试信息
+            if not price:
+                element_text = element.get_text(strip=True)[:200] + "..." if len(element.get_text(strip=True)) > 200 else element.get_text(strip=True)
+                self.logger.debug(f"⚠️ 未找到价格信息，元素文本内容: {element_text}")
+
+            # 确保有基本信息
             if 'store_name' not in competitor_data or not competitor_data['store_name']:
                 competitor_data['store_name'] = f"店铺{ranking}"
-                self.logger.debug(f"⚠️ 未提取到店铺名称，使用默认名称: {competitor_data['store_name']}")
+                self.logger.debug(f"⚠️ 使用默认店铺名称: {competitor_data['store_name']}")
 
-            # 验证数据完整性
-            if competitor_data.get('store_id'):
-                self.logger.debug(f"✅ 第{ranking}个跟卖店铺信息提取完成: {competitor_data}")
-                return competitor_data
-            else:
-                self.logger.warning(f"⚠️ 第{ranking}个跟卖店铺信息不完整")
-                return None
+            self.logger.debug(f"✅ 第{ranking}个跟卖店铺信息提取完成: {competitor_data}")
+            return competitor_data
 
         except Exception as e:
             self.logger.warning(f"从元素提取跟卖店铺信息失败: {e}")
@@ -551,58 +601,113 @@ class CompetitorScraper:
         try:
             self.logger.info(f"🔍 开始点击第{ranking}个跟卖店铺跳转到商品详情页...")
 
-            # 等待跟卖浮层加载完成
-            await asyncio.sleep(0.5)  # 🔧 性能优化：减少等待时间  # 🔧 性能优化：减少等待时间
+            await asyncio.sleep(0.5)
 
-            # 🔧 使用配置化的跟卖店铺点击选择器
-            # 使用多种选择器尝试定位第ranking个跟卖店铺
-            competitor_selectors = [
-                selector.format(ranking) for selector in self.selectors_config.COMPETITOR_CLICK_SELECTORS
-            ]
+            # 🔧 修复：使用配置化的店铺行选择器（整行都可以点击）
+            # 构建基于配置的店铺行选择器
+            competitor_row_selectors = []
 
-            competitor_element = None
-            used_selector = None
-
-            for selector in competitor_selectors:
+            # 🎯 使用配置的点击选择器
+            for selector_template in self.selectors_config.COMPETITOR_CLICK_SELECTORS:
                 try:
-                    self.logger.debug(f"🔍 尝试使用选择器定位跟卖店铺: {selector}")
-                    if selector.startswith("/"):  # XPath
-                        await page.wait_for_selector(f'xpath={selector}', timeout=3000)
-                        element = await page.query_selector(f'xpath={selector}')
-                    else:  # CSS选择器
-                        await page.wait_for_selector(selector, timeout=3000)
-                        element = await page.query_selector(selector)
-
-                    if element:
-                        competitor_element = element
-                        used_selector = selector
-                        self.logger.debug(f"✅ 使用选择器找到跟卖店铺元素: {selector}")
-                        break
-                except Exception as wait_e:
-                    self.logger.debug(f"等待元素出现失败: {wait_e}")
+                    # 将模板中的{}替换为实际排名
+                    selector = selector_template.format(ranking)
+                    competitor_row_selectors.append(selector)
+                except Exception as e:
+                    self.logger.debug(f"格式化选择器模板失败: {selector_template}, 错误: {e}")
                     continue
 
-            if competitor_element:
-                # 检查元素是否可见
-                is_visible = await competitor_element.is_visible()
-                if is_visible:
-                    # 点击该元素
-                    await competitor_element.click()
-                    self.logger.info(f"✅ 成功点击第{ranking}个跟卖店铺 (使用选择器: {used_selector})")
+            # 🔄 如果配置的选择器为空，使用基本的备用选择器
+            if not competitor_row_selectors:
+                self.logger.warning("配置的点击选择器为空，使用备用选择器")
+                competitor_row_selectors = [
+                    f"#seller-list div.pdp_kb2:nth-child({ranking})",
+                    f"//div[@id='seller-list']//div[contains(@class, 'pdp_kb2')][{ranking}]"
+                ]
 
-                    # 等待页面跳转
-                    await asyncio.sleep(1.5)  # 🔧 性能优化：减少等待时间
-                    self.logger.info(f"✅ 已跳转到第{ranking}个跟卖店铺的商品详情页")
-                    return True
-                else:
-                    self.logger.warning(f"⚠️ 第{ranking}个跟卖店铺元素不可见")
+            competitor_row_element = None
+            used_selector = None
+
+            # 查找店铺行元素
+            for selector in competitor_row_selectors:
+                try:
+                    self.logger.debug(f"🔍 尝试使用选择器定位店铺行: {selector}")
+
+                    if selector.startswith("//"):  # XPath
+                        element = await page.query_selector(f'xpath={selector}')
+                    else:  # CSS选择器
+                        element = await page.query_selector(selector)
+
+                    if element and await element.is_visible():
+                        competitor_row_element = element
+                        used_selector = selector
+                        self.logger.debug(f"✅ 找到第{ranking}个店铺行: {selector}")
+                        break
+                    else:
+                        self.logger.debug(f"🔍 选择器未找到可见元素: {selector}")
+
+                except Exception as e:
+                    self.logger.debug(f"选择器 {selector} 检查失败: {e}")
+                    continue
+
+            if competitor_row_element:
+                try:
+                    # 🎯 点击整个店铺行
+                    self.logger.info(f"🔍 点击第{ranking}个跟卖店铺行...")
+
+                    # 获取店铺信息用于日志（如果可能）
+                    try:
+                        store_link = await competitor_row_element.query_selector("a[href*='/seller/']")
+                        if store_link:
+                            store_name = await store_link.text_content()
+                            href = await store_link.get_attribute('href')
+                            self.logger.debug(f"点击店铺行: {store_name} -> {href}")
+                    except:
+                        pass
+
+                    # 点击店铺行
+                    await competitor_row_element.click()
+                    self.logger.info(f"✅ 成功点击第{ranking}个跟卖店铺行 (使用选择器: {used_selector})")
+
+                    await asyncio.sleep(2.0)
+
+                    # 🔧 验证是否成功跳转到店铺页面
+                    current_url = page.url
+                    if '/seller/' in current_url or 'sellerId=' in current_url:
+                        self.logger.info(f"✅ 成功跳转到店铺页面: {current_url}")
+                        return True
+                    else:
+                        self.logger.warning(f"⚠️ 点击成功但未跳转到店铺页面，当前URL: {current_url}")
+                        return False
+
+                except Exception as click_e:
+                    self.logger.error(f"点击店铺行失败: {click_e}")
                     return False
             else:
-                self.logger.warning(f"⚠️ 未找到第{ranking}个跟卖店铺元素")
+                self.logger.warning(f"⚠️ 未找到第{ranking}个跟卖店铺行")
+
+                # 🔧 调试信息：列出当前页面的所有店铺行
+                try:
+                    all_rows = await page.query_selector_all("#seller-list div.pdp_kb2")
+                    self.logger.debug(f"页面中共找到 {len(all_rows)} 个店铺行")
+                    for i, row in enumerate(all_rows[:5]):  # 只显示前5个
+                        try:
+                            store_link = await row.query_selector("a[href*='/seller/']")
+                            if store_link:
+                                store_name = await store_link.text_content()
+                                href = await store_link.get_attribute('href')
+                                self.logger.debug(f"店铺行{i+1}: {store_name} -> {href}")
+                        except:
+                            self.logger.debug(f"店铺行{i+1}: 无法获取详细信息")
+                except:
+                    pass
+
                 return False
 
         except Exception as e:
             self.logger.error(f"点击跟卖店铺跳转到商品详情页失败: {e}")
+            import traceback
+            self.logger.error(f"详细错误信息: {traceback.format_exc()}")
             return False
 
 
