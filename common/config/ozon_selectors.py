@@ -178,6 +178,12 @@ class OzonSelectorsConfig:
     def _get_default_popup_indicators(self) -> List[str]:
         """获取默认浮层指示器选择器配置"""
         return [
+            # 🎯 基于真实HTML结构的精确浮层指示器（优先级最高）
+            "div.pdp_b2k",  # 🔧 修复：正确的浮层容器类
+            "div.pdp_b2k div.pdp_kb2",  # 浮层内的店铺元素
+            "div.pdp_b2k a.pdp_ae5",  # 浮层内的店铺链接
+
+            # 🔄 原有选择器作为备用
             "#seller-list",  # 最常见的seller-list ID
             "[data-widget='sellerList']",  # 数据组件
             "[class*='seller-list']",  # 包含seller-list的类
@@ -235,10 +241,10 @@ class OzonSelectorsConfig:
         """获取默认跟卖店铺容器选择器配置 - 🔧 修复：基于真实HTML结构"""
         return [
             # 🎯 基于真实HTML结构的精确选择器（优先级最高）
-            "div.pdp_k1b",  # 具体的容器类（最重要）
+            "div.pdp_b2k",  # 🔧 修复：正确的浮层容器类
             "#seller-list",  # 主容器ID
             "[data-widget='webSellerList']",  # 数据组件选择器
-            "div.pdp_a6b div.pdp_k1b",  # 通过父容器匹配
+            "div.pdp_a6b div.pdp_b2k",  # 通过父容器匹配
 
             # 🔄 备用选择器
             "[data-widget='sellerList']",

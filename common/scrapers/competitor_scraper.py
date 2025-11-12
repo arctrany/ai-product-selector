@@ -102,14 +102,14 @@ class CompetitorScraper:
             # 点击跟卖区域
             await element.click()
             self.logger.info("✅ 点击跟卖区域")
-            await asyncio.sleep(1.0)
 
-            # 验证浮层打开
-            popup_opened = await self._verify_popup_opened(page)
+            # 🔧 时序修复：等待浮层完全加载
+            popup_opened = await self._wait_for_popup_with_retry(page, max_wait_seconds=5)
 
             if popup_opened:
                 self.logger.info("✅ 跟卖浮层打开")
-                await self._expand_if_needed(page)
+                # 🔧 时序修复：确保浮层内容完全加载后再展开
+                await self.expand_competitor_list_if_needed(page)
                 return {'success': True, 'has_competitors': True, 'popup_opened': True, 'error_message': None}
             else:
                 self.logger.warning("⚠️ 浮层未打开")
@@ -119,86 +119,69 @@ class CompetitorScraper:
             self.logger.error(f"打开跟卖浮层失败: {e}")
             return {'success': False, 'has_competitors': False, 'popup_opened': False, 'error_message': str(e)}
 
-    async def _verify_popup_opened(self, page) -> bool:
-        """验证跟卖浮层是否打开"""
-        try:
-            await asyncio.sleep(0.5)
-
-            # 查找浮层指示器
-            element, _ = await self._find_element_by_selectors(page, self.selectors_config.POPUP_INDICATORS)
-
-            if element:
-                # 验证内容
-                try:
-                    text_content = await element.text_content()
-                    if text_content and any(keyword in text_content.lower()
-                                          for keyword in ['продавц', 'seller', '₽', 'руб']):
-                        return True
-                except:
-                    pass
-                return True  # 元素存在且可见就认为有效
-
-            return False
-
-        except Exception as e:
-            self.logger.debug(f"验证浮层失败: {e}")
-            return False
-
-    async def _expand_if_needed(self, page) -> bool:
+    async def _wait_for_popup_with_retry(self, page, max_wait_seconds: int = 5) -> bool:
         """
-        检查并展开跟卖店铺列表（简化版本）
+        🔧 时序修复：等待跟卖浮层完全加载，使用显式等待替代硬编码等待
 
         Args:
             page: Playwright页面对象
+            max_wait_seconds: 最大等待时间（秒）
 
         Returns:
-            bool: 是否成功展开或无需展开
+            bool: 浮层是否成功打开
         """
         try:
-            await asyncio.sleep(0.5)
+            self.logger.info(f"🔍 等待跟卖浮层加载（最多{max_wait_seconds}秒）...")
 
-            # 查找展开按钮
-            expand_button, used_selector = await self._find_element_by_selectors(
-                page, self.selectors_config.EXPAND_SELECTORS
-            )
-
-            if not expand_button:
-                self.logger.info("ℹ️ 无需展开，当前显示全部跟卖店铺")
-                return True
-
-            self.logger.info(f"🔍 开始展开跟卖店铺列表 (选择器: {used_selector})")
-
-            # 连续点击展开按钮
-            expanded_count = 0
-            max_expansions = 5
-
-            while expanded_count < max_expansions:
+            # 🔧 使用显式等待，检查浮层指示器
+            for attempt in range(max_wait_seconds * 2):  # 每0.5秒检查一次
                 try:
-                    # 重新查找按钮
-                    current_button = await page.query_selector(used_selector)
-                    if not current_button or not await current_button.is_visible():
-                        self.logger.info("✅ 展开按钮消失，展开完成")
-                        break
+                    # 🎯 关键修复：严格验证浮层结构，确保真实店铺数据存在
+                    popup_container = await page.query_selector("div.pdp_b2k")
+                    if popup_container:
+                        # 🔧 验证浮层内是否有真实的店铺元素
+                        store_elements = await popup_container.query_selector_all("div.pdp_kb2")
+                        if store_elements and len(store_elements) > 0:
+                            # 🔧 进一步验证：确保店铺元素包含店铺名称链接
+                            valid_stores = 0
+                            for store_element in store_elements:
+                                store_link = await store_element.query_selector("a.pdp_ae5")
+                                if store_link:
+                                    link_text = await store_link.text_content()
+                                    # 🔧 关键：排除"У других продавцов"这种标题文本
+                                    if link_text and "других продавцов" not in link_text.lower():
+                                        valid_stores += 1
 
-                    await current_button.scroll_into_view_if_needed()
-                    await asyncio.sleep(0.1)
-                    await current_button.click(timeout=2000)
-                    expanded_count += 1
-                    self.logger.info(f"✅ 展开第{expanded_count}次")
-                    await asyncio.sleep(1.0)
+                            if valid_stores > 0:
+                                self.logger.info(f"✅ 浮层已完全加载，发现{valid_stores}个有效店铺")
+                                return True
+                            else:
+                                self.logger.debug(f"🔍 浮层存在但无有效店铺，继续等待...")
+                        else:
+                            self.logger.debug(f"🔍 浮层容器存在但无店铺元素，继续等待...")
+                    else:
+                        self.logger.debug(f"🔍 浮层容器不存在，继续等待...")
 
-                except Exception as click_error:
-                    self.logger.warning(f"⚠️ 点击展开按钮失败: {click_error}")
-                    break
+                    # 等待0.5秒后重试
+                    await asyncio.sleep(0.5)
 
-            if expanded_count > 0:
-                self.logger.info(f"✅ 成功展开 {expanded_count} 次")
+                except Exception as e:
+                    self.logger.debug(f"等待浮层第{attempt+1}次尝试失败: {e}")
+                    await asyncio.sleep(0.5)
+                    continue
 
-            return True
+            self.logger.warning(f"⚠️ 等待{max_wait_seconds}秒后浮层仍未加载")
+            return False
 
         except Exception as e:
-            self.logger.warning(f"展开跟卖店铺列表失败: {e}")
-            return True  # 即使展开失败，也继续抓取当前显示的内容
+            self.logger.error(f"等待浮层加载失败: {e}")
+            return False
+
+    async def _verify_popup_opened(self, page) -> bool:
+        """验证跟卖浮层是否打开 - 保留用于兼容性"""
+        return await self._wait_for_popup_with_retry(page, max_wait_seconds=3)
+
+
 
     async def expand_competitor_list_if_needed(self, page) -> bool:
         """
@@ -641,6 +624,52 @@ class CompetitorScraper:
         except Exception as e:
             self.logger.debug(f"统计跟卖店铺数量失败: {e}")
             return 0
+
+    async def _wait_for_popup_content_stable(self, page, max_wait_seconds: int = 3) -> bool:
+        """
+        🔧 时序修复：等待浮层内容稳定加载
+
+        Args:
+            page: Playwright页面对象
+            max_wait_seconds: 最大等待时间（秒）
+
+        Returns:
+            bool: 内容是否稳定
+        """
+        try:
+            self.logger.debug("🔍 等待浮层内容稳定...")
+
+            # 等待一小段时间让内容开始加载
+            await asyncio.sleep(0.5)
+
+            # 检查是否有基本的浮层内容
+            for attempt in range(max_wait_seconds * 2):
+                try:
+                    # 查找浮层容器
+                    container_found = False
+                    for container_selector in self.selectors_config.COMPETITOR_CONTAINER_SELECTORS:
+                        container = await page.query_selector(container_selector)
+                        if container:
+                            container_found = True
+                            break
+
+                    if container_found:
+                        self.logger.debug("✅ 浮层内容已稳定")
+                        return True
+
+                    await asyncio.sleep(0.5)
+
+                except Exception as e:
+                    self.logger.debug(f"等待内容稳定第{attempt+1}次失败: {e}")
+                    await asyncio.sleep(0.5)
+                    continue
+
+            self.logger.debug("⚠️ 浮层内容可能未完全稳定，但继续执行")
+            return True
+
+        except Exception as e:
+            self.logger.debug(f"等待浮层内容稳定失败: {e}")
+            return True
 
 
 
