@@ -94,7 +94,7 @@ class OzonScraper:
                 execution_time=time.time() - start_time
             )
 
-    def scrape_competitor_stores(self, product_url: str, max_competitors: int = 15) -> ScrapingResult:
+    def scrape_competitor_stores(self, product_url: str, max_competitors: int = 10) -> ScrapingResult:
         """
         抓取跟卖店铺信息
 
@@ -187,6 +187,7 @@ class OzonScraper:
         try:
             # 抓取价格信息
             price_result = self.scrape_product_prices(product_url)
+            has_better_price = False
             if not price_result.success:
                 return price_result
 
@@ -195,14 +196,51 @@ class OzonScraper:
                 'price_data': price_result.data
             }
 
+            # 确保价格字段存在（即使为空）
+            if 'green_price' not in result_data['price_data']:
+                result_data['price_data']['green_price'] = None
+            if 'black_price' not in result_data['price_data']:
+                result_data['price_data']['black_price'] = None
+
+            # 判断跟卖价格比黑标价格、绿标价格是否更低,绿标价格如果不存在则比价黑标价格即可；
+            # 如果跟卖价格低，则设置变量has_better_price为True 否则为false
+            black_price = price_result.data.get('black_price')
+            green_price = price_result.data.get('green_price')
+            competitor_price = price_result.data.get('competitor_price')
+
+            # 🔧 修复：确保当跟卖价格为空时，has_better_price 明确为 False
+            if competitor_price and competitor_price > 0 and black_price:
+                # 如果有绿标价格，比较跟卖价格与绿标价格
+                if green_price and competitor_price < green_price:
+                    has_better_price = True
+                # 如果没有绿标价格，比较跟卖价格与黑标价格
+                elif not green_price and competitor_price < black_price:
+                    has_better_price = True
+                else:
+                    self.logger.info(f"跟卖价格({competitor_price}₽)不比主价格更低")
+            else:
+                # 跟卖价格为空或无效时，明确设置 has_better_price 为 False
+                has_better_price = False
+                if not competitor_price or competitor_price <= 0:
+                    self.logger.info("跟卖价格为空或无效，has_better_price 设置为 False")
+                else:
+                    self.logger.info("未检测到主价格，跳过价格比较")
+
             # 如果需要，抓取跟卖店铺信息
-            if include_competitors:
+            if include_competitors and has_better_price:
                 competitors_result = self.scrape_competitor_stores(product_url)
                 if competitors_result.success:
                     result_data['competitors'] = competitors_result.data['competitors']
+                    # 🔧 修复：使用检测到的总跟卖数量，而不是实际提取的店铺数量
+                    result_data['competitor_count'] = competitors_result.data.get('total_competitor_count', len(competitors_result.data['competitors']))
                 else:
                     self.logger.warning(f"抓取跟卖店铺信息失败: {competitors_result.error_message}")
                     result_data['competitors'] = []
+                    result_data['competitor_count'] = 0
+            else:
+                # 即使不抓取跟卖店铺，也要设置 competitor_count
+                result_data['competitors'] = []
+                result_data['competitor_count'] = 0
 
             return ScrapingResult(
                 success=True,

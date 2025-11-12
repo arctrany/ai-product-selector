@@ -1,0 +1,78 @@
+{
+  "test_cases": [
+    {
+      "id": "scenario_1_no_competitors",
+      "name": "场景1 - 无跟卖店铺",
+      "url": "https://www.ozon.ru/product/1756017628",
+      "description": "测试没有跟卖店铺的商品",
+      "expected": {
+        "green_price": 16021.0,
+        "black_price": 17032.0,
+        "competitor_count": 0,
+        "has_competitors": false,
+        "has_image": true
+      },
+      "test_options": {
+        "include_competitors": true,
+        "max_competitors": 10
+      }
+    },
+    {
+      "id": "scenario_2_with_competitors",
+      "name": "场景2 - 有跟卖店铺",
+      "url": "https://www.ozon.ru/product/144042159",
+      "description": "测试有跟卖店铺的商品",
+      "expected": {
+        "green_price": null,
+        "black_price": 3230.0,
+        "competitor_count": 0,
+        "has_competitors": false,
+        "has_image": true
+      },
+      "test_options": {
+        "include_competitors": true,
+        "max_competitors": 10
+      }
+    },
+    {
+      "id": "scenario_3_many_competitors",
+      "name": "场景3 - 跟卖店铺超过10个",
+      "url": "https://www.ozon.ru/product/2369901364",
+      "description": "测试有大量跟卖店铺的商品（超过10个）",
+      "expected": {
+        "green_price": null,
+        "black_price": 13314.0,
+        "competitor_count": 32,
+        "has_competitors": true,
+        "has_image": true
+      },
+      "test_options": {
+        "include_competitors": true,
+        "max_competitors": 15
+      }
+    },
+    {
+      "id": "scenario_4_product_1176594312",
+      "name": "场景4 - 商品ID 1176594312",
+      "url": "https://www.ozon.ru/product/1176594312",
+      "description": "测试特定商品ID的跟卖店铺抓取",
+      "expected": {
+        "green_price": 2540.0,
+        "black_price": 2660.0,
+        "competitor_count": 32,
+        "has_competitors": true,
+        "has_image": true
+      },
+      "test_options": {
+        "include_competitors": true,
+        "max_competitors": 15
+      }
+    }
+  ],
+  "validation_rules": {
+    "price_tolerance": 50.0,
+    "competitor_count_tolerance": 5,
+    "required_fields": ["green_price", "black_price", "image_url"],
+    "competitor_required_fields": ["store_name", "price", "store_id", "ranking"]
+  }
+}
