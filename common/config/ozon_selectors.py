@@ -174,82 +174,44 @@ class OzonSelectorsConfig:
     def _get_default_competitor_area_selectors(self) -> List[str]:
         """获取默认跟卖区域选择器配置"""
         return [
+            # 🎯 已验证有效的精确选择器（优先级最高）
             "#layoutPage > div.b6 > div.container.c > div.pdp_sa1.pdp_as5.pdp_as7 > div.pdp_mb9 > div > div > div.pdp_sa1.pdp_as8.pdp_as5.pdp_sa5 > div.pdp_i6b.pdp_bi9 > div.pdp_ib7 > div > div > div > button > span > div",
+
+            # 🔄 精简的备用选择器（仅保留最有效的）
             "[data-widget='webCompetitors']",
-            "[class*='competitor']",
-            "[class*='seller']",
-            "div[class*='competitor'][class*='button']",
-            "div[class*='seller'][class*='button']",
             "button[class*='competitor']",
-            "button[class*='seller']",
             "[data-test-id*='competitor']",
-            "[data-test-id*='seller']",
-            "[data-testid*='competitor']",
-            "[data-testid*='seller']",
-            ".competitor-info",
-            ".seller-info"
+            ".competitor-info"
         ]
     
     def _get_default_popup_indicators(self) -> List[str]:
         """获取默认浮层指示器选择器配置"""
         return [
-            # 🎯 基于真实HTML结构的精确浮层指示器（优先级最高）
-            "div.pdp_b2k",  # 🔧 修复：正确的浮层容器类
+            # 🎯 已验证有效的精确浮层指示器（优先级最高）
+            "div.pdp_b2k",  # 正确的浮层容器类
             "div.pdp_b2k div.pdp_kb2",  # 浮层内的店铺元素
-            "div.pdp_b2k a.pdp_ae5",  # 浮层内的店铺链接
 
-            # 🔄 原有选择器作为备用
+            # 🔄 精简的备用选择器（仅保留最有效的）
             "#seller-list",  # 最常见的seller-list ID
             "[data-widget='sellerList']",  # 数据组件
             "[class*='seller-list']",  # 包含seller-list的类
-            "[class*='sellerList']",  # 驼峰命名的类
             "[class*='popup']",  # 通用弹窗类
-            "[class*='modal']",  # 模态框类
-            "[class*='overlay']",  # 覆盖层类
-            "[class*='dropdown']",  # 下拉框类
-            "[class*='seller']",  # 包含seller的类
-            "div[class*='seller'][class*='container']",  # seller容器
-            "div[class*='seller'][class*='wrapper']",  # seller包装器
-            # 🆕 新增更具体的选择器
-            "[data-testid*='seller']",  # 测试ID
-            "[data-test-id*='seller']",  # 测试ID变体
             "div[role='dialog']",  # 对话框角色
-            "div[role='menu']",  # 菜单角色
-            "div[role='listbox']",  # 列表框角色
-            # 🆕 基于内容的选择器
-            "div:has(a[href*='/seller/'])",  # 包含seller链接的div
-            "div:has([class*='price'])",  # 包含价格的div
-            "div[data-price]"  # 包含价格数据的div
+            "div:has(a[href*='/seller/'])"  # 包含seller链接的div
         ]
     
     def _get_default_expand_selectors(self) -> List[str]:
         """获取默认展开按钮选择器配置"""
         return [
-            # 🎯 基于实际HTML结构的精确展开按钮选择器（优先级最高）
-            "#seller-list button.b25_4_4-a0.b25_4_4-b7.b25_4_4-a5",  # 在seller-list内的完整展开按钮
-            "#seller-list > button.b25_4_4-a0.b25_4_4-b7.b25_4_4-a5",  # 直接子元素展开按钮
+            # 🎯 已验证有效的精确展开按钮选择器（优先级最高）
+            "#seller-list button.b25_4_4-a0.b25_4_4-b7.b25_4_4-a5",  # 完整展开按钮
             "div[data-widget='sellerList'] button.b25_4_4-a0",  # 数据组件内的展开按钮
 
-            # 🔧 修复：更精确的选择器，避免点击到错误元素
-            "#seller-list button[class*='b25_4_4-a0'][class*='b25_4_4-b7'][class*='b25_4_4-a5']",  # 完整类匹配
-            "#seller-list button[class*='b25_4_4-a0'][class*='b25_4_4-b7']",  # 部分类匹配
-
-            # 🔄 基于属性的选择器（移除不支持的:contains()）
+            # 🔄 精简的备用选择器（仅保留最有效的）
             "#seller-list button[aria-label*='Еще']",  # aria-label包含"Еще"的按钮
-            "#seller-list button[title*='Еще']",  # title包含"Еще"的按钮
-
-            # 🔄 更宽泛的备用选择器
-            "button.b25_4_4-a0.b25_4_4-b7.b25_4_4-a5",  # 完整的展开按钮类（全局）
-            "button[class*='b25_4_4-a0'][class*='b25_4_4-b7'][class*='b25_4_4-a5']",  # 完整类匹配（全局）
-            "button[class*='b25_4_4-a0'][class*='b25_4_4-b7']",  # 部分类匹配（全局）
-
-            # 🔄 最后的备用选择器
+            "button.b25_4_4-a0.b25_4_4-b7.b25_4_4-a5",  # 全局展开按钮
             "button[class*='expand']",
-            "button[class*='more']",
-            "button[data-testid*='expand']",
-            "button[data-testid*='more']",
-            "[data-widget='sellerList'] button",  # 数据组件内的任何按钮
-            "#seller-list button"  # seller-list内的任何按钮
+            "#seller-list button"  # seller-list内的任何按钮（最后备用）
         ]
     
     def _get_default_competitor_count_selectors(self) -> List[str]:
@@ -314,27 +276,16 @@ class OzonSelectorsConfig:
         ]
 
     def _get_default_competitor_container_selectors(self) -> List[str]:
-        """获取默认跟卖店铺容器选择器配置 - 🔧 修复：基于真实HTML结构"""
+        """获取默认跟卖店铺容器选择器配置"""
         return [
-            # 🎯 基于真实HTML结构的精确选择器（优先级最高）
-            "div.pdp_b2k",  # 🔧 修复：正确的浮层容器类
+            # 🎯 已验证有效的精确选择器（优先级最高）
+            "div.pdp_b2k",  # 正确的浮层容器类
             "#seller-list",  # 主容器ID
-            "[data-widget='webSellerList']",  # 数据组件选择器
-            "div.pdp_a6b div.pdp_b2k",  # 通过父容器匹配
 
-            # 🔄 备用选择器
+            # 🔄 精简的备用选择器（仅保留最有效的）
+            "[data-widget='webSellerList']",  # 数据组件选择器
             "[data-widget='sellerList']",
-            "[class*='seller-list']",
-            "[class*='sellerList']",
-            "[data-widget*='seller']",
-            "[data-widget*='Seller']",
-            ".seller-popup",
-            ".sellers-popup",
-            "[class*='popup'] [class*='seller']",
-            "[class*='modal'] [class*='seller']",
-            "[class*='overlay'] [class*='seller']",
-            "div[class*='seller'][class*='container']",
-            "div[class*='seller'][class*='wrapper']"
+            "[class*='seller-list']"
         ]
     
     def _get_default_competitor_element_selectors(self) -> List[str]:
@@ -361,31 +312,17 @@ class OzonSelectorsConfig:
         ]
     
     def _get_default_store_name_selectors(self) -> List[str]:
-        """获取默认店铺名称选择器配置 - 🔧 修复：基于真实HTML结构"""
+        """获取默认店铺名称选择器配置"""
         return [
-            # 🎯 基于真实HTML结构的精确选择器（优先级最高）
+            # 🎯 已验证有效的精确选择器（优先级最高）
             "a.pdp_ae5",  # 店铺名称链接的精确类
             "div.pdp_ea4 > a.pdp_ae5",  # 完整路径的店铺名称
-            "div.pdp_a4e > div.pdp_ea4 > a.pdp_ae5",  # 更完整的路径
+
+            # 🔄 精简的备用选择器（仅保留最有效的）
             "a[title]",  # 有title属性的链接（通常是店铺名称）
             "a[href*='/seller/']",  # 指向seller页面的链接
-
-            # 🔄 备用选择器
-            "[data-test-id*='seller']",
-            "[class*='sellerName']",
             "[class*='seller-name']",
-            "[class*='name']",
-            "[class*='seller']",
-            "[class*='store']",
-            "div[class*='name']",
-            "span[class*='name']",
-            "[data-test-id='seller-name']",
-            "[data-test-id='store-name']",
-            ".seller-name",
-            ".store-name",
-            ".competitor-name",
-            "div.seller-name",
-            "span.seller-name"
+            ".seller-name"
         ]
     
     def _get_default_store_price_selectors(self) -> List[str]:
@@ -413,25 +350,15 @@ class OzonSelectorsConfig:
     def _get_default_store_link_selectors(self) -> List[str]:
         """获取默认店铺链接选择器配置"""
         return [
-            # 🎯 基于实际HTML结构的精确选择器（优先级最高）
-            "div.pdp_jb5.pdp_b6j > div.pdp_ae4 > div.pdp_a4e > div.pdp_ea4 > a.pdp_ae5",
+            # 🎯 已验证有效的精确选择器（优先级最高）
             "a.pdp_ae5[href*='/seller/']",  # 店铺链接的具体类
             "div.pdp_ea4 > a.pdp_ae5",
+
+            # 🔄 精简的备用选择器（仅保留最有效的）
             "div.pdp_a4e > div.pdp_ea4 > a",
-            # 🔄 用户之前提供的选择器作为备用
-            "div > div:nth-child(1) > div > div.pdp_jb5.pdp_b6j > div.pdp_ae4 > div.pdp_a4e > div > a",
-            "div:nth-child(1) > div > div.pdp_jb5.pdp_b6j > div.pdp_ae4 > div.pdp_a4e > div > a",
-            "div > div.pdp_jb5.pdp_b6j > div.pdp_ae4 > div.pdp_a4e > div > a",
-            # 🔄 更多备用选择器
-            "div.pdp_ae4 > div.pdp_a4e > div > a",
-            "div.pdp_a4e > div > a",
             "a[href*='/seller/']",
-            "a[href*='sellerId=']",
             "a[href*='seller']",
-            "a[href*='/seller-']",
-            "a[href*='sellerId/']",
-            "a[href*='shop/']",
-            "a"
+            "a"  # 最后备用
         ]
 
     def _get_default_currency_symbols(self) -> List[str]:

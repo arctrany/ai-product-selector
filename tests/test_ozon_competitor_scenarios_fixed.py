@@ -267,6 +267,90 @@ class OzonCompetitorScenarioTester:
             print(f"❌ 场景3测试异常: {e}")
             return False
 
+    async def test_scenario_4_product_1176594312(self):
+        """
+        场景4：测试商品ID 1176594312 的跟卖店铺抓取
+        URL: https://www.ozon.ru/product/1176594312
+        """
+        print("\n" + "="*80)
+        print("🧪 场景4测试：商品ID 1176594312 跟卖店铺抓取")
+        print("="*80)
+
+        url = "https://www.ozon.ru/product/1176594312"
+
+        try:
+            print(f"📍 测试URL: {url}")
+            print("🔄 开始抓取价格信息...")
+
+            # 测试价格信息抓取
+            price_result = self.scraper.scrape_product_prices(url)
+
+            if price_result.success:
+                print("✅ 价格信息抓取成功")
+                print(f"📊 价格数据: {price_result.data}")
+
+                # 检查关键数据
+                green_price = price_result.data.get('green_price')
+                black_price = price_result.data.get('black_price')
+                image_url = price_result.data.get('image_url')
+                competitor_count = price_result.data.get('competitor_count')
+
+                print(f"💰 绿标价格: {green_price}₽" if green_price else "💰 绿标价格: 未找到")
+                print(f"💰 黑标价格: {black_price}₽" if black_price else "💰 黑标价格: 未找到")
+                print(f"🖼️ 商品图片: {image_url}" if image_url else "🖼️ 商品图片: 未找到")
+                print(f"📊 跟卖数量: {competitor_count}" if competitor_count is not None else "📊 跟卖数量: 未检测")
+
+                # 验证价格是否正确提取
+                if green_price or black_price:
+                    print(f"✅ 价格提取验证: 绿标={green_price}₽, 黑标={black_price}₽")
+                else:
+                    print("⚠️ 价格提取存在问题，需要检查选择器")
+
+                # 验证跟卖数量
+                if competitor_count is not None:
+                    if competitor_count > 0:
+                        print(f"✅ 跟卖数量: {competitor_count} (存在跟卖区域)")
+                    else:
+                        print(f"ℹ️ 跟卖数量: {competitor_count} (无跟卖店铺)")
+                else:
+                    print("⚠️ 跟卖数量未检测到")
+
+            else:
+                print(f"❌ 价格信息抓取失败: {price_result.error_message}")
+                return False
+
+            print("\n🔄 开始测试跟卖店铺抓取...")
+
+            # 测试跟卖店铺抓取
+            competitor_result = self.scraper.scrape_competitor_stores(url, max_competitors=15)
+
+            if competitor_result.success:
+                competitors = competitor_result.data.get('competitors', [])
+                total_count = competitor_result.data.get('total_count', 0)
+
+                print(f"✅ 跟卖店铺抓取成功")
+                print(f"📊 跟卖店铺数量: {total_count}")
+
+                if total_count > 0:
+                    print(f"✅ 发现 {total_count} 个跟卖店铺")
+                    print("📋 跟卖店铺列表:")
+                    for i, comp in enumerate(competitors, 1):
+                        store_name = comp.get('store_name', 'N/A')
+                        price = comp.get('price', 'N/A')
+                        store_id = comp.get('store_id', 'N/A')
+                        print(f"   {i}. {store_name} - {price}₽ (ID: {store_id})")
+                    return True
+                else:
+                    print("ℹ️ 没有找到跟卖店铺")
+                    return True
+            else:
+                print(f"❌ 跟卖店铺抓取失败: {competitor_result.error_message}")
+                return False
+
+        except Exception as e:
+            print(f"❌ 场景4测试异常: {e}")
+            return False
+
     async def test_browser_functionality(self):
         """测试浏览器基本功能"""
         print("\n" + "="*80)
@@ -344,6 +428,10 @@ class OzonCompetitorScenarioTester:
             # 场景3：有跟卖店铺，超过10个
             result3 = await self.test_scenario_3_with_competitors_over_10()
             results.append(("场景3 - 跟卖店铺超过10个", result3))
+
+            # 场景4：商品ID 1176594312 测试
+            result4 = await self.test_scenario_4_product_1176594312()
+            results.append(("场景4 - 商品ID 1176594312", result4))
 
         # 输出测试结果总结
         print("\n" + "="*80)
@@ -428,5 +516,14 @@ class TestOzonCompetitorScenariosFixed(unittest.IsolatedAsyncioTestCase):
                 'expected_competitor_count': 14,  # 初始值，实际值会在测试中确定
                 'competitor_price': 12994.0,
                 'has_competitors': True
+            },
+            {
+                'name': '场景4 - 商品ID 1176594312',
+                'url': 'https://www.ozon.ru/product/1176594312',
+                'expected_green_price': None,  # 待测试确定
+                'expected_black_price': None,  # 待测试确定
+                'expected_competitor_count': None,  # 待测试确定
+                'competitor_price': None,
+                'has_competitors': None  # 待测试确定
             }
         ]

@@ -112,7 +112,7 @@ class OzonScraper:
                 """异步提取跟卖店铺数据"""
                 try:
                     # 🔧 性能优化：减少不必要的等待时间
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(1)
 
                     # 🔧 修复：使用CompetitorScraper的严格跟卖检测方法
                     page = browser_service.browser_driver.page
