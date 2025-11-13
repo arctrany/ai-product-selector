@@ -40,7 +40,7 @@
       "url": "https://www.ozon.ru/product/2369901364",
       "description": "测试有大量跟卖店铺的商品（超过10个）",
       "expected": {
-        "green_price": null,
+        "green_price": 12576.0 ,
         "black_price": 13314.0,
         "competitor_count": 32,
         "has_competitors": true,

@@ -67,8 +67,10 @@ class OzonScraper:
                         self.logger.error("未能获取页面内容")
                         return {}
 
-                    # 解析价格信息 - 修复：改为同步调用
-                    price_data = self._extract_price_data_from_content_sync(page_content)
+                    # 解析价格信息 - 直接调用核心方法
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(page_content, 'html.parser')
+                    price_data = self._extract_price_data_core(soup)
 
                     return price_data
 
@@ -186,6 +188,7 @@ class OzonScraper:
                 execution_time=time.time() - start_time
             )
 
+    # 抓取商品信息的主入口
     def scrape(self, product_url: str, include_competitors: bool = False, **kwargs) -> ScrapingResult:
         """
         综合抓取商品信息
@@ -208,9 +211,9 @@ class OzonScraper:
 
             result_data = {
                 'product_url': product_url,
-                'price_data': price_result.data
+                'price_data': price_result.data,
+                'include_competitors': include_competitors
             }
-
             # 判断跟卖价格比黑标价格、绿标价格是否更低,绿标价格如果不存在则比价黑标价格即可；
             has_better_price = self.profit_evaluator.has_better_competitor_price(result_data)
 
@@ -231,6 +234,17 @@ class OzonScraper:
                 result_data['competitors'] = []
                 result_data['competitor_count'] = 0
 
+            # 如果include_competitors = False, 并且include_competitors = True，并且result_data里存在itemUrl，则抓取scrape当前商品的信息
+            competitor_product_url = result_data.get('competitor_product_url')
+            competitor_item_result = None
+            if not include_competitors and competitor_product_url:
+                competitor_item_result = self.scrape(competitor_product_url, include_competitors=False)
+
+            # 编写一个函数chooseGoodItem根据competitor item result和原始的result_data
+            # 进行加工和验证，返回一个新的result_data，包含一个当前商品以及competitor商品，先不实现逻辑打印即可。
+            if competitor_item_result and competitor_item_result.success:
+                self.combine_item(competitor_item_result.data, result_data)
+
             return ScrapingResult(
                 success=True,
                 data=result_data,
@@ -246,7 +260,7 @@ class OzonScraper:
                 execution_time=time.time() - start_time
             )
 
-    def _extract_price_data_core(self, soup, is_async=False) -> Dict[str, Any]:
+    def _extract_price_data_core(self, soup) -> Dict[str, Any]:
         """
         核心价格提取逻辑 - 简化版本
 
@@ -434,30 +448,6 @@ class OzonScraper:
             self.logger.error(f"提取商品图片失败: {e}")
             return None
 
-    def _extract_price_data_from_content_sync(self, page_content: str) -> Dict[str, Any]:
-        """
-        从页面内容中提取价格数据 - 同步版本（调用核心逻辑）
-        """
-        try:
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(page_content, 'html.parser')
-            return self._extract_price_data_core(soup, is_async=False)
-        except Exception as e:
-            self.logger.error(f"从页面内容提取价格数据失败: {e}")
-            return {}
-
-    def _extract_product_image_from_content_sync(self, soup) -> Optional[str]:
-        """
-        从页面内容中提取商品图片地址 - 同步版本（调用核心逻辑）
-        """
-        return self._extract_product_image_core(soup)
-
-    async def _extract_product_image_from_content(self, soup) -> Optional[str]:
-        """
-        从页面内容中提取商品图片地址 - 异步版本（调用核心逻辑）
-        """
-        return self._extract_product_image_core(soup)
-
     def _convert_to_high_res_image(self, image_url: str) -> str:
         """
         将图片URL转换为高清版本
@@ -496,3 +486,6 @@ class OzonScraper:
             self.close()
         except:
             pass
+
+    def combine_item(self, data, result_data):
+        pass
