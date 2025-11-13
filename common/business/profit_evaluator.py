@@ -19,7 +19,7 @@ from .pricing_calculator import PricingCalculator
 
 class ProfitEvaluator:
     """利润评估器"""
-    
+
     def __init__(self, profit_calculator_path: str, config: Optional[GoodStoreSelectorConfig] = None):
         """
         初始化利润评估器
@@ -30,14 +30,14 @@ class ProfitEvaluator:
         """
         self.config = config or get_config()
         self.logger = logging.getLogger(f"{__name__}.ProfitEvaluator")
-        
+
         # 初始化组件
         self.pricing_calculator = PricingCalculator(config)
         # 延迟导入，避免循环导入
         # self.excel_processor = ExcelProfitProcessor(profit_calculator_path, config)
-    
-    def evaluate_product_profit(self, product_info: ProductInfo, 
-                              source_price: Optional[float] = None) -> Dict[str, Any]:
+
+    def evaluate_product_profit(self, product_info: ProductInfo,
+                                source_price: Optional[float] = None) -> Dict[str, Any]:
         """
         评估商品利润
         
@@ -103,7 +103,8 @@ class ProfitEvaluator:
             # 检查上架时间是否超过配置的阈值
             max_shelf_days = getattr(self.config, 'item_shelf_days', 150)
             if product_info.shelf_days > max_shelf_days:
-                self.logger.info(f"商品{product_info.product_id}上架时间过长: {product_info.shelf_days}天 > {max_shelf_days}天")
+                self.logger.info(
+                    f"商品{product_info.product_id}上架时间过长: {product_info.shelf_days}天 > {max_shelf_days}天")
                 return False
 
             return True
@@ -136,7 +137,7 @@ class ProfitEvaluator:
             'error_message': f'商品上架时间过长: {product_info.shelf_days}天',
             'evaluation_summary': f"商品{product_info.product_id}: 上架时间过长({product_info.shelf_days}天)，不符合要求"
         }
-    
+
     def _has_required_data(self, product_info: ProductInfo) -> bool:
         """
         检查是否有进行Excel计算所需的数据
@@ -148,16 +149,16 @@ class ProfitEvaluator:
             bool: 是否有必要数据
         """
         return (
-            product_info.green_price is not None and
-            product_info.black_price is not None and
-            (product_info.commission_rate is not None or 
-             self.config.price_calculation.commission_rate_default is not None)
+                product_info.green_price is not None and
+                product_info.black_price is not None and
+                (product_info.commission_rate is not None or
+                 self.config.price_calculation.commission_rate_default is not None)
         )
-    
+
     def _create_evaluation_result(self, product_info: ProductInfo,
-                                pricing_result: PriceCalculationResult,
-                                excel_result: Optional[Any] = None,
-                                source_price: Optional[float] = None) -> Dict[str, Any]:
+                                  pricing_result: PriceCalculationResult,
+                                  excel_result: Optional[Any] = None,
+                                  source_price: Optional[float] = None) -> Dict[str, Any]:
         """
         创建评估结果
         
@@ -176,7 +177,7 @@ class ProfitEvaluator:
             'source_price': source_price,
             'has_excel_calculation': excel_result is not None
         }
-        
+
         # 如果有Excel计算结果，使用更精确的利润数据
         if excel_result:
             result.update({
@@ -194,17 +195,17 @@ class ProfitEvaluator:
                 'is_profitable': pricing_result.is_profitable,
                 'calculation_source': 'pricing_only'
             })
-        
+
         # 判断是否符合利润阈值
         result['meets_profit_threshold'] = (
-            result['profit_rate'] >= self.config.store_filter.profit_rate_threshold
+                result['profit_rate'] >= self.config.store_filter.profit_rate_threshold
         )
-        
+
         # 添加评估摘要
         result['evaluation_summary'] = self._create_evaluation_summary(result)
-        
+
         return result
-    
+
     def _create_evaluation_summary(self, result: Dict[str, Any]) -> str:
         """
         创建评估摘要
@@ -219,7 +220,7 @@ class ProfitEvaluator:
             profit_status = "有利润" if result['is_profitable'] else "无利润"
             threshold_status = "达标" if result['meets_profit_threshold'] else "不达标"
             calculation_source = "Excel精确计算" if result['calculation_source'] == 'excel' else "定价估算"
-            
+
             return (
                 f"商品{result['product_id']}: {profit_status}, "
                 f"利润率{result['profit_rate']:.2f}% ({threshold_status}), "
@@ -229,7 +230,7 @@ class ProfitEvaluator:
         except Exception as e:
             self.logger.error(f"创建评估摘要失败: {e}")
             return "评估摘要生成失败"
-    
+
     def _create_error_result(self, error_message: str) -> Dict[str, Any]:
         """
         创建错误结果
@@ -250,9 +251,9 @@ class ProfitEvaluator:
             'error_message': error_message,
             'evaluation_summary': f"利润评估失败: {error_message}"
         }
-    
-    def batch_evaluate_products(self, products: list[ProductInfo], 
-                              source_prices: Optional[Dict[str, float]] = None) -> list[Dict[str, Any]]:
+
+    def batch_evaluate_products(self, products: list[ProductInfo],
+                                source_prices: Optional[Dict[str, float]] = None) -> list[Dict[str, Any]]:
         """
         批量评估商品利润
         
@@ -265,20 +266,20 @@ class ProfitEvaluator:
         """
         results = []
         source_prices = source_prices or {}
-        
+
         for product in products:
             try:
                 source_price = source_prices.get(product.product_id)
                 result = self.evaluate_product_profit(product, source_price)
                 results.append(result)
-                
+
             except Exception as e:
                 self.logger.error(f"批量评估商品{product.product_id}失败: {e}")
                 results.append(self._create_error_result(str(e)))
-        
+
         self.logger.info(f"批量评估完成，共{len(products)}个商品")
         return results
-    
+
     def get_profitable_products(self, evaluation_results: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
         """
         筛选有利润的商品
@@ -290,52 +291,60 @@ class ProfitEvaluator:
             list[Dict[str, Any]]: 有利润的商品列表
         """
         profitable_products = [
-            result for result in evaluation_results 
+            result for result in evaluation_results
             if result.get('meets_profit_threshold', False)
         ]
-        
+
         self.logger.info(f"筛选出{len(profitable_products)}个有利润商品（总共{len(evaluation_results)}个）")
         return profitable_products
-    
-    def get_evaluation_statistics(self, evaluation_results: list[Dict[str, Any]]) -> Dict[str, Any]:
+
+    def has_better_competitor_price(self, result_data: Dict[str, Any]) -> bool:
         """
-        获取评估统计信息
-        
+        判断跟卖价格是否比主价格更优
+
         Args:
-            evaluation_results: 评估结果列表
-            
+            result_data: 包含价格数据的结果字典
+
         Returns:
-            Dict[str, Any]: 统计信息
+            bool: 如果跟卖价格更优返回True，否则返回False
         """
         try:
-            total_products = len(evaluation_results)
-            profitable_products = len([r for r in evaluation_results if r.get('is_profitable', False)])
-            threshold_products = len([r for r in evaluation_results if r.get('meets_profit_threshold', False)])
-            
-            # 计算平均利润率
-            profit_rates = [r.get('profit_rate', 0) for r in evaluation_results if r.get('profit_rate') is not None]
-            avg_profit_rate = sum(profit_rates) / len(profit_rates) if profit_rates else 0
-            
-            # 计算最高和最低利润率
-            max_profit_rate = max(profit_rates) if profit_rates else 0
-            min_profit_rate = min(profit_rates) if profit_rates else 0
-            
-            return {
-                'total_products': total_products,
-                'profitable_products': profitable_products,
-                'threshold_products': threshold_products,
-                'profitable_rate': (profitable_products / total_products * 100) if total_products > 0 else 0,
-                'threshold_rate': (threshold_products / total_products * 100) if total_products > 0 else 0,
-                'avg_profit_rate': avg_profit_rate,
-                'max_profit_rate': max_profit_rate,
-                'min_profit_rate': min_profit_rate,
-                'profit_threshold': self.config.store_filter.profit_rate_threshold
-            }
-            
+            # 确保价格字段存在（即使为空）
+            price_data = result_data.get('price_data', {})
+            if 'green_price' not in price_data:
+                price_data['green_price'] = None
+            if 'black_price' not in price_data:
+                price_data['black_price'] = None
+
+            # 获取价格数据
+            green_price = price_data.get('green_price')
+            black_price = price_data.get('black_price')
+            competitor_price = price_data.get('competitor_price')
+
+            # 跟卖价格无效时返回 False
+            if not competitor_price or competitor_price <= 0:
+                self.logger.info("跟卖价格为空或无效，has_better_price 设置为 False")
+                return False
+
+            # 没有主价格时返回 False
+            if not black_price:
+                self.logger.info("未检测到主价格，跳过价格比较")
+                return False
+
+            # 优先比较绿标价格，其次比较黑标价格
+            compare_price = green_price if green_price else black_price
+
+            if competitor_price < compare_price:
+                self.logger.info(f"跟卖价格({competitor_price}₽)比主价格({compare_price}₽)更低")
+                return True
+            else:
+                self.logger.info(f"跟卖价格({competitor_price}₽)不比主价格({compare_price}₽)更低")
+                return False
+
         except Exception as e:
-            self.logger.error(f"获取评估统计信息失败: {e}")
-            return {'error': str(e)}
-    
+            self.logger.error(f"判断跟卖价格优势失败: {e}")
+            return False
+
     def close(self):
         """关闭评估器"""
         # if self.excel_processor:

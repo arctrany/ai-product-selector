@@ -22,7 +22,6 @@ sys.path.insert(0, str(project_root))
 
 from common.config import get_config
 from common.scrapers.ozon_scraper import OzonScraper
-from common.models import ScrapingResult
 
 
 class OzonScraperMethodTester:
@@ -134,12 +133,17 @@ class OzonScraperMethodTester:
             else:
                 print(f"✅ 商品图片验证通过: 无图片")
         
-        # 验证跟卖数量
+        # 判断是否有更优跟卖价格
+        has_better_price = self._check_has_better_competitor_price(price_data)
+
+        # 验证跟卖数量 - 只有当 has_better_price 为 True 时才验证
         expected_count = expected.get('competitor_count')
         actual_count = actual_data.get('competitor_count')  # 从根级别获取，不是从 price_data
         count_tolerance = self.validation_rules.get('competitor_count_tolerance', 5)
-        
-        if expected_count is not None:
+
+        if not has_better_price:
+            print(f"ℹ️ 跟卖价格不优于主价格，跳过跟卖数量验证")
+        elif expected_count is not None:
             if actual_count is None:
                 print(f"❌ 跟卖数量验证失败: 期望 {expected_count}, 实际 None")
                 return False
@@ -152,6 +156,38 @@ class OzonScraperMethodTester:
             print(f"ℹ️ 跟卖数量: {actual_count} (未设置期望值)")
         
         return True
+
+    def _check_has_better_competitor_price(self, price_data: Dict[str, Any]) -> bool:
+        """
+        检查是否有更优的跟卖价格
+
+        Args:
+            price_data: 价格数据字典
+
+        Returns:
+            bool: 如果跟卖价格更优返回True，否则返回False
+        """
+        try:
+            green_price = price_data.get('green_price')
+            black_price = price_data.get('black_price')
+            competitor_price = price_data.get('competitor_price')
+
+            # 跟卖价格无效时返回 False
+            if not competitor_price or competitor_price <= 0:
+                return False
+
+            # 没有主价格时返回 False
+            if not black_price:
+                return False
+
+            # 优先比较绿标价格，其次比较黑标价格
+            compare_price = green_price if green_price else black_price
+
+            return competitor_price < compare_price
+
+        except Exception as e:
+            print(f"⚠️ 判断跟卖价格优势时出错: {e}")
+            return False
 
     def _validate_competitor_data(self, actual_data: Dict[str, Any], expected: Dict[str, Any], test_case_id: str) -> bool:
         """验证跟卖店铺数据"""

@@ -15,12 +15,14 @@ from .competitor_scraper import CompetitorScraper
 from ..models import ProductInfo, CompetitorStore, clean_price_string, ScrapingResult
 from ..config import GoodStoreSelectorConfig
 from ..config.ozon_selectors import get_ozon_selectors_config, OzonSelectorsConfig
+from ..business.profit_evaluator import ProfitEvaluator
 
 
 class OzonScraper:
     """OZON平台抓取器 - 基于browser_service架构"""
 
-    def __init__(self, config: Optional[GoodStoreSelectorConfig] = None, selectors_config: Optional[OzonSelectorsConfig] = None):
+    def __init__(self, config: Optional[GoodStoreSelectorConfig] = None,
+                 selectors_config: Optional[OzonSelectorsConfig] = None):
         """初始化OZON抓取器"""
         self.config = config or GoodStoreSelectorConfig()
         self.selectors_config = selectors_config or get_ozon_selectors_config()
@@ -32,6 +34,12 @@ class OzonScraper:
 
         # 创建跟卖抓取器
         self.competitor_scraper = CompetitorScraper(selectors_config=self.selectors_config)
+
+        # 创建利润评估器
+        self.profit_evaluator = ProfitEvaluator(
+            profit_calculator_path=self.config.excel.profit_calculator_path,
+            config=self.config
+        )
 
     def scrape_product_prices(self, product_url: str) -> ScrapingResult:
         """
@@ -112,7 +120,7 @@ class OzonScraper:
                 """异步提取跟卖店铺数据"""
                 try:
                     # 🔧 性能优化：减少不必要的等待时间
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.5)
 
                     # 🔧 修复：使用CompetitorScraper的严格跟卖检测方法
                     page = browser_service.browser_driver.page
@@ -131,6 +139,10 @@ class OzonScraper:
                         self.logger.warning("⚠️ 有跟卖但浮层未打开，跳过跟卖信息提取")
                         return {'competitors': [], 'total_count': 0}
 
+                    # 🔧 修复：获取检测到的总跟卖数量（而不是实际提取的数量）
+                    page = browser_service.browser_driver.page
+                    detected_total_count = await self.competitor_scraper._get_competitor_count(page)
+
                     # 获取页面内容
                     page_content = await browser_service.get_page_content()
 
@@ -138,7 +150,11 @@ class OzonScraper:
                     competitors = await self.competitor_scraper.extract_competitors_from_content(page_content,
                                                                                                  max_competitors)
 
-                    return {'competitors': competitors, 'total_count': len(competitors)}
+                    # 🔧 修复：返回检测到的总数量，而不是实际提取的数量
+                    return {
+                        'competitors': competitors,
+                        'total_count': detected_total_count if detected_total_count is not None else len(competitors)
+                    }
 
                 except Exception as e:
                     self.logger.error(f"提取跟卖店铺数据失败: {e}")
@@ -187,7 +203,6 @@ class OzonScraper:
         try:
             # 抓取价格信息
             price_result = self.scrape_product_prices(product_url)
-            has_better_price = False
             if not price_result.success:
                 return price_result
 
@@ -196,35 +211,8 @@ class OzonScraper:
                 'price_data': price_result.data
             }
 
-            # 确保价格字段存在（即使为空）
-            if 'green_price' not in result_data['price_data']:
-                result_data['price_data']['green_price'] = None
-            if 'black_price' not in result_data['price_data']:
-                result_data['price_data']['black_price'] = None
-
             # 判断跟卖价格比黑标价格、绿标价格是否更低,绿标价格如果不存在则比价黑标价格即可；
-            # 如果跟卖价格低，则设置变量has_better_price为True 否则为false
-            black_price = price_result.data.get('black_price')
-            green_price = price_result.data.get('green_price')
-            competitor_price = price_result.data.get('competitor_price')
-
-            # 🔧 修复：确保当跟卖价格为空时，has_better_price 明确为 False
-            if competitor_price and competitor_price > 0 and black_price:
-                # 如果有绿标价格，比较跟卖价格与绿标价格
-                if green_price and competitor_price < green_price:
-                    has_better_price = True
-                # 如果没有绿标价格，比较跟卖价格与黑标价格
-                elif not green_price and competitor_price < black_price:
-                    has_better_price = True
-                else:
-                    self.logger.info(f"跟卖价格({competitor_price}₽)不比主价格更低")
-            else:
-                # 跟卖价格为空或无效时，明确设置 has_better_price 为 False
-                has_better_price = False
-                if not competitor_price or competitor_price <= 0:
-                    self.logger.info("跟卖价格为空或无效，has_better_price 设置为 False")
-                else:
-                    self.logger.info("未检测到主价格，跳过价格比较")
+            has_better_price = self.profit_evaluator.has_better_competitor_price(result_data)
 
             # 如果需要，抓取跟卖店铺信息
             if include_competitors and has_better_price:
@@ -232,7 +220,8 @@ class OzonScraper:
                 if competitors_result.success:
                     result_data['competitors'] = competitors_result.data['competitors']
                     # 🔧 修复：使用检测到的总跟卖数量，而不是实际提取的店铺数量
-                    result_data['competitor_count'] = competitors_result.data.get('total_competitor_count', len(competitors_result.data['competitors']))
+                    result_data['competitor_count'] = competitors_result.data.get('total_count', len(
+                        competitors_result.data['competitors']))
                 else:
                     self.logger.warning(f"抓取跟卖店铺信息失败: {competitors_result.error_message}")
                     result_data['competitors'] = []
@@ -256,8 +245,6 @@ class OzonScraper:
                 error_message=str(e),
                 execution_time=time.time() - start_time
             )
-
-
 
     def _extract_price_data_core(self, soup, is_async=False) -> Dict[str, Any]:
         """
@@ -489,7 +476,6 @@ class OzonScraper:
         except Exception as e:
             self.logger.warning(f"转换高清图片URL失败: {e}")
             return image_url
-
 
     def close(self):
         """

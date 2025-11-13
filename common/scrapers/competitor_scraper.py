@@ -118,7 +118,7 @@ class CompetitorScraper:
             self.logger.error(f"打开跟卖浮层失败: {e}")
             return {'success': False, 'has_competitors': False, 'popup_opened': False, 'error_message': str(e)}
 
-    async def _wait_for_popup_with_retry(self, page, max_wait_seconds: int = 5) -> bool:
+    async def _wait_for_popup_with_retry(self, page, max_wait_seconds: int = 30) -> bool:
         """
         🔧 时序修复：等待跟卖浮层完全加载，使用显式等待替代硬编码等待
 
