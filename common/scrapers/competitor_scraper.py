@@ -103,7 +103,7 @@ class CompetitorScraper:
             self.logger.info("✅ 点击跟卖区域")
 
             # 🔧 时序修复：等待浮层完全加载
-            popup_opened = await self._wait_for_popup_with_retry(page, max_wait_seconds=5)
+            popup_opened = await self._wait_for_popup_with_retry(page, max_wait_seconds=10)
 
             if popup_opened:
                 self.logger.info("✅ 跟卖浮层打开")

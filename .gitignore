@@ -15,7 +15,7 @@ target/
 .settings/
 .project
 .classpath
-
+dist/*
 # OS
 .DS_Store
 Thumbs.db

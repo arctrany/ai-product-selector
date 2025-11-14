@@ -16,6 +16,7 @@ from ..models import ProductInfo, CompetitorStore, clean_price_string, ScrapingR
 from ..config import GoodStoreSelectorConfig
 from ..config.ozon_selectors import get_ozon_selectors_config, OzonSelectorsConfig
 from ..business.profit_evaluator import ProfitEvaluator
+from .erp_plugin_scraper import ErpPluginScraper
 
 
 class OzonScraper:
@@ -40,6 +41,9 @@ class OzonScraper:
             profit_calculator_path=self.config.excel.profit_calculator_path,
             config=self.config
         )
+
+        # 初始化ERP插件抓取器（共享browser_service实例）
+        self.erp_scraper = ErpPluginScraper(self.config, self.browser_service)
 
     def scrape_product_prices(self, product_url: str) -> ScrapingResult:
         """
@@ -71,6 +75,9 @@ class OzonScraper:
                     from bs4 import BeautifulSoup
                     soup = BeautifulSoup(page_content, 'html.parser')
                     price_data = self._extract_price_data_core(soup)
+
+                    # 保存价格数据供ERP抓取使用
+                    self._last_price_data = price_data
 
                     return price_data
 
@@ -214,8 +221,19 @@ class OzonScraper:
                 'price_data': price_result.data,
                 'include_competitors': include_competitors
             }
+
+
             # 判断跟卖价格比黑标价格、绿标价格是否更低,绿标价格如果不存在则比价黑标价格即可；
             has_better_price = self.profit_evaluator.has_better_competitor_price(result_data)
+
+            # 抓取ERP区域信息
+            erp_result = self.scrape_erp_info()
+            if erp_result.success:
+                result_data['erp_data'] = erp_result.data
+            else:
+                self.logger.warning(f"抓取ERP信息失败: {erp_result.error_message}")
+                result_data['erp_data'] = {}
+
 
             # 如果需要，抓取跟卖店铺信息
             if include_competitors and has_better_price:
@@ -225,6 +243,8 @@ class OzonScraper:
                     # 🔧 修复：使用检测到的总跟卖数量，而不是实际提取的店铺数量
                     result_data['competitor_count'] = competitors_result.data.get('total_count', len(
                         competitors_result.data['competitors']))
+
+
                 else:
                     self.logger.warning(f"抓取跟卖店铺信息失败: {competitors_result.error_message}")
                     result_data['competitors'] = []
@@ -235,15 +255,15 @@ class OzonScraper:
                 result_data['competitor_count'] = 0
 
             # 如果include_competitors = False, 并且include_competitors = True，并且result_data里存在itemUrl，则抓取scrape当前商品的信息
-            competitor_product_url = result_data.get('competitor_product_url')
-            competitor_item_result = None
-            if not include_competitors and competitor_product_url:
-                competitor_item_result = self.scrape(competitor_product_url, include_competitors=False)
-
-            # 编写一个函数chooseGoodItem根据competitor item result和原始的result_data
-            # 进行加工和验证，返回一个新的result_data，包含一个当前商品以及competitor商品，先不实现逻辑打印即可。
-            if competitor_item_result and competitor_item_result.success:
-                self.combine_item(competitor_item_result.data, result_data)
+            # competitor_product_url = result_data.get('competitor_product_url')
+            # competitor_item_result = None
+            # if not include_competitors and competitor_product_url:
+            #     competitor_item_result = self.scrape(competitor_product_url, include_competitors=False)
+            #
+            # # 编写一个函数chooseGoodItem根据competitor item result和原始的result_data
+            # # 进行加工和验证，返回一个新的result_data，包含一个当前商品以及competitor商品，先不实现逻辑打印即可。
+            # if competitor_item_result and competitor_item_result.success:
+            #     self.combine_item(competitor_item_result.data, result_data)
 
             return ScrapingResult(
                 success=True,
@@ -467,6 +487,25 @@ class OzonScraper:
             self.logger.warning(f"转换高清图片URL失败: {e}")
             return image_url
 
+    def scrape_erp_info(self) -> ScrapingResult:
+        """
+        抓取ERP插件信息
+
+        Returns:
+            ScrapingResult: ERP抓取结果
+        """
+        try:
+            # 使用共享的browser_service实例抓取ERP信息
+            return self.erp_scraper.scrape()
+
+        except Exception as e:
+            self.logger.error(f"抓取ERP信息失败: {e}")
+            return ScrapingResult(
+                success=False,
+                data={},
+                error_message=str(e)
+            )
+
     def close(self):
         """
         关闭抓取器，清理资源
@@ -475,6 +514,8 @@ class OzonScraper:
             if hasattr(self, 'browser_service') and self.browser_service:
                 self.browser_service.close()
                 self.logger.info("🔒 OzonScraper 已关闭")
+            if hasattr(self, 'erp_scraper') and self.erp_scraper:
+                self.erp_scraper.close()
         except Exception as e:
             self.logger.error(f"关闭 OzonScraper 时发生错误: {e}")
 
@@ -487,5 +528,5 @@ class OzonScraper:
         except:
             pass
 
-    def combine_item(self, data, result_data):
-        pass
+    # def combine_item(self, data, result_data):
+    #     pass
