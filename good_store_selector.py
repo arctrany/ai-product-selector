@@ -20,6 +20,8 @@ from common.scrapers import SeerfarScraper, OzonScraper, ErpPluginScraper
 from common.scrapers.filter_manager import FilterManager
 from common.business import ProfitEvaluator, StoreEvaluator
 from common.task_control import TaskExecutionController, TaskControlMixin
+from utils.url_converter import convert_image_url_to_product_url
+from utils.result_factory import ErrorResultFactory
 
 
 class GoodStoreSelector(TaskControlMixin):
@@ -52,6 +54,9 @@ class GoodStoreSelector(TaskControlMixin):
         self.ozon_scraper = None
         self.erp_scraper = None
         
+        # 工具类
+        self.error_factory = ErrorResultFactory(config)
+
         # 处理状态
         self.processing_stats = {
             'start_time': None,
@@ -200,12 +205,48 @@ class GoodStoreSelector(TaskControlMixin):
     def _load_pending_stores(self) -> List[ExcelStoreData]:
         """加载待处理店铺"""
         try:
-            all_stores = self.excel_processor.read_store_data()
-            pending_stores = self.excel_processor.filter_pending_stores(all_stores)
-            return pending_stores
-            
+            # 根据选择模式加载店铺
+            if self.config.selection_mode == 'select-goods':
+                # select-goods 模式：从 Excel 第一列读取店铺 ID
+                return self._load_stores_for_goods_selection()
+            else:
+                # select-shops 模式：当前默认实现
+                all_stores = self.excel_processor.read_store_data()
+                pending_stores = self.excel_processor.filter_pending_stores(all_stores)
+                return pending_stores
+
         except Exception as e:
             self.logger.error(f"加载待处理店铺失败: {e}")
+            raise
+
+    def _load_stores_for_goods_selection(self) -> List[ExcelStoreData]:
+        """
+        为 select-goods 模式加载店铺列表
+        从 Excel 第一列读取店铺 ID（只读取数字值）
+
+        使用 ExcelStoreProcessor 读取数据，然后过滤出数字 ID
+        """
+        try:
+            # 使用标准的 ExcelStoreProcessor 读取所有店铺数据
+            all_stores = self.excel_processor.read_store_data()
+
+            # 过滤出数字 ID 的店铺，并重置状态为 PENDING
+            stores = []
+            for store_data in all_stores:
+                # 验证店铺 ID 是否为数字
+                if store_data.store_id.isdigit():
+                    # 为 select-goods 模式重置状态为 EMPTY（待处理）
+                    store_data.is_good_store = GoodStoreFlag.EMPTY
+                    store_data.status = StoreStatus.EMPTY
+                    stores.append(store_data)
+                else:
+                    self.logger.debug(f"跳过第 {store_data.row_index} 行非数字店铺ID: {store_data.store_id}")
+
+            self.logger.info(f"select-goods 模式：从 Excel 加载了 {len(stores)} 个店铺ID")
+            return stores
+
+        except Exception as e:
+            self.logger.error(f"select-goods 模式加载店铺失败: {e}")
             raise
     
     def _process_single_store(self, store_data: ExcelStoreData) -> StoreAnalysisResult:
@@ -219,41 +260,40 @@ class GoodStoreSelector(TaskControlMixin):
             StoreAnalysisResult: 店铺分析结果
         """
         try:
-            # 1. 抓取店铺销售数据（包含初筛）
-            # store_info = self._scrape_store_sales_data(store_data)
-            # 使用过滤器管理器
-            filter_manager = FilterManager(self.config)
-            result = self.seerfar_scraper.scrape_store_sales_data(
-                store_data.store_id,
-                filter_manager.get_store_filter_func()
-            )
-
-
-            # 2. 检查店铺数据获取是否成功
-            if not result.success:
-                self.logger.warning(f"店铺{store_data.store_id}数据获取失败或不符合筛选条件，跳过后续商品处理")
+            # 根据选择模式决定是否进行店铺过滤
+            if self.config.selection_mode == 'select-goods':
+                # select-goods 模式：跳过店铺过滤，直接创建 store_info
                 store_info = StoreInfo(
                     store_id=store_data.store_id,
-                    is_good_store=GoodStoreFlag.NO,
-                    status=StoreStatus.FAILED
+                    is_good_store=store_data.is_good_store,
+                    status=store_data.status
                 )
-                return StoreAnalysisResult(
-                    store_info=store_info,
-                    products=[],
-                    profit_rate_threshold=self.config.store_filter.profit_rate_threshold,
-                    good_store_threshold=self.config.store_filter.good_store_ratio_threshold
+                self.logger.info(f"select-goods 模式：跳过店铺 {store_data.store_id} 的过滤，直接进行商品选品")
+            else:
+                # select-shops 模式：执行店铺过滤
+                # 1. 抓取店铺销售数据（包含初筛）
+                # 使用过滤器管理器
+                filter_manager = FilterManager(self.config)
+                result = self.seerfar_scraper.scrape_store_sales_data(
+                    store_data.store_id,
+                    filter_manager.get_store_filter_func()
                 )
 
-            # 如果成功获取数据，创建store_info对象
-            sales_data = result.data
-            store_info = StoreInfo(
-                store_id=store_data.store_id,
-                is_good_store=store_data.is_good_store,
-                status=store_data.status,
-                sold_30days=sales_data.get('sold_30days'),
-                sold_count_30days=sales_data.get('sold_count_30days'),
-                daily_avg_sold=sales_data.get('daily_avg_sold')
-            )
+                # 2. 检查店铺数据获取是否成功
+                if not result.success:
+                    self.logger.warning(f"店铺{store_data.store_id}数据获取失败或不符合筛选条件，跳过后续商品处理")
+                    return self.error_factory.create_failed_store_result(store_data.store_id)
+
+                # 如果成功获取数据，创建store_info对象
+                sales_data = result.data
+                store_info = StoreInfo(
+                    store_id=store_data.store_id,
+                    is_good_store=store_data.is_good_store,
+                    status=store_data.status,
+                    sold_30days=sales_data.get('sold_30days'),
+                    sold_count_30days=sales_data.get('sold_count_30days'),
+                    daily_avg_sold=sales_data.get('daily_avg_sold')
+                )
 
             # 3. 抓取店铺商品列表
             products, scraping_error = self._scrape_store_products(store_info, return_error=True)
@@ -261,24 +301,10 @@ class GoodStoreSelector(TaskControlMixin):
             # 🔧 关键修复：区分抓取异常和真正没有商品
             if scraping_error:
                 self.logger.error(f"店铺{store_data.store_id}商品抓取异常: {scraping_error}")
-                store_info.is_good_store = GoodStoreFlag.NO
-                store_info.status = StoreStatus.FAILED  # 标记为异常
-                return StoreAnalysisResult(
-                    store_info=store_info,
-                    products=[],
-                    profit_rate_threshold=self.config.store_filter.profit_rate_threshold,
-                    good_store_threshold=self.config.store_filter.good_store_ratio_threshold
-                )
+                return self.error_factory.create_failed_store_result(store_data.store_id)
             elif not products:
                 self.logger.info(f"店铺{store_data.store_id}无商品，跳过处理")
-                store_info.is_good_store = GoodStoreFlag.NO
-                store_info.status = StoreStatus.PROCESSED
-                return StoreAnalysisResult(
-                    store_info=store_info,
-                    products=[],
-                    profit_rate_threshold=self.config.store_filter.profit_rate_threshold,
-                    good_store_threshold=self.config.store_filter.good_store_ratio_threshold
-                )
+                return self.error_factory.create_no_products_result(store_data.store_id)
 
             # 4. 处理商品（抓取价格、ERP数据、货源匹配、利润计算）
             product_evaluations = self._process_products(products)
@@ -286,14 +312,7 @@ class GoodStoreSelector(TaskControlMixin):
             # 🔧 关键修复：检查商品处理是否成功
             if not product_evaluations:
                 self.logger.warning(f"店铺{store_data.store_id}商品处理失败，标记为非好店")
-                store_info.is_good_store = GoodStoreFlag.NO
-                store_info.status = StoreStatus.PROCESSED
-                return StoreAnalysisResult(
-                    store_info=store_info,
-                    products=[],
-                    profit_rate_threshold=self.config.store_filter.profit_rate_threshold,
-                    good_store_threshold=self.config.store_filter.good_store_ratio_threshold
-                )
+                return self.error_factory.create_no_products_result(store_data.store_id)
 
             # 5. 店铺评估
             store_result = self.store_evaluator.evaluate_store(store_info, product_evaluations)
@@ -306,18 +325,7 @@ class GoodStoreSelector(TaskControlMixin):
 
         except Exception as e:
             self.logger.error(f"处理店铺{store_data.store_id}失败: {e}")
-            # 返回失败结果
-            store_info = StoreInfo(
-                store_id=store_data.store_id,
-                is_good_store=GoodStoreFlag.NO,
-                status=StoreStatus.FAILED
-            )
-            return StoreAnalysisResult(
-                store_info=store_info,
-                products=[],
-                profit_rate_threshold=self.config.store_filter.profit_rate_threshold,
-                good_store_threshold=self.config.store_filter.good_store_ratio_threshold
-            )
+            return self.error_factory.create_failed_store_result(store_data.store_id)
     
     def _scrape_store_products(self, store_info: StoreInfo, return_error: bool = False) -> Union[List[ProductInfo], tuple[List[ProductInfo], Optional[str]]]:
         """抓取店铺商品列表
@@ -428,7 +436,7 @@ class GoodStoreSelector(TaskControlMixin):
                 return
             
             # 从图片URL提取商品页面URL
-            product_url = self._convert_image_url_to_product_url(product.image_url)
+            product_url = convert_image_url_to_product_url(product.image_url)
             if not product_url:
                 self.logger.warning(f"无法从图片URL转换商品页面URL: {product.image_url}")
                 return
@@ -451,7 +459,7 @@ class GoodStoreSelector(TaskControlMixin):
                 return
 
             # 从图片URL提取商品页面URL
-            product_url = self._convert_image_url_to_product_url(product.image_url)
+            product_url = convert_image_url_to_product_url(product.image_url)
             if not product_url:
                 self.logger.warning(f"无法从图片URL转换商品页面URL: {product.image_url}")
                 return
@@ -588,58 +596,7 @@ class GoodStoreSelector(TaskControlMixin):
         """获取处理统计信息"""
         return self.processing_stats.copy()
 
-    def _convert_image_url_to_product_url(self, image_url: str) -> Optional[str]:
-        """
-        从图片URL转换为商品页面URL
 
-        Args:
-            image_url: 图片URL
-
-        Returns:
-            Optional[str]: 商品页面URL，如果转换失败返回None
-        """
-        try:
-            if not image_url:
-                return None
-
-            # 从图片URL中提取商品ID
-            # 常见的OZON图片URL格式：
-            # https://cdn1.ozone.ru/s3/multimedia-x/wc1000/6123456789.jpg
-            # 对应的商品页面URL：
-            # https://www.ozon.ru/product/product-name-123456789/
-
-            import re
-
-            # 提取数字ID（通常是文件名中的数字部分）
-            match = re.search(r'/(\d+)\.(?:jpg|jpeg|png|webp)', image_url, re.IGNORECASE)
-            if not match:
-                # 尝试其他模式
-                match = re.search(r'(\d{8,})', image_url)
-
-            if match:
-                product_id = match.group(1)
-                # 构建OZON商品页面URL
-                # 注意：实际的URL可能需要根据真实的OZON URL结构调整
-                product_url = f"https://www.ozon.ru/product/-{product_id}/"
-                self.logger.debug(f"转换图片URL到商品URL: {image_url} -> {product_url}")
-                return product_url
-
-            # 如果无法提取ID，尝试直接使用图片URL作为商品URL的基础
-            # 这是一个备用方案，可能需要根据实际情况调整
-            if 'ozon.ru' in image_url or 'ozone.ru' in image_url:
-                # 如果是OZON的图片，尝试构建基础URL
-                base_url = "https://www.ozon.ru/search/?text="
-                # 从图片URL中提取可能的搜索关键词
-                filename = image_url.split('/')[-1].split('.')[0]
-                if filename and filename.isdigit():
-                    return f"https://www.ozon.ru/product/-{filename}/"
-
-            self.logger.warning(f"无法从图片URL提取商品ID: {image_url}")
-            return None
-
-        except Exception as e:
-            self.logger.error(f"转换图片URL失败: {e}")
-            return None
 
 
 # 便捷函数

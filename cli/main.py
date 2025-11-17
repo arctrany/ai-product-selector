@@ -123,6 +123,8 @@ def create_parser():
     "g01_item_min_price": 0,
     "g01_item_max_price": 1000,
     "max_products_per_store": 50,
+    "min_store_sales_30days": 500000.0,
+    "min_store_orders_30days": 250,
     "output_format": "xlsx",
     "output_path": "/path/to/output/"
   }
@@ -161,6 +163,19 @@ def create_parser():
         help='试运行模式：只显示将要执行的操作，不实际修改文件'
     )
 
+    # 选择模式标志（互斥）
+    mode_group = start_parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        '--select-goods',
+        action='store_true',
+        help='直接选品模式：跳过店铺过滤，直接从提供的店铺列表中选品'
+    )
+    mode_group.add_argument(
+        '--select-shops',
+        action='store_true',
+        help='店铺筛选模式：执行店铺过滤和裂变（默认模式）'
+    )
+
     # status命令
     subparsers.add_parser('status', help='查看任务状态')
 
@@ -188,6 +203,19 @@ def create_parser():
         '--level',
         choices=['debug', 'info', 'warning', 'error'],
         help='过滤日志级别'
+    )
+
+    # create-template命令
+    template_parser = subparsers.add_parser('create-template', help='创建用户数据配置模板')
+    template_parser.add_argument(
+        '--mode',
+        choices=['select-shops', 'select-goods'],
+        default='select-shops',
+        help='选择模式：select-shops（店铺筛选模式，默认）或 select-goods（直接选品模式）'
+    )
+    template_parser.add_argument(
+        '--output', '-o',
+        help='输出文件路径（默认：当前目录下的 user_data_template_{mode}.json）'
     )
 
     # preset命令
@@ -232,14 +260,25 @@ def load_user_data(data_path: str) -> UIConfig:
         with open(data_path, 'r', encoding='utf-8') as f:
             data_dict = json.load(f)
 
+        # 检查并警告废弃的字段
+        deprecated_fields = []
+        if 'item_created_days' in data_dict:
+            deprecated_fields.append('item_created_days')
+        if 'category_blacklist' in data_dict:
+            deprecated_fields.append('category_blacklist')
+
+        if deprecated_fields:
+            print(f"⚠️  警告: 配置文件包含已废弃的字段: {', '.join(deprecated_fields)}")
+            print(f"   这些字段将被忽略。请使用新的配置模板。")
+            print(f"   生成新模板: python3 -m cli.main create-template --mode select-shops")
+
         # 创建UIConfig对象
         ui_config = UIConfig(
             good_shop_file=data_dict.get('good_shop_file', ''),
             item_collect_file=data_dict.get('item_collect_file', ''),
             margin_calculator=data_dict.get('margin_calculator', ''),
             margin=data_dict.get('margin', 0.1),
-            item_created_days=data_dict.get('item_created_days', 150),
-            item_shelf_days=data_dict.get('item_shelf_days', 150),  # 新增字段
+            item_shelf_days=data_dict.get('item_shelf_days', 150),
             follow_buy_cnt=data_dict.get('follow_buy_cnt', 37),
             max_monthly_sold=data_dict.get('max_monthly_sold', 0),
             monthly_sold_min=data_dict.get('monthly_sold_min', 100),
@@ -248,12 +287,21 @@ def load_user_data(data_path: str) -> UIConfig:
             g01_item_min_price=data_dict.get('g01_item_min_price', 0),
             g01_item_max_price=data_dict.get('g01_item_max_price', 1000),
             max_products_per_store=data_dict.get('max_products_per_store', 50),
-            category_blacklist=data_dict.get('category_blacklist', []),  # 新增字段
+            min_store_sales_30days=data_dict.get('min_store_sales_30days', 500000.0),  # 店铺过滤：最小销售额
+            min_store_orders_30days=data_dict.get('min_store_orders_30days', 250),  # 店铺过滤：最小订单量
             output_format=data_dict.get('output_format', 'xlsx'),
             output_path=data_dict.get('output_path', ''),
             remember_settings=data_dict.get('remember_settings', False),
             dryrun=False  # 这个由命令行参数控制
         )
+
+        # 验证店铺过滤参数
+        if ui_config.min_store_sales_30days < 0:
+            print(f"❌ 错误: min_store_sales_30days 必须为正数，当前值: {ui_config.min_store_sales_30days}")
+            sys.exit(1)
+        if ui_config.min_store_orders_30days < 0:
+            print(f"❌ 错误: min_store_orders_30days 必须为正数，当前值: {ui_config.min_store_orders_30days}")
+            sys.exit(1)
 
         print(f"✓ 已加载用户数据: {data_path}")
         return ui_config
@@ -287,11 +335,20 @@ def load_system_config(config_path: str = None) -> GoodStoreSelectorConfig:
 
 def handle_start_command(args):
     """处理start命令"""
+    # 确定选择模式（默认为 select-shops）
+    select_mode = 'select-goods' if args.select_goods else 'select-shops'
+
     if args.dryrun:
         print("🧪 启动选评自动化任务（试运行模式）...")
         print("📝 注意：试运行模式下不会实际修改任何文件，只会显示执行日志")
     else:
         print("🚀 启动选评自动化任务...")
+
+    print(f"📌 选择模式: {select_mode}")
+    if select_mode == 'select-goods':
+        print("   • 直接选品：跳过店铺过滤，从提供的店铺列表中选品")
+    else:
+        print("   • 店铺筛选：执行店铺过滤和裂变")
 
     # 加载用户数据
     ui_config = load_user_data(args.data)
@@ -305,12 +362,22 @@ def handle_start_command(args):
         system_config.dryrun = True
         print("🧪 试运行模式已启用")
 
+    # 应用选择模式
+    system_config.selection_mode = select_mode
+
+    # 应用用户提供的店铺过滤配置
+    system_config.store_filter.min_sales_30days = ui_config.min_store_sales_30days
+    system_config.store_filter.min_orders_30days = ui_config.min_store_orders_30days
+
     # 显示将要执行的配置
     print("📋 将要执行的配置:")
     print(f"   • Excel文件: {ui_config.good_shop_file}")
     print(f"   • 输出路径: {ui_config.output_path}")
     print(f"   • 利润率: {ui_config.margin * 100}%")
     print(f"   • 每店最大商品数: {ui_config.max_products_per_store}")
+    if select_mode == 'select-shops':
+        print(f"   • 店铺最小销售额: {ui_config.min_store_sales_30days:,.0f} 卢布")
+        print(f"   • 店铺最小订单量: {ui_config.min_store_orders_30days} 单")
     print(f"   • 浏览器类型: {system_config.scraping.browser_type}")
     print(f"   • 无头模式: {'是' if system_config.scraping.headless else '否'}")
 
@@ -533,6 +600,43 @@ def handle_logs_command(args):
     return 0
 
 
+def handle_create_template_command(args):
+    """处理create-template命令"""
+    try:
+        print(f"📝 创建用户数据配置模板...")
+        print(f"   • 模式: {args.mode}")
+
+        # 调用UIConfig的create_template方法
+        template_path = UIConfig.create_template(
+            mode=args.mode,
+            output_path=args.output
+        )
+
+        print(f"✅ 模板文件已创建: {template_path}")
+        print(f"\n📋 模板说明:")
+        if args.mode == 'select-shops':
+            print("   • 店铺筛选模式：包含店铺过滤参数")
+            print("   • 字段数量：16个")
+            print("   • 包含：min_store_sales_30days, min_store_orders_30days")
+        else:
+            print("   • 直接选品模式：跳过店铺筛选")
+            print("   • 字段数量：15个")
+            print("   • 需要：item_collect_file（商品收集文件）")
+
+        print(f"\n💡 使用方法:")
+        print(f"   1. 编辑模板文件，填入实际路径和参数")
+        print(f"   2. 使用命令启动任务：")
+        print(f"      python -m cli.main start --data {template_path}")
+        if args.mode == 'select-goods':
+            print(f"      python -m cli.main start --data {template_path} --select-goods")
+
+        return 0
+
+    except Exception as e:
+        print(f"❌ 创建模板失败: {e}")
+        return 1
+
+
 def handle_preset_command(args):
     """处理preset命令"""
     preset_manager = PresetManager()
@@ -609,6 +713,8 @@ def main():
             return handle_resume_command(args)
         elif args.command == 'logs':
             return handle_logs_command(args)
+        elif args.command == 'create-template':
+            return handle_create_template_command(args)
         elif args.command == 'preset':
             return handle_preset_command(args)
         else:

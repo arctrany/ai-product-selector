@@ -84,8 +84,7 @@ class UIConfig:
     
     # 筛选参数
     margin: float = 0.1
-    item_created_days: int = 150
-    item_shelf_days: int = 150  # 新增：选品的已上架时间（天）
+    item_shelf_days: int = 150  # 选品的已上架时间（天）
     follow_buy_cnt: int = 37
     max_monthly_sold: int = 0
     monthly_sold_min: int = 100
@@ -94,7 +93,10 @@ class UIConfig:
     g01_item_min_price: int = 0
     g01_item_max_price: int = 1000
     max_products_per_store: int = 50
-    category_blacklist: List[str] = field(default_factory=list)  # 类目黑名单
+
+    # 店铺过滤参数
+    min_store_sales_30days: float = 500000.0  # 最小30天销售额（卢布）
+    min_store_orders_30days: int = 250  # 最小30天订单量
 
     # 输出设置
     output_format: str = "xlsx"
@@ -113,8 +115,7 @@ class UIConfig:
             'item_collect_file': self.item_collect_file,
             'margin_calculator': self.margin_calculator,
             'margin': self.margin,
-            'item_created_days': self.item_created_days,
-            'item_shelf_days': self.item_shelf_days,  # 新增字段
+            'item_shelf_days': self.item_shelf_days,
             'follow_buy_cnt': self.follow_buy_cnt,
             'max_monthly_sold': self.max_monthly_sold,
             'monthly_sold_min': self.monthly_sold_min,
@@ -123,7 +124,8 @@ class UIConfig:
             'g01_item_min_price': self.g01_item_min_price,
             'g01_item_max_price': self.g01_item_max_price,
             'max_products_per_store': self.max_products_per_store,
-            'category_blacklist': self.category_blacklist,
+            'min_store_sales_30days': self.min_store_sales_30days,
+            'min_store_orders_30days': self.min_store_orders_30days,
             'output_format': self.output_format,
             'output_path': self.output_path,
             'remember_settings': self.remember_settings,
@@ -161,6 +163,63 @@ class UIConfig:
                 json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
         except Exception as e:
             raise RuntimeError(f"保存配置文件失败: {e}")
+
+    @classmethod
+    def create_template(cls, mode: str = 'select-shops', output_path: str = None) -> str:
+        """
+        创建配置模板文件
+
+        Args:
+            mode: 选择模式，'select-shops' 或 'select-goods'
+            output_path: 输出文件路径，如果为None则使用当前目录
+
+        Returns:
+            创建的模板文件路径
+        """
+        if mode not in ['select-shops', 'select-goods']:
+            raise ValueError(f"不支持的模式: {mode}，必须是 'select-shops' 或 'select-goods'")
+
+        # 确定输出路径
+        if output_path is None:
+            output_path = f"user_data_template_{mode}.json"
+
+        # 创建模板数据
+        template_data = {
+            "good_shop_file": "/path/to/good_shops.xlsx",
+            "margin_calculator": "/path/to/margin_calculator.xlsx",
+            "margin": 0.15,
+            "item_shelf_days": 150,
+            "follow_buy_cnt": 50,
+            "max_monthly_sold": 1000,
+            "monthly_sold_min": 150,
+            "item_min_weight": 0,
+            "item_max_weight": 2000,
+            "g01_item_min_price": 10,
+            "g01_item_max_price": 500,
+            "max_products_per_store": 50,
+            "output_format": "xlsx",
+            "output_path": ""
+        }
+
+        # select-goods 模式需要 item_collect_file
+        if mode == 'select-goods':
+            template_data["item_collect_file"] = "/path/to/item_collect.xlsx"
+
+        # select-shops 模式需要店铺过滤参数
+        if mode == 'select-shops':
+            template_data["min_store_sales_30days"] = 500000.0
+            template_data["min_store_orders_30days"] = 250
+
+        # 保存模板文件
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(template_data, f, ensure_ascii=False, indent=2)
+            return str(output_file.absolute())
+        except Exception as e:
+            raise RuntimeError(f"创建模板文件失败: {e}")
 
 class EventType(Enum):
     """事件类型枚举"""

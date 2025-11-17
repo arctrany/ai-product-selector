@@ -135,7 +135,8 @@ class GoodStoreSelectorConfig:
     # 全局配置
     debug_mode: bool = False
     dryrun: bool = False  # 试运行模式，执行抓取但不写入文件，不调用1688接口
-    
+    selection_mode: str = 'select-shops'  # 选择模式：'select-goods' 或 'select-shops'（默认）
+
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'GoodStoreSelectorConfig':
         """从字典创建配置对象"""
@@ -173,7 +174,7 @@ class GoodStoreSelectorConfig:
                     setattr(config.performance, key, value)
         
         # 更新全局配置
-        for key in ['debug_mode', 'dryrun']:
+        for key in ['debug_mode', 'dryrun', 'selection_mode']:
             if key in config_dict:
                 setattr(config, key, config_dict[key])
         
@@ -237,7 +238,9 @@ class GoodStoreSelectorConfig:
             config.debug_mode = os.getenv('DEBUG_MODE').lower() == 'true'
         if os.getenv('DRYRUN'):
             config.dryrun = os.getenv('DRYRUN').lower() == 'true'
-        
+        if os.getenv('SELECTION_MODE'):
+            config.selection_mode = os.getenv('SELECTION_MODE')
+
         return config
     
     def to_dict(self) -> Dict[str, Any]:
@@ -301,6 +304,7 @@ class GoodStoreSelectorConfig:
             },
             'debug_mode': self.debug_mode,
             'dryrun': self.dryrun,
+            'selection_mode': self.selection_mode,
         }
     
     def save_to_json_file(self, file_path: str):

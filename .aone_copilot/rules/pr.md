@@ -1,5 +1,7 @@
 # OpenSpec Instructions
 
+Use Chinese for the whole document creation.
+
 These instructions are for AI assistants working in this project.
 
 Always open `@/openspec/AGENTS.md` when the request:

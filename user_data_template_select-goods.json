@@ -1,6 +1,5 @@
 {
   "good_shop_file": "/path/to/good_shops.xlsx",
-  "item_collect_file": "/path/to/item_collect.xlsx",
   "margin_calculator": "/path/to/margin_calculator.xlsx",
   "margin": 0.15,
   "item_shelf_days": 150,
@@ -11,9 +10,8 @@
   "item_max_weight": 2000,
   "g01_item_min_price": 10,
   "g01_item_max_price": 500,
-  "max_products_per_store": 30,
-  "min_store_sales_30days": 500000.0,
-  "min_store_orders_30days": 250,
+  "max_products_per_store": 50,
   "output_format": "xlsx",
-  "output_path": "/path/to/output/"
+  "output_path": "",
+  "item_collect_file": "/path/to/item_collect.xlsx"
 }

@@ -1,18 +1,6 @@
-# cli Specification
+# CLI Specification Deltas
 
-## Purpose
-TBD - created by archiving change add-item-shelf-days. Update Purpose after archive.
-## Requirements
-### Requirement: Item Shelf Days Configuration
-The system SHALL accept item shelf days as a configurable parameter in user input data.
-
-#### Scenario: Valid shelf days provided
-- **WHEN** user provides item_created_days parameter in input data
-- **THEN** the system uses this value for shelf time filtering
-
-#### Scenario: Default shelf days used
-- **WHEN** user does not provide item_created_days parameter in input data
-- **THEN** the system uses a default value of 150 days for shelf time filtering
+## ADDED Requirements
 
 ### Requirement: 模板数据生成
 系统必须（MUST）提供命令行选项来生成不同选择模式的配置模板文件，帮助用户快速创建正确的配置。
@@ -101,50 +89,3 @@ The system SHALL accept item shelf days as a configurable parameter in user inpu
 - **WHEN** 用户加载的配置文件中 `output_path` 为空字符串或未提供
 - **THEN** 系统应当将输出路径设置为当前工作目录
 - **AND** 成功执行任务并将结果输出到当前目录
-
-### Requirement: Selection Mode Flags
-The system SHALL provide two mutually exclusive command-line flags to control the selection workflow mode.
-
-#### Scenario: Select goods mode specified
-- **WHEN** user provides `--select-goods` flag
-- **THEN** the system skips store filtering and directly selects products from provided store list
-
-#### Scenario: Select shops mode specified
-- **WHEN** user provides `--select-shops` flag
-- **THEN** the system performs store filtering and expansion (current behavior)
-
-#### Scenario: No mode flag specified
-- **WHEN** user does not provide either mode flag
-- **THEN** the system defaults to select shops mode (`--select-shops`)
-
-#### Scenario: Both mode flags specified
-- **WHEN** user provides both `--select-goods` and `--select-shops` flags
-- **THEN** the system SHALL reject the command with a clear error message indicating the flags are mutually exclusive
-
-#### Scenario: Mode flags work with dryrun
-- **WHEN** user provides a mode flag along with `--dryrun`
-- **THEN** the system executes in the specified mode with dry-run behavior
-
-### Requirement: Store Filter Configuration in User Data
-The system SHALL accept store filtering thresholds as configurable parameters in user input data.
-
-#### Scenario: User provides store filter thresholds
-- **WHEN** user provides `min_store_sales_30days` and `min_store_orders_30days` in the `--data` JSON file
-- **THEN** the system uses these values for store-level filtering in select-shops mode
-
-#### Scenario: User omits store filter thresholds
-- **WHEN** user does not provide store filter fields in the `--data` JSON file
-- **THEN** the system uses default values (500,000 RUB for sales, 250 for orders)
-
-#### Scenario: Invalid store filter values provided
-- **WHEN** user provides negative or non-numeric values for store filter fields
-- **THEN** the system rejects the configuration with a clear error message
-
-#### Scenario: Store filters applied in select-shops mode
-- **WHEN** running in `--select-shops` mode with user-provided store filter values
-- **THEN** stores are filtered using the user-specified thresholds before product selection
-
-#### Scenario: Store filters ignored in select-goods mode
-- **WHEN** running in `--select-goods` mode
-- **THEN** store filter thresholds are not applied (store filtering is skipped)
-
