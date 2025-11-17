@@ -378,42 +378,112 @@ class XuanpingBrowserServiceSync:
     选评浏览器服务的同步包装器
     
     为了向后兼容现有的同步代码
+    🔧 关键修复：使用共享事件循环确保所有 Playwright 操作在同一个事件循环中执行
     """
-    
+
+    # 类级别的共享事件循环和线程
+    _shared_loop: Optional[asyncio.AbstractEventLoop] = None
+    _shared_thread: Optional[Any] = None
+    _loop_lock = None  # 将在第一次使用时初始化
+
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.browser_driver = None
         self.async_service = XuanpingBrowserService(config)
         self.logger = logging.getLogger(__name__)
-    
-    def _run_async(self, coro):
-        """运行异步函数 - 🔧 性能优化：简化事件循环管理，避免复杂的嵌套和线程切换"""
-        try:
-            # 🔧 性能优化：优先使用现有事件循环
-            try:
-                loop = asyncio.get_running_loop()
-                # 如果在事件循环中，使用 nest_asyncio 支持嵌套
+
+        # 初始化锁
+        if XuanpingBrowserServiceSync._loop_lock is None:
+            import threading
+            XuanpingBrowserServiceSync._loop_lock = threading.Lock()
+
+        # 确保共享事件循环已启动
+        self._ensure_shared_loop()
+
+    def _ensure_shared_loop(self):
+        """确保共享事件循环已启动 - 🔧 关键修复：所有实例共享同一个事件循环"""
+        import threading
+
+        with XuanpingBrowserServiceSync._loop_lock:
+            if XuanpingBrowserServiceSync._shared_loop is not None:
+                # 检查事件循环是否仍在运行
+                if XuanpingBrowserServiceSync._shared_loop.is_running():
+                    return
+                else:
+                    # 事件循环已停止，需要重新创建
+                    self.logger.warning("⚠️ 共享事件循环已停止，重新创建")
+                    XuanpingBrowserServiceSync._shared_loop = None
+                    XuanpingBrowserServiceSync._shared_thread = None
+
+            # 创建新的事件循环和线程
+            def run_event_loop():
+                """在独立线程中运行事件循环"""
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                XuanpingBrowserServiceSync._shared_loop = loop
+
+                self.logger.info("🔄 共享事件循环已启动")
+
                 try:
-                    import nest_asyncio
-                    nest_asyncio.apply()
-                    return loop.run_until_complete(coro)
-                except ImportError:
-                    # 如果没有 nest_asyncio，创建任务并等待
-                    task = loop.create_task(coro)
-                    return self._wait_for_task(task)
-            except RuntimeError:
-                # 没有运行的事件循环，直接运行
-                return asyncio.run(coro)
+                    loop.run_forever()
+                except Exception as e:
+                    self.logger.error(f"❌ 共享事件循环异常: {e}")
+                finally:
+                    try:
+                        # 清理未完成的任务
+                        pending = asyncio.all_tasks(loop)
+                        for task in pending:
+                            task.cancel()
+                        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                        loop.close()
+                    except Exception as e:
+                        self.logger.error(f"❌ 清理事件循环失败: {e}")
+
+                    XuanpingBrowserServiceSync._shared_loop = None
+                    self.logger.info("🛑 共享事件循环已停止")
+
+            # 启动事件循环线程
+            thread = threading.Thread(target=run_event_loop, daemon=True, name="AsyncEventLoop")
+            thread.start()
+            XuanpingBrowserServiceSync._shared_thread = thread
+
+            # 等待事件循环准备就绪
+            import time
+            max_wait = 5  # 最多等待5秒
+            waited = 0
+            while XuanpingBrowserServiceSync._shared_loop is None and waited < max_wait:
+                time.sleep(0.1)
+                waited += 0.1
+
+            if XuanpingBrowserServiceSync._shared_loop is None:
+                raise RuntimeError("共享事件循环创建失败")
+
+            self.logger.info("✅ 共享事件循环准备就绪")
+
+    def _run_async(self, coro):
+        """
+        运行异步函数 - 🔧 关键修复：在共享事件循环中执行所有异步操作
+
+        这确保了所有 Playwright 对象始终在同一个事件循环中操作，
+        从而彻底解决 "The future belongs to a different loop" 错误
+        """
+        try:
+            # 确保共享事件循环正在运行
+            if (XuanpingBrowserServiceSync._shared_loop is None or
+                not XuanpingBrowserServiceSync._shared_loop.is_running()):
+                self._ensure_shared_loop()
+
+            # 在共享事件循环中执行协程
+            future = asyncio.run_coroutine_threadsafe(
+                coro,
+                XuanpingBrowserServiceSync._shared_loop
+            )
+
+            # 等待结果（60秒超时）
+            return future.result(timeout=60)
 
         except Exception as e:
             self.logger.error(f"❌ 异步函数执行失败: {e}")
             raise
-
-    def _wait_for_task(self, task):
-        """等待任务完成 - 避免阻塞事件循环"""
-        import time
-        while not task.done():
-            time.sleep(0.01)  # 短暂休眠，避免CPU占用过高
-        return task.result()
 
 
     

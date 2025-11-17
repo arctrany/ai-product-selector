@@ -1,5 +1,5 @@
 {
-  "good_shop_file": "/path/to/good_shops.xlsx",
+  "good_shop_file": "docs/good_shops.xlsx",
   "item_collect_file": "/path/to/item_collect.xlsx",
   "margin_calculator": "/path/to/margin_calculator.xlsx",
   "margin": 0.15,
@@ -15,5 +15,5 @@
   "min_store_sales_30days": 500000.0,
   "min_store_orders_30days": 250,
   "output_format": "xlsx",
-  "output_path": "/path/to/output/"
+  "output_path": "."
 }

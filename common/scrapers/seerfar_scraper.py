@@ -403,7 +403,7 @@ class SeerfarScraper:
                     # 先提取基础字段（类目、上架时间、销量、重量）
                     category_data = await self._extract_category(row)
                     listing_date_data = await self._extract_listing_date(row)
-                    sales_volume = await self._extract_sales_volume(row)
+                    sales_volume = await self._extract_product_sales_volume(row)
                     weight = await self._extract_weight(row)
 
                     # 构建基础商品数据用于前置过滤（使用统一字段名）
@@ -466,7 +466,7 @@ class SeerfarScraper:
             product_data.update(listing_date_data)
 
             # 3. 提取销量
-            sales_volume = await self._extract_sales_volume(row_element)
+            sales_volume = await self._extract_product_sales_volume(row_element)
             if sales_volume is not None:
                 product_data['sales_volume'] = sales_volume
 
@@ -734,9 +734,9 @@ class SeerfarScraper:
 
         return result
 
-    async def _extract_sales_volume(self, row_element) -> Optional[int]:
+    async def _extract_product_sales_volume(self, row_element) -> Optional[int]:
         """
-        从行元素中提取销量信息
+        从行元素中提取商品销量信息
 
         Args:
             row_element: Playwright 行元素
