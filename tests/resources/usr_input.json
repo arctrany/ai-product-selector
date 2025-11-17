@@ -1,0 +1,120 @@
+{
+  "dialogTitle": null,
+  "height": 0,
+  "width": 0,
+  "timeout": 0,
+  "autoCloseButton": "确定",
+  "use_wait_timeout": false,
+  "canRememberContent": false,
+  "settings": {
+    "editors": [
+      {
+        "type": "File",
+        "label": "好店模版文件",
+        "VariableName": "good_shop_file",
+        "kind": 0,
+        "filter": "Excel文件|*.xls;*.xlsx",
+        "value": null,
+        "nullText": "请选择路径"
+      },
+      {
+        "type": "File",
+        "label": "采品文件",
+        "VariableName": "item_collect_file",
+        "kind": 0,
+        "filter": "Excel文件|*.xls;*.xlsx",
+        "value": null,
+        "nullText": "请选择商品"
+      },
+      {
+        "type": "File",
+        "label": "计算器文件",
+        "VariableName": "margin_calculator",
+        "kind": 0,
+        "filter": "Excel文件|*.xls;*.xlsx",
+        "value": null
+      },
+      {
+        "type": "Number",
+        "label": "利润率大于等于",
+        "VariableName": "margin",
+        "value": 0.1,
+        "maxValue": null,
+        "minValue": null,
+        "useFloat": true
+      },
+      {
+        "type": "Number",
+        "label": "商品创建天数小于等于",
+        "VariableName": "item_created_days",
+        "value": 150,
+        "maxValue": null,
+        "minValue": null,
+        "useFloat": false
+      },
+      {
+        "type": "Number",
+        "label": "跟卖数量小于",
+        "VariableName": "follow_buy_cnt",
+        "value": 37,
+        "maxValue": null,
+        "minValue": null,
+        "useFloat": true
+      },
+      {
+        "type": "Number",
+        "label": "月销量大于等于",
+        "VariableName": "max_monthly_sold",
+        "value": 0,
+        "maxValue": null,
+        "minValue": null,
+        "useFloat": false
+      },
+      {
+        "type": "Number",
+        "label": "月销量小于等于",
+        "VariableName": "monthly_sold_min",
+        "value": 100,
+        "maxValue": null,
+        "minValue": null,
+        "useFloat": false
+      },
+      {
+        "type": "Number",
+        "label": "商品最小重量（g）",
+        "VariableName": "item_min_weight",
+        "value": 0,
+        "maxValue": null,
+        "minValue": null,
+        "useFloat": false
+      },
+      {
+        "type": "Number",
+        "label": "商品最大重量（g）",
+        "VariableName": "item_max_weight",
+        "value": 1000,
+        "maxValue": null,
+        "minValue": null,
+        "useFloat": false
+      },
+      {
+        "type": "Number",
+        "label": "G01商品最小售价（₽）",
+        "VariableName": "g01_item_min_price",
+        "value": 0,
+        "maxValue": null,
+        "minValue": null,
+        "useFloat": false
+      },
+      {
+        "type": "Number",
+        "label": "G01商品最大售价（₽）",
+        "VariableName": "g01_item_max_price",
+        "value": 1000,
+        "maxValue": null,
+        "minValue": null,
+        "useFloat": false
+      }
+    ]
+  }
+}

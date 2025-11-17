@@ -17,6 +17,7 @@ from common.models import (
 from common.config import GoodStoreSelectorConfig, get_config
 from common.excel_processor import ExcelStoreProcessor
 from common.scrapers import SeerfarScraper, OzonScraper, ErpPluginScraper
+from common.scrapers.filter_manager import FilterManager
 from common.business import ProfitEvaluator, StoreEvaluator
 from common.task_control import TaskExecutionController, TaskControlMixin
 
@@ -220,7 +221,12 @@ class GoodStoreSelector(TaskControlMixin):
         try:
             # 1. 抓取店铺销售数据（包含初筛）
             # store_info = self._scrape_store_sales_data(store_data)
-            result = self.seerfar_scraper.scrape_store_sales_data(store_data.store_id, self.store_evaluator.filter_store)
+            # 使用过滤器管理器
+            filter_manager = FilterManager(self.config)
+            result = self.seerfar_scraper.scrape_store_sales_data(
+                store_data.store_id,
+                filter_manager.get_store_filter_func()
+            )
 
 
             # 2. 检查店铺数据获取是否成功
@@ -325,10 +331,16 @@ class GoodStoreSelector(TaskControlMixin):
             如果return_error为True，返回(商品列表, 错误信息)元组
         """
         try:
-            # 定义商品过滤函数
+            # 使用过滤器管理器创建商品过滤函数
+            filter_manager = FilterManager(self.config)
+            product_filter_func = filter_manager.get_product_filter_func()
+
+            # 调用抓取方法，传入过滤函数
             result = self.seerfar_scraper.scrape_store_products(
                 store_info.store_id,
-                self.config.store_filter.max_products_to_check )
+                self.config.store_filter.max_products_to_check,
+                product_filter_func=product_filter_func
+            )
 
             # 实现一个方法，遍历result里的products数据, 抓取ozon页面的商品价格
 

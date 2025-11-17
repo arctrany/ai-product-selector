@@ -372,33 +372,31 @@ class ErpPluginScraper:
         
         return None
 
-    def _parse_rfbs_commission(self, commission_str: str) -> List[float]:
+    def _parse_rfbs_commission(self, commission_str: str) -> Optional[List[float]]:
         """
         解析rFBS佣金字符串
-        
+
         Args:
             commission_str: 佣金字符串
-            
+
         Returns:
-            List[float]: 佣金率列表，默认返回[12.0, 14.0, 20.5]
+            Optional[List[float]]: 佣金率列表，如果无法提取则返回None
         """
         try:
-            # 默认的三档佣金率
-            default_rates = [12.0, 14.0, 20.5]
-            
             if not commission_str:
-                return default_rates
-            
+                return None
+
             # 尝试从字符串中提取数字
             rates = re.findall(r'(\d+(?:\.\d+)?)%?', commission_str)
             if rates:
                 return [float(rate) for rate in rates]
-            
-            return default_rates
-            
+
+            # 如果无法提取到数字，返回None而不是默认值
+            return None
+
         except Exception as e:
             self.logger.warning(f"解析佣金率失败: {commission_str}, 错误: {e}")
-            return [12.0, 14.0, 20.5]
+            return None
 
     async def _wait_for_erp_plugin_loaded(self, browser_service, max_wait_seconds: int = 10) -> bool:
         """

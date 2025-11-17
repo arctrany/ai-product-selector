@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Code Structure Simplification
 The OzonScraper SHALL maintain clean, non-redundant code structure by eliminating unnecessary wrapper methods that do not add functional value.

@@ -94,6 +94,7 @@ class UIConfig:
     g01_item_min_price: int = 0
     g01_item_max_price: int = 1000
     max_products_per_store: int = 50
+    category_blacklist: List[str] = field(default_factory=list)  # 类目黑名单
 
     # 输出设置
     output_format: str = "xlsx"
@@ -122,6 +123,7 @@ class UIConfig:
             'g01_item_min_price': self.g01_item_min_price,
             'g01_item_max_price': self.g01_item_max_price,
             'max_products_per_store': self.max_products_per_store,
+            'category_blacklist': self.category_blacklist,
             'output_format': self.output_format,
             'output_path': self.output_path,
             'remember_settings': self.remember_settings,

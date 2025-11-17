@@ -248,6 +248,7 @@ def load_user_data(data_path: str) -> UIConfig:
             g01_item_min_price=data_dict.get('g01_item_min_price', 0),
             g01_item_max_price=data_dict.get('g01_item_max_price', 1000),
             max_products_per_store=data_dict.get('max_products_per_store', 50),
+            category_blacklist=data_dict.get('category_blacklist', []),  # 新增字段
             output_format=data_dict.get('output_format', 'xlsx'),
             output_path=data_dict.get('output_path', ''),
             remember_settings=data_dict.get('remember_settings', False),

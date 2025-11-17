@@ -64,36 +64,6 @@ class StoreEvaluator:
             self.logger.error(f"评估店铺{store_info.store_id}失败: {e}")
             return self._create_failed_store_result(store_info, str(e))
 
-    def filter_store(self, sales_data: Dict[str, Any]) -> bool:
-        """
-        验证店铺是否符合初筛条件
-
-        Args:
-            sales_data: 销售数据
-
-        Returns:
-            bool: 是否符合条件
-        """
-        try:
-            sold_30days = sales_data.get('sold_30days', 0)
-            sold_count_30days = sales_data.get('sold_count_30days', 0)
-
-            # 检查销售额条件
-            if sold_30days < self.config.store_filter.min_sales_30days:
-                self.logger.info(f"店铺不符合销售额条件: {sold_30days} < {self.config.store_filter.min_sales_30days}")
-                return False
-
-            # 检查销量条件
-            if sold_count_30days < self.config.store_filter.min_orders_30days:
-                self.logger.info(f"店铺不符合销量条件: {sold_count_30days} < {self.config.store_filter.min_orders_30days}")
-                return False
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"验证店铺筛选条件失败: {e}")
-            return False
-    
     def _convert_product_evaluations(self, product_evaluations: List[Dict[str, Any]]) -> List[ProductAnalysisResult]:
         """
         转换商品评估结果为ProductAnalysisResult

@@ -1,4 +1,8 @@
-## ADDED Requirements
+# store-filtering Specification
+
+## Purpose
+TBD - created by archiving change add-store-filter. Update Purpose after archive.
+## Requirements
 ### Requirement: Store Filtering Function
 The system SHALL provide a separate function for filtering stores based on sales data.
 
@@ -10,7 +14,6 @@ The system SHALL provide a separate function for filtering stores based on sales
 - **WHEN** a store with insufficient sales data is processed
 - **THEN** the filter function returns false
 
-## MODIFIED Requirements
 ### Requirement: Store Sales Data Scraping with Filter
 The system SHALL support passing a filter function to the store sales data scraping process.
 
@@ -21,3 +24,4 @@ The system SHALL support passing a filter function to the store sales data scrap
 #### Scenario: No filter function provided
 - **WHEN** no filter function is provided to scrape_store_sales_data()
 - **THEN** the scraping proceeds without filtering
+
