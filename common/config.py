@@ -59,30 +59,59 @@ class PriceCalculationConfig:
 
 
 @dataclass
-class ScrapingConfig:
-    """网页抓取配置"""
+class BrowserConfig:
+    """浏览器配置
+
+    统一的浏览器配置类，整合所有浏览器相关配置。
+    """
     # 浏览器配置
     browser_type: str = "edge"  # 浏览器类型
     headless: bool = False  # 是否无头模式
     window_width: int = 1920
     window_height: int = 1080
-    
+
     # 超时和重试配置
-    page_load_timeout: int = 30  # 页面加载超时（秒）
+    timeout_seconds: int = 30  # 超时时间（秒）- 统一命名
+    page_load_timeout: int = 30  # 页面加载超时（秒）- 保留向后兼容
     element_wait_timeout: int = 10  # 元素等待超时（秒）
-    max_retry_attempts: int = 3  # 最大重试次数
+    max_retries: int = 3  # 最大重试次数 - 统一命名
+    max_retry_attempts: int = 3  # 最大重试次数 - 保留向后兼容
     retry_delay: float = 2.0  # 重试延迟（秒）
-    
+
+    # 登录态配置
+    required_login_domains: List[str] = field(default_factory=list)  # 必需登录的域名列表
+
+    # 调试配置
+    debug_port: int = 9222  # CDP 调试端口
+
     # Seerfar平台配置
     seerfar_base_url: str = "https://seerfar.cn"
     seerfar_store_detail_path: str = "/admin/store-detail.html"
-    
+
     # OZON平台配置
     ozon_base_url: str = "https://www.ozon.ru"
-    
+
     # 抓取间隔
     request_delay: float = 1.0  # 请求间隔（秒）
     random_delay_range: tuple = (0.5, 2.0)  # 随机延迟范围
+
+@dataclass
+class ScrapingConfig(BrowserConfig):
+    """网页抓取配置
+
+    .. deprecated::
+        ScrapingConfig 已废弃，请使用 BrowserConfig 替代。
+        为保持向后兼容，ScrapingConfig 现在是 BrowserConfig 的别名。
+
+    迁移示例::
+
+        # 旧方式（仍然支持）
+        config.scraping.browser_type
+
+        # 新方式（推荐）
+        config.browser.browser_type
+    """
+    pass
 
 
 @dataclass
@@ -132,7 +161,8 @@ class GoodStoreSelectorConfig:
     """好店筛选系统主配置"""
     selector_filter: SelectorFilterConfig = field(default_factory=SelectorFilterConfig)
     price_calculation: PriceCalculationConfig = field(default_factory=PriceCalculationConfig)
-    scraping: ScrapingConfig = field(default_factory=ScrapingConfig)
+    browser: BrowserConfig = field(default_factory=BrowserConfig)  # 新字段名（推荐）
+    scraping: ScrapingConfig = field(default_factory=ScrapingConfig)  # 保留向后兼容
     excel: ExcelConfig = field(default_factory=ExcelConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
@@ -179,10 +209,30 @@ class GoodStoreSelectorConfig:
                 if hasattr(config.price_calculation, key):
                     setattr(config.price_calculation, key, value)
         
+        # 浏览器配置：优先使用 browser，向后兼容 scraping
+        browser_config_loaded = False
+        if 'browser' in config_dict:
+            # 使用新的 browser 配置
+            for key, value in config_dict['browser'].items():
+                if hasattr(config.browser, key):
+                    setattr(config.browser, key, value)
+                    setattr(config.scraping, key, value)  # 同步到 scraping 保持兼容
+            browser_config_loaded = True
+
         if 'scraping' in config_dict:
-            for key, value in config_dict['scraping'].items():
-                if hasattr(config.scraping, key):
-                    setattr(config.scraping, key, value)
+            if browser_config_loaded:
+                # 如果已经加载了 browser 配置，忽略 scraping 配置并输出信息
+                import logging
+                logging.info("配置文件同时包含 'browser' 和 'scraping' 字段，优先使用 'browser' 配置")
+            else:
+                # 使用旧的 scraping 配置（向后兼容）
+                import logging
+                logging.warning("⚠️ 警告：'scraping' 配置字段已废弃，请迁移到 'browser' 字段")
+                logging.warning("迁移方法：将配置文件中的 'scraping' 改为 'browser'")
+                for key, value in config_dict['scraping'].items():
+                    if hasattr(config.scraping, key):
+                        setattr(config.scraping, key, value)
+                        setattr(config.browser, key, value)  # 同步到 browser
         
         if 'excel' in config_dict:
             for key, value in config_dict['excel'].items():
@@ -291,20 +341,24 @@ class GoodStoreSelectorConfig:
                 'commission_rate_high_threshold': self.price_calculation.commission_rate_high_threshold,
                 'commission_rate_default': self.price_calculation.commission_rate_default,
             },
-            'scraping': {
-                'browser_type': self.scraping.browser_type,
-                'headless': self.scraping.headless,
-                'window_width': self.scraping.window_width,
-                'window_height': self.scraping.window_height,
-                'page_load_timeout': self.scraping.page_load_timeout,
-                'element_wait_timeout': self.scraping.element_wait_timeout,
-                'max_retry_attempts': self.scraping.max_retry_attempts,
-                'retry_delay': self.scraping.retry_delay,
-                'seerfar_base_url': self.scraping.seerfar_base_url,
-                'seerfar_store_detail_path': self.scraping.seerfar_store_detail_path,
-                'ozon_base_url': self.scraping.ozon_base_url,
-                'request_delay': self.scraping.request_delay,
-                'random_delay_range': self.scraping.random_delay_range,
+            'browser': {
+                'browser_type': self.browser.browser_type,
+                'headless': self.browser.headless,
+                'window_width': self.browser.window_width,
+                'window_height': self.browser.window_height,
+                'timeout_seconds': self.browser.timeout_seconds,
+                'page_load_timeout': self.browser.page_load_timeout,
+                'element_wait_timeout': self.browser.element_wait_timeout,
+                'max_retries': self.browser.max_retries,
+                'max_retry_attempts': self.browser.max_retry_attempts,
+                'retry_delay': self.browser.retry_delay,
+                'required_login_domains': self.browser.required_login_domains,
+                'debug_port': self.browser.debug_port,
+                'seerfar_base_url': self.browser.seerfar_base_url,
+                'seerfar_store_detail_path': self.browser.seerfar_store_detail_path,
+                'ozon_base_url': self.browser.ozon_base_url,
+                'request_delay': self.browser.request_delay,
+                'random_delay_range': self.browser.random_delay_range,
             },
             'excel': {
                 'default_excel_path': self.excel.default_excel_path,
