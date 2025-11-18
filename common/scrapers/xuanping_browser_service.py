@@ -101,16 +101,36 @@ class XuanpingBrowserService:
         创建浏览器配置
 
         🔧 重构逻辑：
-        1. 自动检测有 seerfar.cn 登录态的 Profile
+        1. 从系统配置读取 required_login_domains
         2. 检查浏览器是否在运行
-        3. 配置为只连接模式，不启动新浏览器
-        4. 如果检测失败，抛出明确错误提示用户手动启动浏览器
+        3. 验证所有必需域名的登录态（AND 逻辑）
+        4. 配置为只连接模式，不启动新浏览器
+        5. 如果检测失败，抛出明确错误提示用户手动启动浏览器
         """
-        from rpa.browser.utils import detect_active_profile, BrowserDetector
+        from rpa.browser.utils import detect_active_profile, BrowserDetector, LoginRequiredError
+        import json
 
         # 从环境变量获取配置
         browser_type = os.environ.get('PREFERRED_BROWSER', 'edge').lower()
         debug_port = os.environ.get('BROWSER_DEBUG_PORT', '9222')
+
+        # 🔧 新增：从系统配置读取 required_login_domains
+        required_domains = []
+        system_config_path = Path("test_system_config.json")
+
+        if system_config_path.exists():
+            try:
+                with open(system_config_path, 'r', encoding='utf-8') as f:
+                    system_config = json.load(f)
+                    required_domains = system_config.get('browser', {}).get('required_login_domains', [])
+                    if required_domains:
+                        self.logger.info(f"📋 从系统配置读取必需登录域名: {required_domains}")
+            except Exception as e:
+                self.logger.warning(f"⚠️ 读取系统配置失败，使用默认域名: {e}")
+                required_domains = ["seerfar.cn"]
+        else:
+            self.logger.warning("⚠️ 系统配置文件不存在，使用默认域名")
+            required_domains = ["seerfar.cn"]
 
         # 🔧 关键修复：自动检测有登录态的 Profile
         detector = BrowserDetector()
@@ -125,21 +145,49 @@ class XuanpingBrowserService:
             self.logger.error(error_msg)
             raise RuntimeError(error_msg)
 
-        # 检测有 seerfar.cn 登录态的 Profile
-        active_profile = detect_active_profile("seerfar.cn")
+        # 🔧 新增：验证所有必需域名的登录态（AND 逻辑）
+        try:
+            is_valid, missing_domains, report = detector.validate_required_logins(required_domains)
+
+            if not is_valid:
+                # 输出详细的登录状态报告
+                self.logger.error("❌ 登录态验证失败")
+                self.logger.error(report)
+
+                # 抛出 LoginRequiredError
+                raise LoginRequiredError(
+                    missing_domains=missing_domains,
+                    message=f"缺少必需域名的登录态: {', '.join(missing_domains)}"
+                )
+
+            self.logger.info("✅ 所有必需域名的登录态验证通过")
+
+            # 输出详细的登录状态报告（调试用）
+            if self.config.get('debug_mode', False):
+                detector.print_login_status_report(required_domains)
+
+        except LoginRequiredError:
+            # 直接向上抛出 LoginRequiredError
+            raise
+        except Exception as e:
+            self.logger.error(f"❌ 登录态验证过程出错: {e}")
+            raise RuntimeError(f"登录态验证失败: {e}")
+
+        # 检测活跃的 Profile（使用第一个必需域名）
+        active_profile = detect_active_profile(required_domains[0])
 
         if not active_profile:
             error_msg = (
-                "❌ 未找到有 seerfar.cn 登录态的 Profile\n"
+                f"❌ 未找到有 {required_domains[0]} 登录态的 Profile\n"
                 "💡 请确保：\n"
-                "   1. 已在 Edge 浏览器中登录 seerfar.cn\n"
+                f"   1. 已在 Edge 浏览器中登录 {required_domains[0]}\n"
                 "   2. 浏览器正在运行\n"
                 "   3. 使用的 Profile 有登录态"
             )
             self.logger.error(error_msg)
             raise RuntimeError(error_msg)
 
-        self.logger.info(f"✅ 检测到活跃 Profile: {active_profile}（有 seerfar.cn 登录态）")
+        self.logger.info(f"✅ 检测到活跃 Profile: {active_profile}（已验证所有必需域名登录态）")
 
         # 检查现有浏览器的调试端口
         existing_browser = self._check_existing_browser(debug_port)
