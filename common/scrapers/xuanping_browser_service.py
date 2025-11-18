@@ -132,18 +132,42 @@ class XuanpingBrowserService:
             self.logger.warning("⚠️ 系统配置文件不存在，使用默认域名")
             required_domains = ["seerfar.cn"]
 
-        # 🔧 关键修复：自动检测有登录态的 Profile
-        detector = BrowserDetector()
-
         # 检查浏览器是否在运行
-        if not detector.is_browser_running():
-            error_msg = (
-                "❌ 未检测到运行中的 Edge 浏览器\n"
-                "💡 请先手动启动 Edge 浏览器，或运行启动脚本：\n"
-                "   ./start_edge_with_debug.sh"
-            )
-            self.logger.error(error_msg)
-            raise RuntimeError(error_msg)
+        detector = BrowserDetector()
+        is_browser_running = detector.is_browser_running()
+
+        if not is_browser_running:
+            # 启动模式：浏览器未运行
+            self.logger.info("🚀 未检测到运行中的浏览器，配置为启动模式")
+
+            # 从配置读取 headless 模式
+            browser_config_dict = self.config.get('browser', {})
+            headless = browser_config_dict.get('headless', False)
+
+            # 启动模式配置
+            config = {
+                'debug_mode': True,
+                'browser_config': {
+                    'browser_type': browser_type,
+                    'headless': headless,
+                    'debug_port': int(debug_port),
+                    'user_data_dir': self._get_user_data_dir(),
+                    'viewport': {
+                        'width': 1280,
+                        'height': 800
+                    },
+                    'launch_args': []
+                },
+                'use_persistent_context': False,
+                'connect_to_existing': False,
+                'profile_name': None
+            }
+
+            self.logger.info(f"🚀 配置为启动模式: headless={headless}")
+            return config
+
+        # 连接模式：浏览器正在运行
+        self.logger.info("🔗 检测到运行中的浏览器，配置为连接模式")
 
         # 🔧 新增：验证所有必需域名的登录态（AND 逻辑）
         try:

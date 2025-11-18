@@ -113,47 +113,58 @@ class SimplifiedBrowserService:
                             self.logger.info(f"✅ 复用现有浏览器实例: {self._instance_key}")
                             return True
 
-            # 🔧 重构：只支持连接模式，不启动新浏览器
+            # 准备浏览器配置
             browser_config = self._prepare_browser_config()
             connect_to_existing = browser_config.get('connect_to_existing', None)
 
-            if not connect_to_existing:
-                error_msg = (
-                    "❌ 配置错误：未启用连接模式\n"
-                    "💡 当前版本只支持连接到已运行的浏览器，不支持启动新浏览器\n"
-                    "   请确保浏览器已手动启动并开启调试端口"
-                )
-                self.logger.error(error_msg)
-                raise RuntimeError(error_msg)
+            if connect_to_existing:
+                # 连接到现有浏览器
+                self.logger.info(f"🔗 尝试连接到现有浏览器")
+                self.browser_driver = SimplifiedPlaywrightBrowserDriver(browser_config)
 
-            # 连接到现有浏览器
-            self.logger.info(f"🔗 尝试连接到现有浏览器")
-            self.browser_driver = SimplifiedPlaywrightBrowserDriver(browser_config)
+                # 使用 CDP 连接
+                cdp_url = connect_to_existing if isinstance(connect_to_existing, str) else f"http://localhost:{browser_config.get('debug_port', 9222)}"
 
-            # 使用 CDP 连接
-            cdp_url = connect_to_existing if isinstance(connect_to_existing, str) else f"http://localhost:{browser_config.get('debug_port', 9222)}"
+                try:
+                    success = await self.browser_driver.connect_to_existing_browser(cdp_url)
 
-            try:
-                success = await self.browser_driver.connect_to_existing_browser(cdp_url)
+                    if not success:
+                        error_msg = (
+                            f"❌ 连接现有浏览器失败\n"
+                            f"💡 解决方案：\n"
+                            f"   1. 确保浏览器的调试端口 {browser_config.get('debug_port', 9222)} 已开启\n"
+                            f"   2. 或关闭所有浏览器窗口，让系统自动启动"
+                        )
+                        self.logger.error(error_msg)
+                        self.browser_driver = None
+                        raise RuntimeError(error_msg)
 
-                if not success:
-                    error_msg = (
-                        f"❌ 连接现有浏览器失败\n"
-                        f"💡 解决方案：\n"
-                        f"   1. 确保浏览器的调试端口 {browser_config.get('debug_port', 9222)} 已开启\n"
-                        f"   2. 运行启动脚本：./start_edge_with_debug.sh\n"
-                        f"   3. 或关闭所有浏览器窗口后重新启动"
-                    )
-                    self.logger.error(error_msg)
+                    self.logger.info(f"✅ 成功连接到现有浏览器")
+
+                except Exception as e:
+                    self.logger.error(f"❌ 连接浏览器异常: {e}")
                     self.browser_driver = None
-                    raise RuntimeError(error_msg)
+                    raise
+            else:
+                # 启动新浏览器
+                self.logger.info(f"🚀 启动新浏览器")
+                self.browser_driver = SimplifiedPlaywrightBrowserDriver(browser_config)
 
-                self.logger.info(f"✅ 成功连接到现有浏览器")
+                try:
+                    success = await self.browser_driver.initialize()
 
-            except Exception as e:
-                self.logger.error(f"❌ 连接浏览器异常: {e}")
-                self.browser_driver = None
-                raise
+                    if not success:
+                        error_msg = "❌ 浏览器启动失败"
+                        self.logger.error(error_msg)
+                        self.browser_driver = None
+                        raise RuntimeError(error_msg)
+
+                    self.logger.info(f"✅ 浏览器启动成功")
+
+                except Exception as e:
+                    self.logger.error(f"❌ 启动浏览器异常: {e}")
+                    self.browser_driver = None
+                    raise
 
             # 加入共享池
             if self._use_shared_browser:
