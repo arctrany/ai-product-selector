@@ -487,43 +487,33 @@ class TestOzonCompetitorScenariosFixed(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
         """测试初始化"""
-        self.config = get_config()
-        # 设置测试URL和预期结果
-        self.test_cases = [
-            {
-                'name': '场景1 - 无跟卖店铺',
-                'url': 'https://www.ozon.ru/product/1756017628',
-                'expected_green_price': 15949.0,  # 绿标价格：15,949₽
-                'expected_black_price': 16952.0,  # 黑标价格：16,952₽
-                'expected_competitor_count': 0,
-                'has_competitors': False
-            },
-            {
-                'name': '场景2 - 有跟卖店铺',
-                'url': 'https://www.ozon.ru/product/144042159',
+        self.tester = OzonCompetitorScenarioTester()
 
-                'expected_green_price': None,  # 更新为该商品的实际绿标价格
-                'expected_black_price': 3230.0,  # 更新为该商品的实际黑标价格
-                'expected_competitor_count': 3,  # 初始值，实际值会在测试中确定
-                'competitor_price': 3800.0,
-                'has_competitors': True
-            },
-            {
-                'name': '场景3 - 有跟卖店铺,超过10个',
-                'url': 'https://www.ozon.ru/product/2369901364',
-                'expected_green_price': 12558.0,  # 更新为该商品的实际绿标价格
-                'expected_black_price': 13248.0,  # 更新为该商品的实际黑标价格
-                'expected_competitor_count': 14,  # 初始值，实际值会在测试中确定
-                'competitor_price': 12994.0,
-                'has_competitors': True
-            },
-            {
-                'name': '场景4 - 商品ID 1176594312',
-                'url': 'https://www.ozon.ru/product/1176594312',
-                'expected_green_price': None,  # 待测试确定
-                'expected_black_price': None,  # 待测试确定
-                'expected_competitor_count': None,  # 待测试确定
-                'competitor_price': None,
-                'has_competitors': None  # 待测试确定
-            }
-        ]
+    async def asyncTearDown(self):
+        """测试清理"""
+        self.tester.close()
+
+    async def test_browser_functionality(self):
+        """测试浏览器基本功能"""
+        result = await self.tester.test_browser_functionality()
+        self.assertTrue(result, "浏览器功能测试失败")
+
+    async def test_scenario_1_no_competitors(self):
+        """测试场景1：没有跟卖店铺"""
+        result = await self.tester.test_scenario_1_no_competitors()
+        self.assertTrue(result, "场景1测试失败")
+
+    async def test_scenario_2_with_competitors(self):
+        """测试场景2：有跟卖店铺"""
+        result = await self.tester.test_scenario_2_with_competitors()
+        self.assertTrue(result, "场景2测试失败")
+
+    async def test_scenario_3_with_competitors_over_10(self):
+        """测试场景3：跟卖店铺超过10个"""
+        result = await self.tester.test_scenario_3_with_competitors_over_10()
+        self.assertTrue(result, "场景3测试失败")
+
+    async def test_scenario_4_product_1176594312(self):
+        """测试场景4：商品ID 1176594312"""
+        result = await self.tester.test_scenario_4_product_1176594312()
+        self.assertTrue(result, "场景4测试失败")
