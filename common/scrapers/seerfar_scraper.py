@@ -501,6 +501,8 @@ class SeerfarScraper:
         """
         异步从行元素中提取商品信息并点击进入OZON详情页
 
+        主方法：协调整个商品信息提取流程
+
         Args:
             row_element: 行元素
 
@@ -508,163 +510,197 @@ class SeerfarScraper:
             Dict[str, Any]: 完整的商品信息（包含OZON详情页数据）
         """
         try:
-            product_data = {}
+            # 1. 提取 Seerfar 表格基础数据
+            product_data = await self._extract_basic_product_data(row_element)
 
-            # 提取 Seerfar 表格中的基础数据
-            # 1. 提取类目信息
-            category_data = await self._extract_category(row_element)
-            product_data.update(category_data)
-
-            # 2. 提取上架时间
-            listing_date_data = await self._extract_listing_date(row_element)
-            product_data.update(listing_date_data)
-
-            # 3. 提取销量
-            sales_volume = await self._extract_product_sales_volume(row_element)
-            if sales_volume is not None:
-                product_data['sales_volume'] = sales_volume
-
-            # 4. 提取重量
-            weight = await self._extract_weight(row_element)
-            if weight is not None:
-                product_data['weight'] = weight
-
-            # 简化：直接查找并点击商品图片
-            try:
-                # 直接访问 page 对象
-                page = self.browser_service.page
-
-                # 验证 page 对象
-                if not self._validate_page(page):
-                    return None
-
-                # 从配置文件获取选择器
-                third_column_selector = get_seerfar_selector('product_list', 'third_column')
-                clickable_element_selector = get_seerfar_selector('product_list', 'clickable_element')
-                clickable_element_alt_selector = get_seerfar_selector('product_list', 'clickable_element_alt')
-
-                if not third_column_selector or not clickable_element_selector or not clickable_element_alt_selector:
-                    self.logger.error("❌ 未能找到商品行元素选择器配置")
-                    return None
-
-                # 查找第三列中有onclick事件的元素
-                # 根据用户提供的XPath，商品在第三列（td[3]）
-                td3_element = await row_element.query_selector(third_column_selector)
-                if not td3_element:
-                    self.logger.warning("⚠️ 未找到第三列，跳过此商品")
-                    return None
-
-                # 查找有onclick事件的可点击元素（优先查找span.avatar）
-                clickable_element = await td3_element.query_selector(clickable_element_selector)
-                if not clickable_element:
-                    # 如果没有onclick，尝试查找其他可点击元素
-                    clickable_element = await td3_element.query_selector(clickable_element_alt_selector)
-                    if not clickable_element:
-                        self.logger.warning("⚠️ 未找到可点击的商品元素，跳过此商品")
-                        return None
-
-                # 记录找到的元素类型，便于调试
-                element_tag = await clickable_element.evaluate("el => el.tagName")
-                element_class = await clickable_element.evaluate("el => el.className")
-                self.logger.info(f"🔗 找到可点击元素: {element_tag}.{element_class}")
-
-                # 直接提取onclick中的URL并打开
-                onclick_attr = await clickable_element.get_attribute("onclick")
-                if onclick_attr and "window.open" in onclick_attr:
-                    # 提取URL并在新标签页打开
-                    import re
-                    url_match = re.search(r"window\.open\('([^']+)'\)", onclick_attr)
-                    if url_match:
-                        ozon_url = url_match.group(1)
-                        self.logger.info(f"打开OZON URL: {ozon_url}")
-
-                        # 性能优化：使用 try-finally 确保页面资源清理
-                        new_page = None
-                        try:
-                            new_page = await page.context.new_page()
-                            await new_page.goto(ozon_url)
-                            await new_page.wait_for_load_state('domcontentloaded', timeout=5000)
-
-                            # 调用现有的OzonScraper来处理OZON详情页
-                            self.logger.info("📊 调用OzonScraper处理OZON商品详情页...")
-                            from .ozon_scraper import OzonScraper
-
-                            # 创建OzonScraper实例并提取数据
-                            ozon_scraper = OzonScraper(self.config)
-                            page_content = await new_page.content()
-                            ozon_price_data = await ozon_scraper._extract_price_data_from_content(page_content)
-                            ozon_competitor_data = await ozon_scraper._extract_competitor_stores_from_content(
-                                page_content, 10)
-
-                            # 合并OZON数据
-                            product_data.update(ozon_price_data)
-                            if ozon_competitor_data:
-                                product_data['competitors'] = ozon_competitor_data
-
-                            self.logger.info(
-                                f"✅ OZON数据提取完成: 价格数据={len(ozon_price_data)}项, 跟卖店铺={len(ozon_competitor_data)}个")
-                            return product_data
-
-                        finally:
-                            # 关键修复：确保页面资源始终被释放
-                            if new_page:
-                                try:
-                                    await new_page.close()
-                                except Exception as close_error:
-                                    self.logger.warning(f"关闭页面时出错: {close_error}")
-                else:
-                    self.logger.warning("未找到有效的onclick事件")
-                    return None
-
-                # 性能优化：减少不必要的页面等待时间
-                await page.wait_for_load_state('domcontentloaded', timeout=2000)
-
-                # 调用现有的OzonScraper来处理OZON详情页
-                self.logger.info("📊 调用OzonScraper处理OZON商品详情页...")
-
-                try:
-                    from .ozon_scraper import OzonScraper
-
-                    # 创建OzonScraper实例并提取数据
-                    # ozon_scraper = OzonScraper(self.config)
-                    # page_content = await page.content()
-                    # ozon_price_data = await ozon_scraper._extract_price_data_from_content(page_content)
-                    # ozon_competitor_data = await ozon_scraper._extract_competitor_stores_from_content(page_content, 10)
-                    #
-                    # # 合并OZON数据
-                    # product_data.update(ozon_price_data)
-                    # if ozon_competitor_data:
-                    #     product_data['competitors'] = ozon_competitor_data
-                    #
-                    # self.logger.info(f"✅ OZON数据提取完成: 价格数据={len(ozon_price_data)}项, 跟卖店铺={len(ozon_competitor_data)}个")
-
-                finally:
-                    # 性能优化：确保返回原页面，减少等待时间
-                    try:
-                        await page.go_back()
-                        await page.wait_for_load_state('domcontentloaded', timeout=2000)
-                    except Exception as nav_error:
-                        self.logger.warning(f"返回原页面时出错: {nav_error}")
-
-            except Exception as e:
-                self.logger.error(f"点击商品图片或提取OZON数据失败: {e}")
+            # 2. 获取 OZON URL
+            ozon_url = await self._get_ozon_url_from_row(row_element)
+            if not ozon_url:
                 return None
 
-            # 生成商品ID
-            if not product_data.get('product_id'):
-                if product_data.get('image_url'):
-                    url_match = re.search(r'/(\d+)', product_data['image_url'])
-                    if url_match:
-                        product_data['product_id'] = url_match.group(1)
-                    else:
-                        product_data['product_id'] = str(hash(product_data['image_url']))[:10]
-                else:
-                    product_data['product_id'] = f"product_{int(time.time())}"
+            # 3. 抓取 OZON 详情页数据
+            ozon_data = await self._fetch_ozon_details(ozon_url)
+            if ozon_data:
+                product_data.update(ozon_data)
 
             return product_data if product_data else None
 
         except Exception as e:
             self.logger.error(f"提取商品信息失败: {e}")
+            return None
+
+    async def _extract_basic_product_data(self, row_element) -> Dict[str, Any]:
+        """
+        提取 Seerfar 表格中的基础商品数据
+
+        Args:
+            row_element: 行元素
+
+        Returns:
+            Dict[str, Any]: 基础商品数据（类目、上架时间、销量、重量）
+        """
+        product_data = {}
+
+        # 1. 提取类目信息
+        category_data = await self._extract_category(row_element)
+        product_data.update(category_data)
+
+        # 2. 提取上架时间
+        listing_date_data = await self._extract_listing_date(row_element)
+        product_data.update(listing_date_data)
+
+        # 3. 提取销量
+        sales_volume = await self._extract_product_sales_volume(row_element)
+        if sales_volume is not None:
+            product_data['sales_volume'] = sales_volume
+
+        # 4. 提取重量
+        weight = await self._extract_weight(row_element)
+        if weight is not None:
+            product_data['weight'] = weight
+
+        return product_data
+
+    async def _get_ozon_url_from_row(self, row_element) -> Optional[str]:
+        """
+        从行元素中提取 OZON URL
+
+        Args:
+            row_element: 行元素
+
+        Returns:
+            Optional[str]: OZON URL，如果提取失败返回 None
+        """
+        try:
+            # 验证 page 对象
+            page = self.browser_service.page
+            if not self._validate_page(page):
+                return None
+
+            # 从配置文件获取选择器
+            third_column_selector = get_seerfar_selector('product_list', 'third_column')
+            clickable_element_selector = get_seerfar_selector('product_list', 'clickable_element')
+            clickable_element_alt_selector = get_seerfar_selector('product_list', 'clickable_element_alt')
+
+            if not third_column_selector or not clickable_element_selector or not clickable_element_alt_selector:
+                self.logger.error("❌ 未能找到商品行元素选择器配置")
+                return None
+
+            # 查找第三列中有onclick事件的元素
+            td3_element = await row_element.query_selector(third_column_selector)
+            if not td3_element:
+                self.logger.warning("⚠️ 未找到第三列，跳过此商品")
+                return None
+
+            # 查找可点击元素
+            clickable_element = await td3_element.query_selector(clickable_element_selector)
+            if not clickable_element:
+                clickable_element = await td3_element.query_selector(clickable_element_alt_selector)
+                if not clickable_element:
+                    self.logger.warning("⚠️ 未找到可点击的商品元素，跳过此商品")
+                    return None
+
+            # 记录找到的元素类型
+            element_tag = await clickable_element.evaluate("el => el.tagName")
+            element_class = await clickable_element.evaluate("el => el.className")
+            self.logger.info(f"🔗 找到可点击元素: {element_tag}.{element_class}")
+
+            # 提取 onclick 中的 URL
+            onclick_attr = await clickable_element.get_attribute("onclick")
+            if onclick_attr and "window.open" in onclick_attr:
+                import re
+                url_match = re.search(r"window\.open\('([^']+)'\)", onclick_attr)
+                if url_match:
+                    ozon_url = url_match.group(1)
+                    self.logger.info(f"提取到 OZON URL: {ozon_url}")
+
+                    # 获取最终 URL（处理重定向）
+                    final_url = await self._resolve_ozon_url(ozon_url, page)
+                    return final_url
+
+            self.logger.warning("未找到有效的onclick事件")
+            return None
+
+        except Exception as e:
+            self.logger.error(f"提取 OZON URL 失败: {e}")
+            return None
+
+    async def _resolve_ozon_url(self, ozon_url: str, page) -> str:
+        """
+        解析 OZON URL，处理可能的重定向
+
+        Args:
+            ozon_url: 原始 OZON URL
+            page: 当前页面对象
+
+        Returns:
+            str: 最终的 OZON URL
+        """
+        new_page = None
+        try:
+            new_page = await page.context.new_page()
+            await new_page.goto(ozon_url)
+            await new_page.wait_for_load_state('domcontentloaded', timeout=5000)
+
+            # 获取最终URL（可能有重定向）
+            final_ozon_url = new_page.url
+            self.logger.info(f"获取到最终 OZON URL: {final_ozon_url}")
+            return final_ozon_url
+
+        finally:
+            # 立即关闭临时页面，释放浏览器资源
+            if new_page:
+                try:
+                    await new_page.close()
+                    self.logger.debug("✅ 临时页面已关闭")
+                except Exception as close_error:
+                    self.logger.warning(f"关闭临时页面时出错: {close_error}")
+
+    async def _fetch_ozon_details(self, ozon_url: str) -> Optional[Dict[str, Any]]:
+        """
+        抓取 OZON 详情页数据
+
+        Args:
+            ozon_url: OZON 商品详情页 URL
+
+        Returns:
+            Optional[Dict[str, Any]]: OZON 详情页数据，包含价格、跟卖店铺、ERP 数据
+        """
+        self.logger.info("📊 调用 OzonScraper 处理 OZON 商品详情页...")
+        try:
+            from .ozon_scraper import OzonScraper
+
+            # 创建 OzonScraper 实例并使用公共接口
+            ozon_scraper = OzonScraper(self.config)
+            ozon_result = ozon_scraper.scrape(ozon_url, include_competitors=True)
+
+            # 处理抓取结果
+            if ozon_result.success:
+                ozon_data = {}
+
+                # 提取价格数据
+                if 'price_data' in ozon_result.data:
+                    ozon_data.update(ozon_result.data['price_data'])
+                    self.logger.debug(f"✅ 价格数据已提取: {len(ozon_result.data['price_data'])}项")
+
+                # 提取跟卖店铺数据
+                if 'competitors' in ozon_result.data:
+                    ozon_data['competitors'] = ozon_result.data['competitors']
+                    self.logger.debug(f"✅ 跟卖店铺数据已提取: {len(ozon_result.data['competitors'])}个")
+
+                # 提取 ERP 数据
+                if 'erp_data' in ozon_result.data:
+                    ozon_data['erp_data'] = ozon_result.data['erp_data']
+                    self.logger.debug("✅ ERP 数据已提取")
+
+                self.logger.info(f"✅ OZON 数据提取完成: 执行时间={ozon_result.execution_time:.2f}秒")
+                return ozon_data
+            else:
+                self.logger.warning(f"⚠️ OZON 数据提取失败: {ozon_result.error_message}")
+                return None
+
+        except Exception as scrape_error:
+            self.logger.error(f"❌ 调用 OzonScraper 失败: {scrape_error}")
             return None
 
     def _validate_page(self, page) -> bool:

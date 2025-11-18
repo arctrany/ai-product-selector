@@ -1,9 +1,11 @@
 {
-  "scraping": {
+  "browser": {
     "browser_type": "chrome",
     "headless": true,
     "timeout_seconds": 30,
-    "max_retries": 3
+    "max_retries": 3,
+    "required_login_domains": ["seerfar.cn", "www.maozierp.com"],
+    "debug_port": 9222
   },
   "selector_filter": {
     "store_min_sales_30days": 500000.0,

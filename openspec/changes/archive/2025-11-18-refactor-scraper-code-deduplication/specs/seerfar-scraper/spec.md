@@ -91,37 +91,84 @@ def _validate_page(self, page) -> bool:
 - 使用 `if not self._validate_page(page): return []` 或 `return None`
 - 删除原有的内联验证逻辑（第367-370行和第526-529行）
 
-### Requirement: Remove Dead Code
+## ADDED Requirements
 
-**描述**: SeerfarScraper 不应包含注释掉的废弃代码。
+### Requirement: Shared Utility Methods
 
-**变更类型**: MODIFIED
+**描述**: 创建共享工具类 `ScraperUtils`，提供通用的数据提取和转换方法供多个抓取器使用。
+
+**变更类型**: ADDED
 
 **变更原因**: 
-- `_extract_product_from_row_async` 方法中存在大量注释代码（第624-653行）
-- 这些代码已经被前面的实现替代
-- 注释代码影响可读性和维护性
+- `_extract_number_from_text` 方法是通用的数字提取逻辑
+- 多个抓取器可能需要相同的功能
+- 提取到共享类可以提高代码复用性和可维护性
 
-#### Scenario: 删除废弃的 OzonScraper 调用代码
+#### Scenario: 创建 ScraperUtils 工具类
 
-**Given**: `_extract_product_from_row_async` 方法中存在注释掉的 OzonScraper 调用逻辑  
-**When**: 进行代码清理  
+**Given**: 需要一个共享的工具类来存放通用方法  
+**When**: 创建 `common/scrapers/scraper_utils.py` 文件  
 **Then**: 
-- 删除第624-653行的整个注释代码块
-- 包括：
-  - 注释掉的 OzonScraper 实例创建
-  - 注释掉的价格数据提取
-  - 注释掉的跟卖店铺提取
-  - 注释掉的数据合并逻辑
-- 保留有效的实现代码（第588-616行）
+- 定义 `ScraperUtils` 类
+- 实现 `extract_number_from_text` 静态方法
+- 提供完整的文档字符串和类型注解
 
-#### Scenario: 删除重复的日志输出
+**实现要点**:
+```python
+# common/scrapers/scraper_utils.py
+import re
+from typing import Optional
 
-**Given**: 存在重复的日志输出语句  
-**When**: 进行代码清理  
+class ScraperUtils:
+    """抓取器通用工具类"""
+    
+    @staticmethod
+    def extract_number_from_text(text: str) -> Optional[float]:
+        """从文本中提取数字
+        
+        Args:
+            text: 包含数字的文本
+            
+        Returns:
+            float: 提取的数字，如果提取失败返回None
+        """
+        if not text:
+            return None
+
+        # 移除常见的非数字字符
+        cleaned_text = re.sub(r'[^\d.,\-+]', '', text.replace(',', '').replace(' ', ''))
+
+        try:
+            # 尝试转换为浮点数
+            return float(cleaned_text)
+        except (ValueError, TypeError):
+            # 尝试提取第一个数字
+            numbers = re.findall(r'-?\d+\.?\d*', text)
+            if numbers:
+                try:
+                    return float(numbers[0])
+                except (ValueError, TypeError):
+                    pass
+            return None
+```
+
+#### Scenario: 在 SeerfarScraper 中使用共享工具方法
+
+**Given**: SeerfarScraper 需要从文本中提取数字  
+**When**: 调用数字提取功能时  
 **Then**: 
-- 删除重复的 `self.logger.info("📊 调用OzonScraper处理OZON商品详情页...")`
-- 只保留一处日志输出
+- 导入 `ScraperUtils`：`from .scraper_utils import ScraperUtils`
+- 使用 `ScraperUtils.extract_number_from_text(text)` 替代 `self._extract_number_from_text(text)`
+- 删除 `SeerfarScraper._extract_number_from_text` 方法定义
+
+**实现要点**:
+```python
+# 在 seerfar_scraper.py 顶部添加导入
+from .scraper_utils import ScraperUtils
+
+# 在需要提取数字的地方使用
+price = ScraperUtils.extract_number_from_text(price_text)
+```
 
 ### Requirement: Consistent Error Handling
 

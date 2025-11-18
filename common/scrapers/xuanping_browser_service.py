@@ -97,54 +97,88 @@ class XuanpingBrowserService:
         self.logger.info("🚀 选评浏览器服务创建完成")
     
     def _create_browser_config(self) -> Dict[str, Any]:
-        """创建浏览器配置 - 🔧 关键修复：优先连接现有浏览器"""
+        """
+        创建浏览器配置
+
+        🔧 重构逻辑：
+        1. 自动检测有 seerfar.cn 登录态的 Profile
+        2. 检查浏览器是否在运行
+        3. 配置为只连接模式，不启动新浏览器
+        4. 如果检测失败，抛出明确错误提示用户手动启动浏览器
+        """
+        from rpa.browser.utils import detect_active_profile, BrowserDetector
+
         # 从环境变量获取配置
         browser_type = os.environ.get('PREFERRED_BROWSER', 'edge').lower()
-        profile_name = os.environ.get('BROWSER_PROFILE', None)  # 不指定 Profile，使用默认
         debug_port = os.environ.get('BROWSER_DEBUG_PORT', '9222')
-        headless = os.environ.get('HEADLESS_MODE', 'false').lower() == 'true'
 
-        # 获取用户数据目录 - 使用默认用户目录
-        user_data_dir = None  # 不指定用户数据目录，让浏览器使用默认位置
+        # 🔧 关键修复：自动检测有登录态的 Profile
+        detector = BrowserDetector()
 
-        # 🔧 关键修复：检查是否有现有浏览器在运行
+        # 检查浏览器是否在运行
+        if not detector.is_browser_running():
+            error_msg = (
+                "❌ 未检测到运行中的 Edge 浏览器\n"
+                "💡 请先手动启动 Edge 浏览器，或运行启动脚本：\n"
+                "   ./start_edge_with_debug.sh"
+            )
+            self.logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        # 检测有 seerfar.cn 登录态的 Profile
+        active_profile = detect_active_profile("seerfar.cn")
+
+        if not active_profile:
+            error_msg = (
+                "❌ 未找到有 seerfar.cn 登录态的 Profile\n"
+                "💡 请确保：\n"
+                "   1. 已在 Edge 浏览器中登录 seerfar.cn\n"
+                "   2. 浏览器正在运行\n"
+                "   3. 使用的 Profile 有登录态"
+            )
+            self.logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        self.logger.info(f"✅ 检测到活跃 Profile: {active_profile}（有 seerfar.cn 登录态）")
+
+        # 检查现有浏览器的调试端口
         existing_browser = self._check_existing_browser(debug_port)
 
-        # 🔧 关键修复：创建符合 BrowserConfig 结构的配置
+        if not existing_browser:
+            error_msg = (
+                f"❌ 浏览器正在运行，但调试端口 {debug_port} 未开启\n"
+                f"💡 请关闭浏览器，然后运行启动脚本：\n"
+                f"   ./start_edge_with_debug.sh\n"
+                f"   或手动启动：\n"
+                f"   /Applications/Microsoft\\ Edge.app/Contents/MacOS/Microsoft\\ Edge \\\n"
+                f"     --remote-debugging-port={debug_port} \\\n"
+                f"     --profile-directory=\"{active_profile}\""
+            )
+            self.logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        self.logger.info(f"✅ 检测到浏览器调试端口: {debug_port}")
+
+        # 🔧 关键修复：只配置连接模式，不允许启动新浏览器
         config = {
             'debug_mode': True,
             'browser_config': {
                 'browser_type': browser_type,
-                'headless': headless,
+                'headless': False,
                 'debug_port': int(debug_port),
-                'user_data_dir': user_data_dir,
+                'user_data_dir': None,  # 连接模式不需要指定用户数据目录
                 'viewport': {
                     'width': 1280,
                     'height': 800
                 },
-                'launch_args': [
-                    '--no-first-run',
-                    '--no-default-browser-check',
-                    f'--remote-debugging-port={debug_port}',
-                    '--lang=zh-CN',
-                    # 🔧 最激进修复：最小化启动参数，让浏览器尽可能接近手动启动
-                    # 移除所有可能干扰扩展加载的参数
-                ] + ([f'--profile-directory={profile_name}'] if profile_name else [])
+                'launch_args': []  # 连接模式不需要启动参数
             },
-            # 🔧 关键修复：根据现有浏览器状态决定连接方式
-            'use_persistent_context': not existing_browser,  # 如果有现有浏览器，不使用持久化上下文
-            'connect_to_existing': existing_browser,  # 标记是否连接现有浏览器
-            'profile_name': profile_name
+            'use_persistent_context': False,  # 连接模式不使用持久化上下文
+            'connect_to_existing': True,  # 强制连接模式
+            'profile_name': active_profile
         }
 
-        if existing_browser:
-            self.logger.info(f"🔗 检测到现有浏览器实例，将连接到调试端口: {debug_port}")
-        else:
-            profile_info = f"Profile: {profile_name}" if profile_name else "默认 Profile"
-            self.logger.info(f"🔧 未检测到现有浏览器，将创建新实例: {browser_type}, {profile_info}")
-
-        user_dir_info = f"用户数据目录: {user_data_dir}" if user_data_dir else "使用默认用户数据目录"
-        self.logger.info(f"🔄 配置为使用默认浏览器设置，{user_dir_info}")
+        self.logger.info(f"🔗 配置为连接模式: Profile={active_profile}, Port={debug_port}")
 
         return config
 

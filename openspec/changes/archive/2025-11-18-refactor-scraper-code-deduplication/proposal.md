@@ -13,9 +13,9 @@
 
 ### 1. SeerfarScraper 的冗余问题
 - **重复的去重逻辑**：商品行去重代码在 `extract_products_async` 方法中出现两次（第394-407行和第416-428行）
-- **废弃的注释代码**：第624-653行存在大量被注释掉但未删除的代码
 - **重复的空值检查**：`page` 对象的空值检查在多个方法中重复出现
 - **重复的日志输出**：相同的日志信息在不同位置重复记录
+- **通用工具方法未抽象**：`_extract_number_from_text` 方法可以提取到共享工具类中供多个抓取器使用
 
 ### 2. OzonScraper 的维护性问题
 - **方法职责不清**：价格提取逻辑分散在多个方法中，难以追踪
@@ -30,7 +30,7 @@
 ## 目标
 
 1. **消除代码重复**：提取重复逻辑为独立方法，提高代码复用性
-2. **清理废弃代码**：删除所有注释掉的废弃代码，保持代码库整洁
+2. **提取通用工具**：将通用方法提取到共享工具类，便于多个抓取器复用
 3. **提高可维护性**：通过方法提取和职责分离，使代码更易理解和修改
 4. **统一编码规范**：建立一致的错误处理和日志记录模式
 
@@ -72,9 +72,42 @@ def _validate_page(self, page) -> bool:
     return True
 ```
 
-#### 1.3 删除废弃代码
-- 删除第624-653行的注释代码块
-- 删除重复的 OzonScraper 调用逻辑
+#### 1.3 提取通用工具方法
+将 `_extract_number_from_text` 方法提取到共享工具类：
+```python
+# common/scrapers/scraper_utils.py
+class ScraperUtils:
+    """抓取器通用工具类"""
+    
+    @staticmethod
+    def extract_number_from_text(text: str) -> Optional[float]:
+        """从文本中提取数字
+        
+        Args:
+            text: 包含数字的文本
+            
+        Returns:
+            float: 提取的数字，如果提取失败返回None
+        """
+        if not text:
+            return None
+
+        # 移除常见的非数字字符
+        cleaned_text = re.sub(r'[^\d.,\-+]', '', text.replace(',', '').replace(' ', ''))
+
+        try:
+            # 尝试转换为浮点数
+            return float(cleaned_text)
+        except (ValueError, TypeError):
+            # 尝试提取第一个数字
+            numbers = re.findall(r'-?\d+\.?\d*', text)
+            if numbers:
+                try:
+                    return float(numbers[0])
+                except (ValueError, TypeError):
+                    pass
+            return None
+```
 
 ### 阶段2：OzonScraper 重构
 
@@ -96,31 +129,47 @@ def _handle_extraction_error(self, error: Exception, context: str) -> None:
     # 可选：记录到错误追踪系统
 ```
 
-### 阶段3：创建共享工具类（可选）
+### 阶段3：创建共享工具类
 
-如果发现多个抓取器有共同需求，可以创建：
+创建 `common/scrapers/scraper_utils.py` 提供通用工具方法：
 ```python
 # common/scrapers/scraper_utils.py
+import re
+from typing import Optional
+
 class ScraperUtils:
     """抓取器通用工具类"""
     
     @staticmethod
-    async def deduplicate_elements(elements: list, attr: str = 'data-index') -> list:
-        """通用元素去重逻辑"""
-        pass
-    
-    @staticmethod
-    def validate_page(page, logger) -> bool:
-        """通用页面验证逻辑"""
-        pass
+    def extract_number_from_text(text: str) -> Optional[float]:
+        """从文本中提取数字"""
+        if not text:
+            return None
+
+        cleaned_text = re.sub(r'[^\d.,\-+]', '', text.replace(',', '').replace(' ', ''))
+
+        try:
+            return float(cleaned_text)
+        except (ValueError, TypeError):
+            numbers = re.findall(r'-?\d+\.?\d*', text)
+            if numbers:
+                try:
+                    return float(numbers[0])
+                except (ValueError, TypeError):
+                    pass
+            return None
 ```
+
+然后在 SeerfarScraper 中：
+- 删除 `_extract_number_from_text` 方法
+- 导入并使用 `ScraperUtils.extract_number_from_text()`
 
 ## 实施计划
 
 ### 里程碑1：SeerfarScraper 重构（1-2天）
 - [ ] 提取 `_deduplicate_rows` 方法
 - [ ] 提取 `_validate_page` 方法
-- [ ] 删除所有废弃注释代码
+- [ ] 创建 `ScraperUtils` 工具类并提取 `extract_number_from_text` 方法
 - [ ] 更新所有调用点使用新方法
 - [ ] 运行现有测试确保无回归
 
@@ -160,7 +209,7 @@ class ScraperUtils:
 
 1. **代码质量**：
    - 消除所有重复代码（通过代码审查确认）
-   - 删除所有注释废弃代码
+   - 提取通用工具方法到共享类
    - 方法复杂度降低（圈复杂度 < 10）
 
 2. **测试覆盖**：
