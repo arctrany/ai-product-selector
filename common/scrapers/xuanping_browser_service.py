@@ -151,7 +151,7 @@ class XuanpingBrowserService:
                     'browser_type': browser_type,
                     'headless': headless,
                     'debug_port': int(debug_port),
-                    'user_data_dir': self._get_user_data_dir(),
+                    'user_data_dir': None,  # None 表示使用系统默认目录
                     'viewport': {
                         'width': 1280,
                         'height': 800
