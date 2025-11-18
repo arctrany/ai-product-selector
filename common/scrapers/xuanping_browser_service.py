@@ -525,6 +525,9 @@ class XuanpingBrowserServiceSync:
     def scrape_page_data(self, url: str, extractor_func) -> ScrapingResult:
         """同步抓取数据 - 传递 self 以便提取函数可以访问 page 属性"""
         async def wrapper_extractor(browser_service):
+            # 在提取数据前，确保浏览器对象已更新
+            # 因为 navigate_to 可能会启动浏览器，但不会自动更新同步包装器的属性
+            self._update_browser_objects()
             # 传递 self 而不是 browser_service，这样提取函数可以访问 self.page
             return await extractor_func(self)
         return self._run_async(self.async_service.scrape_page_data(url, wrapper_extractor))
