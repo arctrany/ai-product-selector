@@ -92,8 +92,12 @@ class TestXuanpingBrowserServiceSync:
         """测试 start_browser 成功时会调用 _update_browser_objects"""
         service = XuanpingBrowserServiceSync()
         
-        # Mock _run_async 返回 True
-        service._run_async = Mock(return_value=True)
+        # 创建一个返回协程的 mock
+        async def mock_start_browser():
+            return True
+
+        # Mock async_service.start_browser 返回协程
+        service.async_service.start_browser = Mock(return_value=mock_start_browser())
         
         # Mock _update_browser_objects
         service._update_browser_objects = Mock()
@@ -109,8 +113,12 @@ class TestXuanpingBrowserServiceSync:
         """测试 start_browser 失败时不调用 _update_browser_objects"""
         service = XuanpingBrowserServiceSync()
         
-        # Mock _run_async 返回 False
-        service._run_async = Mock(return_value=False)
+        # 创建一个返回协程的 mock
+        async def mock_start_browser():
+            return False
+
+        # Mock async_service.start_browser 返回协程
+        service.async_service.start_browser = Mock(return_value=mock_start_browser())
         
         # Mock _update_browser_objects
         service._update_browser_objects = Mock()
