@@ -168,6 +168,11 @@ class SeerfarScraper:
             # 直接访问 page 对象
             page = browser_service.page
 
+            # 检查 page 是否为 None
+            if page is None:
+                self.logger.error("❌ page 对象为 None，浏览器可能未正确启动")
+                return {}
+
             # 使用配置文件中的选择器提取销售额
             await self._extract_sales_amount(page, sales_data)
 
@@ -200,18 +205,18 @@ class SeerfarScraper:
         """提取销售额 - 使用配置文件中的选择器"""
         try:
             # 从配置文件获取销售额选择器
-            sales_amount_xpath = get_seerfar_selector('store_sales_data', 'sales_amount')
-            if not sales_amount_xpath:
+            sales_amount_selector = get_seerfar_selector('store_sales_data', 'sales_amount')
+            if not sales_amount_selector:
                 self.logger.error("❌ 未能找到销售额选择器配置")
                 return
 
             # 等待元素出现
             try:
-                await page.wait_for_selector(f'xpath={sales_amount_xpath}', timeout=5000)
+                await page.wait_for_selector(sales_amount_selector, timeout=5000)
             except:
                 self.logger.debug("销售额元素等待超时，继续尝试提取")
 
-            element = await page.query_selector(f'xpath={sales_amount_xpath}')
+            element = await page.query_selector(sales_amount_selector)
             if element:
                 text = await element.text_content()
                 if text and text.strip():
@@ -230,18 +235,18 @@ class SeerfarScraper:
         """提取销量 - 使用配置文件中的选择器"""
         try:
             # 从配置文件获取销量选择器
-            sales_volume_xpath = get_seerfar_selector('store_sales_data', 'sales_volume')
-            if not sales_volume_xpath:
+            sales_volume_selector = get_seerfar_selector('store_sales_data', 'sales_volume')
+            if not sales_volume_selector:
                 self.logger.error("❌ 未能找到销量选择器配置")
                 return
 
             # 等待元素出现
             try:
-                await page.wait_for_selector(f'xpath={sales_volume_xpath}', timeout=5000)
+                await page.wait_for_selector(sales_volume_selector, timeout=5000)
             except:
                 self.logger.debug("销量元素等待超时，继续尝试提取")
 
-            element = await page.query_selector(f'xpath={sales_volume_xpath}')
+            element = await page.query_selector(sales_volume_selector)
             if element:
                 text = await element.text_content()
                 if text and text.strip():
@@ -260,18 +265,18 @@ class SeerfarScraper:
         """提取日均销量 - 使用配置文件中的选择器"""
         try:
             # 从配置文件获取日均销量选择器
-            daily_avg_xpath = get_seerfar_selector('store_sales_data', 'daily_avg_sales')
-            if not daily_avg_xpath:
+            daily_avg_selector = get_seerfar_selector('store_sales_data', 'daily_avg_sales')
+            if not daily_avg_selector:
                 self.logger.error("❌ 未能找到日均销量选择器配置")
                 return
 
             # 等待元素出现
             try:
-                await page.wait_for_selector(f'xpath={daily_avg_xpath}', timeout=5000)
+                await page.wait_for_selector(daily_avg_selector, timeout=5000)
             except:
                 self.logger.debug("日均销量元素等待超时，继续尝试提取")
 
-            element = await page.query_selector(f'xpath={daily_avg_xpath}')
+            element = await page.query_selector(daily_avg_selector)
             if element:
                 text = await element.text_content()
                 if text and text.strip():

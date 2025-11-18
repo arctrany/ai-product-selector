@@ -29,12 +29,12 @@ class SeerfarSelectors:
 # Seerfar平台选择器配置实例
 SEERFAR_SELECTORS = SeerfarSelectors(
     store_sales_data={
-        # 销售额选择器 - 使用 automation_scenario.py 中的精确XPath
-        'sales_amount': "/html/body/div[1]/div/div/div/div/div/div/div[1]/div/div[2]/div[3]/div[1]/div[3]",
-        # 销量选择器 - 使用 automation_scenario.py 中的精确XPath
-        'sales_volume': "/html/body/div[1]/div/div/div/div/div/div/div[1]/div/div[2]/div[3]/div[2]/div[3]",
-        # 日均销量选择器 - 使用 automation_scenario.py 中的精确XPath
-        'daily_avg_sales': "/html/body/div[1]/div/div/div/div/div/div/div[1]/div/div[2]/div[3]/div[3]/div[3]",
+        # 销售额选择器 - 使用 CSS class 选择器（更稳定）
+        'sales_amount': ".store-total-revenue",
+        # 销量选择器 - 使用 CSS class 选择器（更稳定）
+        'sales_volume': ".store-total-sales",
+        # 日均销量选择器 - 使用 CSS class 选择器（更稳定）
+        'daily_avg_sales': ".store-daily-sales",
         # 通用销售额提取选择器
         'sales_amount_generic': "//*[contains(text(), '销售额') or contains(text(), '营业额') or contains(text(), '收入') or "
                                 "contains(text(), '₽')]",
