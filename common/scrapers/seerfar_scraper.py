@@ -165,8 +165,8 @@ class SeerfarScraper:
         sales_data = {}
 
         try:
-            # 使用Playwright的页面API进行元素查找
-            page = browser_service.browser_driver.page
+            # 直接访问 page 对象
+            page = browser_service.page
 
             # 使用配置文件中的选择器提取销售额
             await self._extract_sales_amount(page, sales_data)
@@ -378,7 +378,8 @@ class SeerfarScraper:
         filtered_count = 0
 
         try:
-            page = browser_service.browser_driver.page
+            # 直接访问 page 对象
+            page = browser_service.page
 
             # 从配置文件获取商品列表选择器
             product_rows_selector = get_seerfar_selector('product_list', 'product_rows')
@@ -477,8 +478,8 @@ class SeerfarScraper:
 
             # 简化：直接查找并点击商品图片
             try:
-                # 获取页面对象
-                page = self.browser_service.browser_driver.page
+                # 直接访问 page 对象
+                page = self.browser_service.page
 
                 # 从配置文件获取选择器
                 third_column_selector = get_seerfar_selector('product_list', 'third_column')
@@ -651,8 +652,9 @@ class SeerfarScraper:
         """
         result = {'category_cn': None, 'category_ru': None}
 
-        # 类目列索引（从0开始，第3列）
-        CATEGORY_COLUMN_INDEX = 2
+        # 类目列索引（从0开始）
+        # 第0列：复选框，第1列：序号，第2列：商品信息，第3列：类目
+        CATEGORY_COLUMN_INDEX = 3
 
         try:
             # 查找第三个 td 元素（类目列）

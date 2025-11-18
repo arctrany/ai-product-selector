@@ -377,7 +377,11 @@ class XuanpingBrowserServiceSync:
     """
     选评浏览器服务的同步包装器
     
-    为了向后兼容现有的同步代码
+    直接暴露常用对象以简化 API：
+    - browser_service.page: Playwright Page 对象
+    - browser_service.browser: Browser 对象
+    - browser_service.context: BrowserContext 对象
+
     🔧 关键修复：使用共享事件循环确保所有 Playwright 操作在同一个事件循环中执行
     """
 
@@ -387,7 +391,6 @@ class XuanpingBrowserServiceSync:
     _loop_lock = None  # 将在第一次使用时初始化
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
-        self.browser_driver = None
         self.async_service = XuanpingBrowserService(config)
         self.logger = logging.getLogger(__name__)
 
@@ -398,6 +401,11 @@ class XuanpingBrowserServiceSync:
 
         # 确保共享事件循环已启动
         self._ensure_shared_loop()
+
+        # 直接暴露常用属性（初始为 None，启动浏览器后更新）
+        self.page = None
+        self.browser = None
+        self.context = None
 
     def _ensure_shared_loop(self):
         """确保共享事件循环已启动 - 🔧 关键修复：所有实例共享同一个事件循环"""
@@ -492,8 +500,23 @@ class XuanpingBrowserServiceSync:
         return self._run_async(self.async_service.initialize())
     
     def start_browser(self) -> bool:
-        """同步启动浏览器"""
-        return self._run_async(self.async_service.start_browser())
+        """同步启动浏览器，并更新暴露的属性"""
+        result = self._run_async(self.async_service.start_browser())
+        if result:
+            # 更新暴露的属性
+            self._update_browser_objects()
+        return result
+
+    def _update_browser_objects(self):
+        """更新暴露的浏览器对象"""
+        try:
+            driver = self.async_service.browser_service.browser_driver
+            self.page = driver.page
+            self.browser = driver.browser
+            self.context = driver.context
+            self.logger.debug("✅ 浏览器对象已更新")
+        except (AttributeError, TypeError) as e:
+            self.logger.warning(f"⚠️ 无法更新浏览器对象: {e}")
     
     def navigate_to(self, url: str) -> bool:
         """同步导航"""
