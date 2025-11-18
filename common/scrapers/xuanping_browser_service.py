@@ -20,18 +20,24 @@ from ..models import ScrapingError, ScrapingResult
 
 class XuanpingBrowserService:
     """
-    选评专用浏览器服务（线程安全单例模式）
+    选品专用浏览器服务（线程安全单例模式）
 
     基于现有的 BrowserService，提供选评系统所需的特定功能：
     - 自动配置用户数据目录和Profile
     - 支持调试端口和会话复用
     - 集成选评系统的配置和异常处理
     - 🔧 关键修复：线程安全的单例模式，确保所有 Scraper 共享同一个浏览器进程
+    - 🔧 Task 3.1 (P0-2): 添加引用计数机制，防止一个 Scraper 关闭影响其他 Scraper
     """
 
     _instance = None
     _lock = None  # 将在类方法中初始化
-    _initialized = False
+    # 🔧 Task 3.3 (P1-7): 移除类级别的 _initialized，统一使用实例级别状态管理
+    # _initialized = False  # 已移除，使用实例级别的 _initialized
+
+    # 🔧 Task 3.1 (P0-2): 添加引用计数机制
+    _reference_count = 0
+    _ref_count_lock = None  # 将在类方法中初始化
 
     def __new__(cls, config: Optional[Dict[str, Any]] = None):
         """线程安全的单例模式：确保只有一个浏览器服务实例"""
@@ -54,8 +60,16 @@ class XuanpingBrowserService:
         Args:
             config: 浏览器配置，None表示使用默认配置
         """
+        import threading
+
         # 防止重复初始化
         if hasattr(self, '_initialized_singleton') and self._initialized_singleton:
+            # 🔧 Task 3.1 (P0-2): 即使是重复初始化，也要增加引用计数
+            if self.__class__._ref_count_lock is None:
+                self.__class__._ref_count_lock = threading.Lock()
+            with self.__class__._ref_count_lock:
+                self.__class__._reference_count += 1
+                self.logger.info(f"🔢 引用计数增加: {self.__class__._reference_count}")
             return
 
         self.logger = logging.getLogger(__name__)
@@ -67,10 +81,18 @@ class XuanpingBrowserService:
         # 🔧 关键修复：创建共享的浏览器服务实例，配置持久化上下文和浏览器复用
         self.browser_service = create_shared_browser_service(browser_config)
 
-        # 状态管理
+        # 🔧 Task 3.3 (P1-7): 状态管理统一使用实例级别
         self._initialized = False
         self._browser_started = False
         self._initialized_singleton = True
+
+        # 🔧 Task 3.1 (P0-2): 初始化引用计数锁和增加引用计数
+        if self.__class__._ref_count_lock is None:
+            self.__class__._ref_count_lock = threading.Lock()
+
+        with self.__class__._ref_count_lock:
+            self.__class__._reference_count += 1
+            self.logger.info(f"🔢 引用计数初始化: {self.__class__._reference_count}")
         
         self.logger.info("🚀 选评浏览器服务创建完成")
     
@@ -127,21 +149,42 @@ class XuanpingBrowserService:
         return config
 
     def _check_existing_browser(self, debug_port: str) -> bool:
-        """检查是否有现有浏览器在指定调试端口运行"""
+        """
+        检查是否有现有浏览器在指定调试端口运行，并且 CDP 端点可用
+
+        🔧 关键修复：不仅检查端口是否被占用，还要验证 CDP 端点是否真的可用
+        """
         try:
             import socket
+            import urllib.request
+            import json
 
-            # 尝试连接调试端口
+            # 第一步：检查端口是否被占用
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(1)  # 1秒超时
             result = sock.connect_ex(('localhost', int(debug_port)))
             sock.close()
 
-            if result == 0:
-                self.logger.info(f"✅ 检测到现有浏览器实例在端口 {debug_port}")
-                return True
-            else:
+            if result != 0:
                 self.logger.info(f"🔍 端口 {debug_port} 未被占用，需要创建新浏览器实例")
+                return False
+
+            # 第二步：验证 CDP 端点是否可用
+            # 尝试访问 /json/version 端点来确认 CDP 是否真的可用
+            cdp_url = f"http://localhost:{debug_port}/json/version"
+            try:
+                req = urllib.request.Request(cdp_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=2) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                    # 检查是否有 webSocketDebuggerUrl 字段
+                    if 'webSocketDebuggerUrl' in data:
+                        self.logger.info(f"✅ 检测到现有浏览器实例在端口 {debug_port}，CDP 端点可用")
+                        return True
+                    else:
+                        self.logger.warning(f"⚠️ 端口 {debug_port} 被占用，但 CDP 端点不可用")
+                        return False
+            except Exception as cdp_error:
+                self.logger.warning(f"⚠️ 端口 {debug_port} 被占用，但无法访问 CDP 端点: {cdp_error}")
                 return False
 
         except Exception as e:
@@ -273,8 +316,9 @@ class XuanpingBrowserService:
         Returns:
             ScrapingResult: 抓取结果
         """
-        start_time = asyncio.get_event_loop().time()
-        
+        # 🔧 Task 3.2 (P1-9): 使用 get_running_loop() 替代 get_event_loop()
+        start_time = asyncio.get_running_loop().time()
+
         try:
             # 导航到页面
             success = await self.navigate_to(url)
@@ -283,25 +327,27 @@ class XuanpingBrowserService:
                     success=False,
                     data={},
                     error_message="页面导航失败",
-                    execution_time=asyncio.get_event_loop().time() - start_time
+                    execution_time=asyncio.get_running_loop().time() - start_time
                 )
             
             # 等待页面加载
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
             
             # 提取数据
             data = await extractor_func(self.browser_service)
             
-            execution_time = asyncio.get_event_loop().time() - start_time
-            
+            # 🔧 Task 3.2 (P1-9): 使用 get_running_loop() 替代 get_event_loop()
+            execution_time = asyncio.get_running_loop().time() - start_time
+
             return ScrapingResult(
                 success=True,
                 data=data,
                 execution_time=execution_time
             )
-            
+
         except Exception as e:
-            execution_time = asyncio.get_event_loop().time() - start_time
+            # 🔧 Task 3.2 (P1-9): 使用 get_running_loop() 替代 get_event_loop()
+            execution_time = asyncio.get_running_loop().time() - start_time
             self.logger.error(f"❌ 页面数据抓取失败: {e}")
             
             return ScrapingResult(
@@ -324,14 +370,54 @@ class XuanpingBrowserService:
             self.logger.error(f"❌ 获取页面内容失败: {e}")
             return ""
     
-    async def close(self) -> bool:
+    async def close(self, force: bool = False) -> bool:
         """
         关闭浏览器服务
-        
+
+        🔧 Task 3.1 (P0-2): 添加引用计数机制
+        - 只有当引用计数降为 0 时才真正关闭浏览器
+        - 支持 force 参数强制关闭
+
+        Args:
+            force: 是否强制关闭，忽略引用计数
+
         Returns:
             bool: 关闭是否成功
         """
+        import threading
+
         try:
+            # 🔧 Task 3.1 (P0-2): 引用计数管理
+            if self.__class__._ref_count_lock is None:
+                self.__class__._ref_count_lock = threading.Lock()
+
+            with self.__class__._ref_count_lock:
+                # 减少引用计数
+                if self.__class__._reference_count > 0:
+                    self.__class__._reference_count -= 1
+                    self.logger.info(f"🔢 引用计数减少: {self.__class__._reference_count}")
+
+                # 检查是否应该真正关闭浏览器
+                if force:
+                    self.logger.warning(f"⚠️ 强制关闭浏览器（忽略引用计数: {self.__class__._reference_count}）")
+                    should_close = True
+                    # 强制关闭时重置引用计数
+                    self.__class__._reference_count = 0
+                elif self.__class__._reference_count <= 0:
+                    self.logger.info("✅ 引用计数为 0，执行真正的关闭")
+                    should_close = True
+                else:
+                    self.logger.info(f"🔄 还有 {self.__class__._reference_count} 个引用，保持浏览器运行")
+                    should_close = False
+
+            # 如果不应该关闭，只重置实例状态
+            if not should_close:
+                self._initialized = False
+                self._browser_started = False
+                self.logger.info("✅ 实例状态已重置（浏览器保持运行）")
+                return True
+
+            # 真正关闭浏览器
             success = await self.browser_service.close()
             
             self._initialized = False
@@ -496,8 +582,21 @@ class XuanpingBrowserServiceSync:
 
     
     def initialize(self) -> bool:
-        """同步初始化"""
-        return self._run_async(self.async_service.initialize())
+        """
+        同步初始化
+
+        🔧 Task 4.3 (P1-8): 初始化成功后自动更新浏览器对象
+        """
+        result = self._run_async(self.async_service.initialize())
+        if result:
+            # 🔧 Task 4.3: 初始化成功后尝试更新浏览器对象
+            # 注意：初始化后可能还没有 page 对象，所以这里可能会失败，这是正常的
+            try:
+                self._update_browser_objects()
+            except BrowserError:
+                # 初始化后可能还没有 page，这是正常的，忽略错误
+                pass
+        return result
     
     def start_browser(self) -> bool:
         """同步启动浏览器，并更新暴露的属性"""
@@ -508,28 +607,87 @@ class XuanpingBrowserServiceSync:
         return result
 
     def _update_browser_objects(self):
-        """更新暴露的浏览器对象"""
+        """
+        更新暴露的浏览器对象
+
+        🔧 Task 4.1 (P0-6): 简化访问路径，添加逐层验证
+        🔧 Task 4.2 (P0-1): 增强错误处理，失败时抛出异常
+        """
         try:
-            driver = self.async_service.browser_service.browser_driver
+            # 🔧 Task 4.1: 逐层验证，提供明确的错误信息
+
+            # 第 1 层：验证 async_service
+            if not self.async_service:
+                raise BrowserError("async_service is None - XuanpingBrowserService not initialized")
+
+            # 第 2 层：验证 browser_service
+            if not hasattr(self.async_service, 'browser_service') or not self.async_service.browser_service:
+                raise BrowserError("browser_service is None - SimplifiedBrowserService not initialized")
+
+            browser_service = self.async_service.browser_service
+
+            # 第 3 层：验证 browser_driver
+            if not hasattr(browser_service, 'browser_driver') or not browser_service.browser_driver:
+                raise BrowserError("browser_driver is None - PlaywrightBrowserDriver not initialized")
+
+            driver = browser_service.browser_driver
+
+            # 第 4 层：验证浏览器对象
+            if not hasattr(driver, 'page') or not driver.page:
+                raise BrowserError("page is None - Browser page not created")
+
+            if not hasattr(driver, 'browser'):
+                raise BrowserError("browser attribute not found on driver")
+
+            if not hasattr(driver, 'context'):
+                raise BrowserError("context attribute not found on driver")
+
+            # 所有验证通过，更新对象
             self.page = driver.page
             self.browser = driver.browser
             self.context = driver.context
+
             self.logger.debug("✅ 浏览器对象已更新")
+
+        except BrowserError:
+            # 🔧 Task 4.2: BrowserError 直接向上抛出
+            raise
         except (AttributeError, TypeError) as e:
-            self.logger.warning(f"⚠️ 无法更新浏览器对象: {e}")
+            # 🔧 Task 4.2: 其他异常包装为 BrowserError 并抛出
+            self.logger.error(f"❌ 更新浏览器对象失败: {e}")
+            raise BrowserError(f"Failed to update browser objects: {e}") from e
     
     def navigate_to(self, url: str) -> bool:
-        """同步导航"""
-        return self._run_async(self.async_service.navigate_to(url))
+        """
+        同步导航
+
+        🔧 Task 4.3 (P1-8): 导航成功后自动更新浏览器对象
+        """
+        result = self._run_async(self.async_service.navigate_to(url))
+        if result:
+            # 🔧 Task 4.3: 导航成功后自动更新浏览器对象
+            self._update_browser_objects()
+        return result
     
     def scrape_page_data(self, url: str, extractor_func) -> ScrapingResult:
-        """同步抓取数据 - 传递 self 以便提取函数可以访问 page 属性"""
+        """
+        同步抓取数据 - 传递 self 以便提取函数可以访问 page 属性
+
+        🔧 Task 4.4 (P1-10): 增强异步/同步边界安全性
+        """
         async def wrapper_extractor(browser_service):
-            # 在提取数据前，确保浏览器对象已更新
+            # 🔧 Task 4.4: 在提取数据前，确保浏览器对象已更新
             # 因为 navigate_to 可能会启动浏览器，但不会自动更新同步包装器的属性
-            self._update_browser_objects()
+            try:
+                self._update_browser_objects()
+            except BrowserError as e:
+                # 🔧 Task 4.4: 如果更新失败，提供明确的错误信息
+                self.logger.error(f"❌ 更新浏览器对象失败，无法提取数据: {e}")
+                raise
+
             # 传递 self 而不是 browser_service，这样提取函数可以访问 self.page
             return await extractor_func(self)
+
         return self._run_async(self.async_service.scrape_page_data(url, wrapper_extractor))
     
     def close(self) -> bool:

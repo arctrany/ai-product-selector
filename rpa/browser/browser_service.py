@@ -113,26 +113,62 @@ class SimplifiedBrowserService:
                             self.logger.info(f"✅ 复用现有浏览器实例: {self._instance_key}")
                             return True
 
-            # 创建新的浏览器驱动
+            # 🔧 Task 2.4 (P0-0): 检查是否需要连接现有浏览器
             browser_config = self._prepare_browser_config()
-            self.browser_driver = SimplifiedPlaywrightBrowserDriver(browser_config)
-            
-            success = await self.browser_driver.initialize()
-            if not success:
-                return False
+            connect_to_existing = browser_config.get('connect_to_existing', None)
+
+            if connect_to_existing:
+                # 尝试连接现有浏览器
+                self.logger.info(f"🔗 尝试连接到现有浏览器: {connect_to_existing}")
+                self.browser_driver = SimplifiedPlaywrightBrowserDriver(browser_config)
+
+                # 使用 CDP 连接
+                cdp_url = connect_to_existing if isinstance(connect_to_existing, str) else f"http://localhost:{browser_config.get('debug_port', 9222)}"
+                success = await self.browser_driver.connect_to_existing_browser(cdp_url)
+
+                if success:
+                    self.logger.info(f"✅ 成功连接到现有浏览器")
+                else:
+                    # 🔧 关键修复：连接失败时不要降级到启动新实例
+                    # 因为如果浏览器已经在运行，尝试启动新实例会导致不断打开 about:blank 标签页
+                    self.logger.error(f"❌ 连接现有浏览器失败")
+                    self.logger.error(f"💡 解决方案：")
+                    self.logger.error(f"   1. 确保浏览器的调试端口 {browser_config.get('debug_port', 9222)} 已开启")
+                    self.logger.error(f"   2. 或者关闭所有浏览器窗口后重试")
+                    self.browser_driver = None  # 清理失败的驱动
+                    return False
+
+            # 如果没有连接成功，创建新的浏览器驱动
+            if not self.browser_driver:
+                self.logger.info("🚀 启动新的浏览器实例")
+                self.browser_driver = SimplifiedPlaywrightBrowserDriver(browser_config)
+
+                # 🔧 Task 2.1 (P0-5): 初始化失败时清理 browser_driver
+                try:
+                    success = await self.browser_driver.initialize()
+                    if not success:
+                        self.logger.error("❌ 浏览器驱动初始化失败")
+                        self.browser_driver = None  # 清理失败的驱动
+                        return False
+                except Exception as init_error:
+                    self.logger.error(f"❌ 浏览器驱动初始化异常: {init_error}")
+                    self.browser_driver = None  # 清理失败的驱动
+                    raise
 
             # 加入共享池
             if self._use_shared_browser:
                 async with self._instance_lock:
                     self._shared_instances[self._instance_key] = self.browser_driver
                     self.logger.info(f"📝 新浏览器实例已加入共享池: {self._instance_key}")
-            
+
             self._initialized = True
             self.logger.info("✅ 浏览器服务初始化完成")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"❌ 浏览器服务初始化失败: {e}")
+            # 🔧 Task 2.1: 确保异常时 browser_driver 为 None
+            self.browser_driver = None
             return False
 
     async def start_browser(self) -> bool:
@@ -146,14 +182,30 @@ class SimplifiedBrowserService:
             
             self.logger.info("🌐 启动浏览器")
             
-            # 浏览器驱动已在 initialize 中启动
+            # 🔧 Task 2.3 (P0-3): 验证浏览器实际已启动
+            # 检查 browser_driver 不为 None
+            if not self.browser_driver:
+                self.logger.error("❌ browser_driver 为 None，无法启动浏览器")
+                raise BrowserError("Browser driver is not initialized")
+
+            # 检查 browser_driver 已初始化
+            if not self.browser_driver.is_initialized():
+                self.logger.error("❌ browser_driver 未初始化")
+                raise BrowserError("Browser driver is not initialized")
+
+            # 检查 page 对象已创建
+            page = self.browser_driver.get_page()
+            if not page:
+                self.logger.error("❌ 浏览器页面对象未创建")
+                raise BrowserError("Browser page is not created")
+
             self._browser_started = True
-            self.logger.info("✅ 浏览器启动成功")
+            self.logger.info("✅ 浏览器启动成功（已验证）")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"❌ 浏览器启动失败: {e}")
-            return False
+            raise
 
     async def navigate_to(self, url: str, wait_until: str = "load") -> bool:
         """导航到指定URL"""
@@ -161,20 +213,25 @@ class SimplifiedBrowserService:
             if not self._browser_started:
                 await self.start_browser()
             
+            # 🔧 Task 2.2 (P0-4): 添加 browser_driver 空值检查
+            if not self.browser_driver:
+                self.logger.error("❌ browser_driver 为 None，无法导航")
+                raise BrowserError("Browser driver is not initialized")
+
             self.logger.info(f"🔗 导航到: {url}")
-            
+
             success = await self.browser_driver.open_page(url, wait_until)
-            
+
             if success:
                 # 初始化页面组件
                 await self._initialize_page_components()
                 self.logger.info("✅ 页面导航成功")
-            
+
             return success
-            
+
         except Exception as e:
             self.logger.error(f"❌ 页面导航失败: {e}")
-            return False
+            raise
 
     async def close(self) -> bool:
         """关闭浏览器服务"""
@@ -210,13 +267,23 @@ class SimplifiedBrowserService:
 
     async def get_page_analyzer(self) -> Optional[IPageAnalyzer]:
         """获取页面分析器"""
-        if not self.page_analyzer and self.browser_driver and self.browser_driver.get_page():
+        # 🔧 Task 2.2 (P0-4): 添加 browser_driver 空值检查
+        if not self.browser_driver:
+            self.logger.error("❌ browser_driver 为 None，无法获取页面分析器")
+            raise BrowserError("Browser driver is not initialized")
+
+        if not self.page_analyzer and self.browser_driver.get_page():
             await self._initialize_page_components()
         return self.page_analyzer
 
     async def get_paginator(self) -> Optional[IPaginator]:
         """获取分页器"""
-        if not self.paginator and self.browser_driver and self.browser_driver.get_page():
+        # 🔧 Task 2.2 (P0-4): 添加 browser_driver 空值检查
+        if not self.browser_driver:
+            self.logger.error("❌ browser_driver 为 None，无法获取分页器")
+            raise BrowserError("Browser driver is not initialized")
+
+        if not self.paginator and self.browser_driver.get_page():
             await self._initialize_page_components()
         return self.paginator
 
@@ -241,15 +308,19 @@ class SimplifiedBrowserService:
     async def get_page_content(self) -> str:
         """获取页面内容"""
         try:
-            if not self.browser_driver or not self.browser_driver.get_page():
-                raise BrowserError("浏览器页面未初始化")
-            
+            # 🔧 Task 2.2 (P0-4): 添加 browser_driver 空值检查
+            if not self.browser_driver:
+                raise BrowserError("Browser driver is not initialized")
+
             page = self.browser_driver.get_page()
+            if not page:
+                raise BrowserError("Browser page is not initialized")
+
             return await page.evaluate("() => document.documentElement.outerHTML")
-            
+
         except Exception as e:
             self.logger.error(f"❌ 获取页面内容失败: {e}")
-            return ""
+            raise
 
     # ==================== 内部方法 ====================
 
@@ -261,11 +332,22 @@ class SimplifiedBrowserService:
         if hasattr(self.config.browser_config, 'user_data_dir'):
             browser_config['user_data_dir'] = self.config.browser_config.user_data_dir
         
+        # 🔧 Task 2.4 (P0-0): 传递浏览器复用配置
+        if hasattr(self.config.browser_config, 'connect_to_existing'):
+            browser_config['connect_to_existing'] = self.config.browser_config.connect_to_existing
+
+        if hasattr(self.config.browser_config, 'debug_port'):
+            browser_config['debug_port'] = self.config.browser_config.debug_port
+
         return browser_config
 
     async def _initialize_page_components(self) -> None:
         """初始化页面组件"""
         try:
+            # 🔧 Task 2.2 (P0-4): 添加 browser_driver 空值检查
+            if not self.browser_driver:
+                raise BrowserError("Browser driver is not initialized")
+
             page = self.browser_driver.get_page()
             if not page:
                 return

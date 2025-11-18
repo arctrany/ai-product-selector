@@ -25,11 +25,4 @@
 - **THEN** 应该使用 `browser_service.page` 而不是 `browser_service.async_service.browser_service.browser_driver.page`
 - **AND** 代码应该更简洁易读
 
-## REMOVED Requirements
 
-### Requirement: browser_driver 属性
-**原因**: 该属性是冗余的，从未被使用，且与新的简化 API 设计不一致
-
-**迁移**: 
-- 旧代码：`browser_service.browser_driver` → 删除
-- 新代码：使用 `browser_service.page`、`browser_service.browser`、`browser_service.context`

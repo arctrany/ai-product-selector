@@ -62,6 +62,9 @@ class BrowserConfig:
     headless: bool = False
     debug_port: int = 9222
     
+    # 🔧 连接现有浏览器配置
+    connect_to_existing: Optional[Union[bool, str]] = None  # True 或 CDP URL
+
     # 路径配置
     executable_path: Optional[Union[str, Path]] = None
     user_data_dir: Optional[Union[str, Path]] = None

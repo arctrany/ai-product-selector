@@ -94,11 +94,11 @@ class TestProductFiltering:
         config = GoodStoreSelectorConfig()
         config.selection_mode = selection_mode
 
-        # 验证店铺过滤配置存在（包含商品黑名单等过滤配置）
-        assert hasattr(config, 'store_filter')
-        assert config.store_filter is not None
-        assert hasattr(config.store_filter, 'blacklisted_categories')
-        assert len(config.store_filter.blacklisted_categories) > 0
+        # 验证选择器过滤配置存在（包含商品黑名单等过滤配置）
+        assert hasattr(config, 'selector_filter')
+        assert config.selector_filter is not None
+        assert hasattr(config.selector_filter, 'item_category_blacklist')
+        assert len(config.selector_filter.item_category_blacklist) > 0
 
 
 class TestModeDetection:

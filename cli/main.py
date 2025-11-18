@@ -366,8 +366,8 @@ def handle_start_command(args):
     system_config.selection_mode = select_mode
 
     # 应用用户提供的店铺过滤配置
-    system_config.store_filter.min_sales_30days = ui_config.min_store_sales_30days
-    system_config.store_filter.min_orders_30days = ui_config.min_store_orders_30days
+    system_config.selector_filter.store_min_sales_30days = ui_config.min_store_sales_30days
+    system_config.selector_filter.store_min_orders_30days = ui_config.min_store_orders_30days
 
     # 显示将要执行的配置
     print("📋 将要执行的配置:")

@@ -41,17 +41,17 @@ class ErrorResultFactory:
         return StoreAnalysisResult(
             store_info=store_info,
             products=[],
-            profit_rate_threshold=self.config.store_filter.profit_rate_threshold,
-            good_store_threshold=self.config.store_filter.good_store_ratio_threshold
+            profit_rate_threshold=self.config.selector_filter.profit_rate_threshold,
+            good_store_threshold=self.config.selector_filter.good_store_ratio_threshold
         )
-    
+
     def create_no_products_result(self, store_id: str) -> StoreAnalysisResult:
         """
         创建无商品的店铺结果
-        
+
         Args:
             store_id: 店铺ID
-            
+
         Returns:
             StoreAnalysisResult: 无商品结果
         """
@@ -63,6 +63,6 @@ class ErrorResultFactory:
         return StoreAnalysisResult(
             store_info=store_info,
             products=[],
-            profit_rate_threshold=self.config.store_filter.profit_rate_threshold,
-            good_store_threshold=self.config.store_filter.good_store_ratio_threshold
+            profit_rate_threshold=self.config.selector_filter.profit_rate_threshold,
+            good_store_threshold=self.config.selector_filter.good_store_ratio_threshold
         )

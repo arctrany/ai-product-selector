@@ -14,22 +14,27 @@ import logging
 
 
 @dataclass
-class StoreFilterConfig:
-    """店铺筛选配置"""
-    # 店铺初筛条件
-    min_sales_30days: float = 500000.0  # 最小30天销售额（卢布）
-    min_orders_30days: int = 250  # 最小30天销量
-    
+class SelectorFilterConfig:
+    """选择器过滤配置
+
+    遵循命名规范：
+    - 商品级别过滤：item_**_filter
+    - 店铺级别过滤：store_**_filter
+    """
+    # 店铺级别过滤条件
+    store_min_sales_30days: float = 500000.0  # 店铺最小30天销售额（卢布）
+    store_min_orders_30days: int = 250  # 店铺最小30天销量
+
     # 好店判定阈值
     profit_rate_threshold: float = 20.0  # 利润率阈值（百分比）
     good_store_ratio_threshold: float = 20.0  # 好店判定比例阈值（百分比）
     max_products_to_check: int = 10  # 每个店铺最多检查的商品数量
 
-    # 黑名单类目配置
-    blacklisted_categories: List[str] = field(default_factory=lambda: [
+    # 商品级别过滤：类目黑名单配置
+    item_category_blacklist: List[str] = field(default_factory=lambda: [
         "成人用品", "情趣用品", "医疗器械", "处方药", "烟草制品",
         "危险化学品", "易燃易爆物品", "武器装备", "赌博用具"
-    ])  # 黑名单类目列表
+    ])  # 商品类目黑名单列表
 
 
 @dataclass
@@ -125,7 +130,7 @@ class PerformanceConfig:
 @dataclass
 class GoodStoreSelectorConfig:
     """好店筛选系统主配置"""
-    store_filter: StoreFilterConfig = field(default_factory=StoreFilterConfig)
+    selector_filter: SelectorFilterConfig = field(default_factory=SelectorFilterConfig)
     price_calculation: PriceCalculationConfig = field(default_factory=PriceCalculationConfig)
     scraping: ScrapingConfig = field(default_factory=ScrapingConfig)
     excel: ExcelConfig = field(default_factory=ExcelConfig)
@@ -142,11 +147,32 @@ class GoodStoreSelectorConfig:
         """从字典创建配置对象"""
         config = cls()
         
-        # 更新各个子配置
-        if 'store_filter' in config_dict:
-            for key, value in config_dict['store_filter'].items():
-                if hasattr(config.store_filter, key):
-                    setattr(config.store_filter, key, value)
+        # 向后兼容：支持旧的 store_filter 配置
+        filter_config_key = 'selector_filter' if 'selector_filter' in config_dict else 'store_filter'
+
+        if filter_config_key in config_dict:
+            filter_config = config_dict[filter_config_key]
+
+            # 字段名映射（旧名 -> 新名）
+            field_mapping = {
+                'min_sales_30days': 'store_min_sales_30days',
+                'min_orders_30days': 'store_min_orders_30days',
+                'blacklisted_categories': 'item_category_blacklist'
+            }
+
+            for key, value in filter_config.items():
+                # 使用映射后的字段名
+                new_key = field_mapping.get(key, key)
+                if hasattr(config.selector_filter, new_key):
+                    setattr(config.selector_filter, new_key, value)
+                elif hasattr(config.selector_filter, key):
+                    # 如果新字段名不存在，尝试使用原字段名
+                    setattr(config.selector_filter, key, value)
+
+            # 如果使用了旧配置，显示警告
+            if filter_config_key == 'store_filter':
+                import logging
+                logging.warning("配置文件使用了已废弃的 'store_filter' 字段，请更新为 'selector_filter'")
         
         if 'price_calculation' in config_dict:
             for key, value in config_dict['price_calculation'].items():
@@ -246,12 +272,13 @@ class GoodStoreSelectorConfig:
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
         return {
-            'store_filter': {
-                'min_sales_30days': self.store_filter.min_sales_30days,
-                'min_orders_30days': self.store_filter.min_orders_30days,
-                'profit_rate_threshold': self.store_filter.profit_rate_threshold,
-                'good_store_ratio_threshold': self.store_filter.good_store_ratio_threshold,
-                'max_products_to_check': self.store_filter.max_products_to_check,
+            'selector_filter': {
+                'store_min_sales_30days': self.selector_filter.store_min_sales_30days,
+                'store_min_orders_30days': self.selector_filter.store_min_orders_30days,
+                'profit_rate_threshold': self.selector_filter.profit_rate_threshold,
+                'good_store_ratio_threshold': self.selector_filter.good_store_ratio_threshold,
+                'max_products_to_check': self.selector_filter.max_products_to_check,
+                'item_category_blacklist': self.selector_filter.item_category_blacklist,
             },
             'price_calculation': {
                 'price_adjustment_threshold_1': self.price_calculation.price_adjustment_threshold_1,
@@ -319,11 +346,11 @@ class GoodStoreSelectorConfig:
         """验证配置的有效性"""
         try:
             # 验证数值范围
-            assert 0 < self.store_filter.min_sales_30days
-            assert 0 < self.store_filter.min_orders_30days
-            assert 0 <= self.store_filter.profit_rate_threshold <= 100
-            assert 0 <= self.store_filter.good_store_ratio_threshold <= 100
-            assert 0 < self.store_filter.max_products_to_check <= 1000
+            assert 0 < self.selector_filter.store_min_sales_30days
+            assert 0 < self.selector_filter.store_min_orders_30days
+            assert 0 <= self.selector_filter.profit_rate_threshold <= 100
+            assert 0 <= self.selector_filter.good_store_ratio_threshold <= 100
+            assert 0 < self.selector_filter.max_products_to_check <= 1000
             
             assert 0 < self.price_calculation.price_adjustment_threshold_1
             assert 0 < self.price_calculation.price_adjustment_threshold_2

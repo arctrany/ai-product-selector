@@ -165,7 +165,7 @@ class PricingCalculator:
                 product_pricing=product_pricing,
                 profit_amount=profit_amount,
                 profit_rate=profit_rate,
-                is_profitable=profit_rate >= self.config.store_filter.profit_rate_threshold,
+                is_profitable=profit_rate >= self.config.selector_filter.profit_rate_threshold,
                 calculation_details=calculation_details
             )
             

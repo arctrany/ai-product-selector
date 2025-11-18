@@ -260,32 +260,46 @@ class GoodStoreSelector(TaskControlMixin):
             StoreAnalysisResult: 店铺分析结果
         """
         try:
+            # 使用过滤器管理器
+            filter_manager = FilterManager(self.config)
+
             # 根据选择模式决定是否进行店铺过滤
             if self.config.selection_mode == 'select-goods':
-                # select-goods 模式：跳过店铺过滤，直接创建 store_info
+                # select-goods 模式：跳过店铺过滤，直接抓取商品
+                self.logger.info(f"select-goods 模式：跳过店铺 {store_data.store_id} 的过滤，直接进行商品选品")
+
+                # 使用统一的 scrape() 接口，不应用店铺过滤
+                result = self.seerfar_scraper.scrape(
+                    store_data.store_id,
+                    include_products=True,
+                    max_products=self.config.store_filter.max_products_to_check,
+                    product_filter_func=filter_manager.get_product_filter_func(),
+                    store_filter_func=None  # select-goods 模式不过滤店铺
+                )
+
+                # 创建 store_info（无销售数据）
                 store_info = StoreInfo(
                     store_id=store_data.store_id,
                     is_good_store=store_data.is_good_store,
                     status=store_data.status
                 )
-                self.logger.info(f"select-goods 模式：跳过店铺 {store_data.store_id} 的过滤，直接进行商品选品")
             else:
-                # select-shops 模式：执行店铺过滤
-                # 1. 抓取店铺销售数据（包含初筛）
-                # 使用过滤器管理器
-                filter_manager = FilterManager(self.config)
-                result = self.seerfar_scraper.scrape_store_sales_data(
+                # select-shops 模式：使用统一的 scrape() 接口，应用店铺和商品过滤
+                result = self.seerfar_scraper.scrape(
                     store_data.store_id,
-                    filter_manager.get_store_filter_func()
+                    include_products=True,
+                    max_products=self.config.selector_filter.max_products_to_check,
+                    product_filter_func=filter_manager.get_product_filter_func(),
+                    store_filter_func=filter_manager.get_store_filter_func()
                 )
 
-                # 2. 检查店铺数据获取是否成功
+                # 检查店铺数据获取是否成功
                 if not result.success:
                     self.logger.warning(f"店铺{store_data.store_id}数据获取失败或不符合筛选条件，跳过后续商品处理")
                     return self.error_factory.create_failed_store_result(store_data.store_id)
 
-                # 如果成功获取数据，创建store_info对象
-                sales_data = result.data
+                # 创建 store_info（包含销售数据）
+                sales_data = result.data.get('sales_data', {})
                 store_info = StoreInfo(
                     store_id=store_data.store_id,
                     is_good_store=store_data.is_good_store,
@@ -295,29 +309,40 @@ class GoodStoreSelector(TaskControlMixin):
                     daily_avg_sold=sales_data.get('daily_avg_sold')
                 )
 
-            # 3. 抓取店铺商品列表
-            products, scraping_error = self._scrape_store_products(store_info, return_error=True)
-
-            # 🔧 关键修复：区分抓取异常和真正没有商品
-            if scraping_error:
-                self.logger.error(f"店铺{store_data.store_id}商品抓取异常: {scraping_error}")
+            # 检查抓取结果
+            if not result.success:
+                self.logger.error(f"店铺{store_data.store_id}抓取失败: {result.error_message}")
                 return self.error_factory.create_failed_store_result(store_data.store_id)
-            elif not products:
+
+            # 提取商品列表
+            products_data = result.data.get('products', [])
+            if not products_data:
                 self.logger.info(f"店铺{store_data.store_id}无商品，跳过处理")
                 return self.error_factory.create_no_products_result(store_data.store_id)
 
-            # 4. 处理商品（抓取价格、ERP数据、货源匹配、利润计算）
+            # 转换为 ProductInfo 对象
+            products = []
+            for product_data in products_data:
+                product = ProductInfo(
+                    product_id=product_data.get('product_id', ''),
+                    image_url=product_data.get('image_url'),
+                    brand_name=product_data.get('brand_name'),
+                    sku=product_data.get('sku')
+                )
+                products.append(product)
+
+            # 处理商品（抓取价格、ERP数据、货源匹配、利润计算）
             product_evaluations = self._process_products(products)
 
-            # 🔧 关键修复：检查商品处理是否成功
+            # 检查商品处理是否成功
             if not product_evaluations:
                 self.logger.warning(f"店铺{store_data.store_id}商品处理失败，标记为非好店")
                 return self.error_factory.create_no_products_result(store_data.store_id)
 
-            # 5. 店铺评估
+            # 店铺评估
             store_result = self.store_evaluator.evaluate_store(store_info, product_evaluations)
 
-            # 6. 如果是好店，抓取跟卖店铺信息
+            # 如果是好店，抓取跟卖店铺信息
             if store_result.store_info.is_good_store == GoodStoreFlag.YES:
                 self._collect_competitor_stores(store_result)
 
@@ -327,54 +352,7 @@ class GoodStoreSelector(TaskControlMixin):
             self.logger.error(f"处理店铺{store_data.store_id}失败: {e}")
             return self.error_factory.create_failed_store_result(store_data.store_id)
     
-    def _scrape_store_products(self, store_info: StoreInfo, return_error: bool = False) -> Union[List[ProductInfo], tuple[List[ProductInfo], Optional[str]]]:
-        """抓取店铺商品列表
 
-        Args:
-            store_info: 店铺信息
-            return_error: 是否返回错误信息，默认为False
-
-        Returns:
-            如果return_error为False，返回商品列表
-            如果return_error为True，返回(商品列表, 错误信息)元组
-        """
-        try:
-            # 使用过滤器管理器创建商品过滤函数
-            filter_manager = FilterManager(self.config)
-            product_filter_func = filter_manager.get_product_filter_func()
-
-            # 调用抓取方法，传入过滤函数
-            result = self.seerfar_scraper.scrape_store_products(
-                store_info.store_id,
-                self.config.store_filter.max_products_to_check,
-                product_filter_func=product_filter_func
-            )
-
-            # 实现一个方法，遍历result里的products数据, 抓取ozon页面的商品价格
-
-            if result.success:
-                products_data = result.data.get('products', [])
-                products = []
-
-                for product_data in products_data:
-                    product = ProductInfo(
-                        product_id=product_data.get('product_id', ''),
-                        image_url=product_data.get('image_url'),
-                        brand_name=product_data.get('brand_name'),
-                        sku=product_data.get('sku')
-                    )
-                    products.append(product)
-
-                return (products, None) if return_error else products
-            else:
-                error_msg = f"抓取店铺{store_info.store_id}商品列表失败: {result.error_message}"
-                self.logger.warning(error_msg)
-                return ([], error_msg) if return_error else []
-
-        except Exception as e:
-            error_msg = f"抓取店铺{store_info.store_id}商品列表异常: {e}"
-            self.logger.error(error_msg)
-            return ([], error_msg) if return_error else []
     
     def _process_products(self, products: List[ProductInfo]) -> List[Dict[str, Any]]:
         """处理商品列表"""

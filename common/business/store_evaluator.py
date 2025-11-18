@@ -37,12 +37,7 @@ class StoreEvaluator:
             StoreAnalysisResult: 店铺分析结果
         """
         try:
-            # 1. 验证店铺初筛条件
-            if not self.filter_store({
-                'sold_30days': store_info.sold_30days,
-                'sold_count_30days': store_info.sold_count_30days
-            }):
-                return self._create_failed_store_result(store_info, "不符合初筛条件")
+            # 注意：店铺过滤已由 FilterManager 统一处理，此处不再重复过滤
 
             # 2. 转换商品评估结果
             product_results = self._convert_product_evaluations(product_evaluations)
@@ -51,8 +46,8 @@ class StoreEvaluator:
             store_result = StoreAnalysisResult(
                 store_info=store_info,
                 products=product_results,
-                profit_rate_threshold=self.config.store_filter.profit_rate_threshold,
-                good_store_threshold=self.config.store_filter.good_store_ratio_threshold
+                profit_rate_threshold=self.config.selector_filter.profit_rate_threshold,
+                good_store_threshold=self.config.selector_filter.good_store_ratio_threshold
             )
 
             # 4. 记录评估日志
@@ -141,8 +136,8 @@ class StoreEvaluator:
         return StoreAnalysisResult(
             store_info=store_info,
             products=[],
-            profit_rate_threshold=self.config.store_filter.profit_rate_threshold,
-            good_store_threshold=self.config.store_filter.good_store_ratio_threshold
+            profit_rate_threshold=self.config.selector_filter.profit_rate_threshold,
+            good_store_threshold=self.config.selector_filter.good_store_ratio_threshold
         )
     
     def _log_evaluation_result(self, store_result: StoreAnalysisResult):
@@ -251,8 +246,8 @@ class StoreEvaluator:
                 'total_profitable_products': total_profitable_products,
                 'overall_profit_rate': (total_profitable_products / total_products * 100) if total_products > 0 else 0,
                 'avg_store_profit_ratio': avg_profit_ratio,
-                'profit_threshold': self.config.store_filter.profit_rate_threshold,
-                'good_store_threshold': self.config.store_filter.good_store_ratio_threshold
+                'profit_threshold': self.config.selector_filter.profit_rate_threshold,
+                'good_store_threshold': self.config.selector_filter.good_store_ratio_threshold
             }
             
         except Exception as e:
@@ -272,43 +267,9 @@ class StoreEvaluator:
         try:
             # 根据规格要求，当商品利润率 >= 配置阈值时才采集跟卖店铺信息
             profit_rate = product_evaluation.get('profit_rate', 0)
-            return profit_rate >= self.config.store_filter.profit_rate_threshold
+            return profit_rate >= self.config.selector_filter.profit_rate_threshold
             
         except Exception as e:
             self.logger.error(f"判断是否采集跟卖店铺信息失败: {e}")
             return False
 
-    def get_product_filter_func(self):
-        """
-        获取商品过滤函数，用于过滤黑名单类目商品
-
-        Returns:
-            Callable: 商品过滤函数
-        """
-        def product_filter(product_data: Dict[str, Any]) -> bool:
-            """
-            过滤黑名单类目商品
-
-            Args:
-                product_data: 商品数据
-
-            Returns:
-                bool: True表示保留商品，False表示过滤掉商品
-            """
-            try:
-                # 检查商品类目是否在黑名单中
-                category_info = product_data.get('category_info', '')
-                blacklisted_categories = self.config.store_filter.blacklisted_categories
-
-                if category_info:
-                    for blacklisted_cat in blacklisted_categories:
-                        if blacklisted_cat in category_info:
-                            product_id = product_data.get('product_id', '未知')
-                            self.logger.info(f"过滤掉商品 {product_id}，原因：属于黑名单类目 '{blacklisted_cat}'，类目信息：{category_info}")
-                            return False  # 过滤掉黑名单类目商品
-                return True  # 保留其他商品
-            except Exception as e:
-                self.logger.error(f"商品过滤函数执行失败: {e}")
-                return True  # 出错时默认保留商品
-
-        return product_filter

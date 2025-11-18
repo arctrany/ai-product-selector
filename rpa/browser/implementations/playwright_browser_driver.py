@@ -99,6 +99,74 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             self._logger.error(f"Failed to initialize browser driver: {e}")
             raise BrowserInitializationError(f"Initialization failed: {e}")
 
+    async def connect_to_existing_browser(self, cdp_url: str) -> bool:
+        """
+        连接到现有的浏览器实例（通过 CDP）
+
+        Args:
+            cdp_url: Chrome DevTools Protocol URL，格式如 "http://localhost:9222"
+
+        Returns:
+            bool: 连接成功返回 True，失败返回 False
+        """
+        try:
+            self._logger.info(f"Attempting to connect to existing browser at: {cdp_url}")
+
+            # 启动 Playwright
+            if not self.playwright:
+                self.playwright = await async_playwright().start()
+
+            # 通过 CDP 连接到现有浏览器
+            self.browser = await self.playwright.chromium.connect_over_cdp(cdp_url)
+            self._logger.info(f"Successfully connected to browser via CDP: {cdp_url}")
+
+            # 获取或创建浏览器上下文
+            contexts = self.browser.contexts
+            if contexts:
+                # 使用第一个现有上下文
+                self.context = contexts[0]
+                self._logger.info(f"Using existing browser context (found {len(contexts)} contexts)")
+            else:
+                # 创建新上下文
+                self.context = await self.browser.new_context()
+                self._logger.info("Created new browser context")
+
+            # 获取或创建页面
+            pages = self.context.pages
+            if pages:
+                # 使用第一个现有页面
+                self.page = pages[0]
+                self._logger.info(f"Using existing page (found {len(pages)} pages)")
+            else:
+                # 创建新页面
+                self.page = await self.context.new_page()
+                self._logger.info("Created new page")
+
+            # 注入反检测脚本
+            await self._inject_stealth_scripts()
+
+            self._initialized = True
+            self._is_persistent_context = False  # CDP 连接不是持久化上下文
+            self._logger.info("Successfully connected to existing browser")
+            return True
+
+        except Exception as e:
+            self._logger.error(f"Failed to connect to existing browser: {e}")
+            # 清理部分初始化的对象
+            if self.browser:
+                try:
+                    await self.browser.close()
+                except:
+                    pass
+                self.browser = None
+            if self.playwright:
+                try:
+                    await self.playwright.stop()
+                except:
+                    pass
+                self.playwright = None
+            return False
+
     async def shutdown(self) -> bool:
         """关闭浏览器驱动"""
         if not self._initialized:

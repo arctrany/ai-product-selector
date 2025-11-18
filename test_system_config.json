@@ -5,6 +5,12 @@
     "timeout_seconds": 30,
     "max_retries": 3
   },
+  "selector_filter": {
+    "store_min_sales_30days": 500000.0,
+    "store_min_orders_30days": 250,
+    "item_category_blacklist": ["电子产品", "Electronics", "数码配件"],
+    "max_products_to_check": 100
+  },
   "performance": {
     "max_concurrent_tasks": 5,
     "retry_count": 3,

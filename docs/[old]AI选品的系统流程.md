@@ -43,7 +43,7 @@
 - **Ozon店铺URL模板**: `https://www.ozon.run/product/{ozon_shop_id}`
 - **Seefar店铺查询URL模板**: `https://seerfar.cn/admin/store-detail.html?storeId=${ozon_shop_id}&platform=OZON`
 - **seefar SKU详情查询模版**: `https://seerfar.cn/admin/product-detail.html?platform=OZON&sku=${ozon_product_sku}`
-  - ![img.png](../img.png)
+  - ![img.png](img.png)
 - **全局店铺计数**: `total_shop_count`
 - **全局商品计数**: `total_product_count`
 

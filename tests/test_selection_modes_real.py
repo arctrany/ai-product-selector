@@ -98,12 +98,24 @@ class TestSelectGoodsModeReal:
             status=StoreStatus.EMPTY
         )
         
-        # Mock _scrape_store_products 返回空列表（触发无商品逻辑）
-        with patch.object(selector, '_scrape_store_products', return_value=([], None)):
-            result = selector._process_single_store(store_data)
-        
-        # 验证 seerfar_scraper.scrape_store_sales_data 没有被调用（跳过店铺过滤）
-        selector.seerfar_scraper.scrape_store_sales_data.assert_not_called()
+        # Mock scrape 返回空商品列表（触发无商品逻辑）
+        mock_scrape_result = ScrapingResult(
+            success=True,
+            data={
+                'store_id': '123456',
+                'sales_data': {},
+                'products': []  # 空商品列表
+            }
+        )
+        selector.seerfar_scraper.scrape.return_value = mock_scrape_result
+
+        result = selector._process_single_store(store_data)
+
+        # 验证使用了新的统一 scrape() 接口
+        selector.seerfar_scraper.scrape.assert_called_once()
+        call_kwargs = selector.seerfar_scraper.scrape.call_args[1]
+        # select-goods 模式不应用店铺过滤
+        assert call_kwargs['store_filter_func'] is None
         
         # 验证返回了无商品结果（无商品时状态为 PROCESSED）
         assert result.store_info.store_id == '123456'
@@ -244,14 +256,22 @@ class TestProductFilteringReal:
         mock_filter_manager_class.return_value = mock_filter_manager
         mock_product_filter = MagicMock(return_value=True)
         mock_filter_manager.get_product_filter_func.return_value = mock_product_filter
-        
-        # Mock seerfar_scraper
+        mock_store_filter = MagicMock(return_value=True)
+        mock_filter_manager.get_store_filter_func.return_value = mock_store_filter
+
+        # Mock 依赖
         selector.seerfar_scraper = MagicMock()
-        
-        # 模拟商品抓取成功
+        selector.store_evaluator = MagicMock()
+
+        # 模拟统一的 scrape() 接口返回成功
         mock_result = ScrapingResult(
             success=True,
             data={
+                'store_id': '123456',
+                'sales_data': {
+                    'sold_30days': 100000,
+                    'sold_count_30days': 500
+                },
                 'products': [
                     {
                         'product_id': 'prod1',
@@ -262,30 +282,48 @@ class TestProductFilteringReal:
                 ]
             }
         )
-        selector.seerfar_scraper.scrape_store_products.return_value = mock_result
-        
-        # 创建店铺信息
-        store_info = StoreInfo(
+        selector.seerfar_scraper.scrape.return_value = mock_result
+
+        # Mock store_evaluator 返回结果
+        mock_store_result = StoreAnalysisResult(
+            store_info=StoreInfo(
+                store_id='123456',
+                is_good_store=GoodStoreFlag.YES,
+                status=StoreStatus.PROCESSED
+            ),
+            products=[],
+            total_products=1,
+            profitable_products=1
+        )
+        selector.store_evaluator.evaluate_store.return_value = mock_store_result
+
+        # 模拟店铺数据
+        store_data = ExcelStoreData(
+            row_index=2,
             store_id='123456',
             is_good_store=GoodStoreFlag.EMPTY,
             status=StoreStatus.PENDING
         )
-        
-        # 调用商品抓取方法
-        products, error = selector._scrape_store_products(store_info, return_error=True)
-        
-        # 验证商品过滤函数被创建
-        mock_filter_manager.get_product_filter_func.assert_called_once()
-        
-        # 验证抓取时传入了过滤函数
-        call_kwargs = selector.seerfar_scraper.scrape_store_products.call_args[1]
+
+        # 调用处理方法（使用新的统一接口）
+        result = selector._process_single_store(store_data)
+
+        # 验证使用了新的统一 scrape() 接口
+        selector.seerfar_scraper.scrape.assert_called_once()
+
+        # 验证传入了过滤函数
+        call_kwargs = selector.seerfar_scraper.scrape.call_args[1]
         assert 'product_filter_func' in call_kwargs
         assert call_kwargs['product_filter_func'] == mock_product_filter
-        
-        # 验证返回了商品列表
-        assert len(products) == 1
-        assert products[0].product_id == 'prod1'
-        assert error is None
+
+        # 验证 select-goods 模式不应用店铺过滤，select-shops 模式应用店铺过滤
+        if selection_mode == 'select-goods':
+            assert call_kwargs['store_filter_func'] is None
+        else:
+            assert call_kwargs['store_filter_func'] == mock_store_filter
+
+        # 验证返回了处理结果
+        assert result.store_info.store_id == '123456'
 
 
 class TestModeDetectionReal:

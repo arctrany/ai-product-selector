@@ -198,7 +198,7 @@ class ProfitEvaluator:
 
         # 判断是否符合利润阈值
         result['meets_profit_threshold'] = (
-                result['profit_rate'] >= self.config.store_filter.profit_rate_threshold
+                result['profit_rate'] >= self.config.selector_filter.profit_rate_threshold
         )
 
         # 添加评估摘要

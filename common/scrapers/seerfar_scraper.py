@@ -71,54 +71,40 @@ class SeerfarScraper:
 
         return result
 
-    def scrape_store_products(self, store_id: str, max_products: Optional[int] = None
-                              , product_filter_func: Optional[Callable[[Dict[str, Any]], bool]] = None) -> ScrapingResult:
+
+
+    def scrape(
+        self,
+        store_id: str,
+        include_products: bool = True,
+        max_products: Optional[int] = None,
+        product_filter_func: Optional[Callable[[Dict[str, Any]], bool]] = None,
+        store_filter_func: Optional[Callable[[Dict[str, Any]], bool]] = None,
+        **kwargs
+    ) -> ScrapingResult:
         """
-        抓取店铺商品列表
+        统一的店铺抓取接口（整合销售数据和商品抓取）
 
         Args:
             store_id: 店铺ID
-            max_products: 最大抓取商品数量
+            include_products: 是否包含商品信息，默认 True
+            max_products: 最大抓取商品数量，默认使用配置中的值
             product_filter_func: 商品过滤函数，接受商品数据字典，返回布尔值
-
-        Returns:
-            ScrapingResult: 抓取结果，包含商品列表
-        """
-        max_products = max_products or self.config.store_filter.max_products_to_check
-
-        # 构建店铺详情页URL
-        url = f"{self.base_url}{self.store_detail_path}?storeId={store_id}&platform=OZON"
-
-        # dryrun模式下记录入参，但仍执行真实的抓取流程
-        if self.config.dryrun:
-            self.logger.info(f"🧪 试运行模式 - Seerfar店铺商品抓取入参: 店铺ID={store_id}, "
-                             f"最大商品数={max_products}, URL={url}")
-            self.logger.info("🧪 试运行模式 - 执行真实的商品抓取流程（结果不会保存到文件）")
-
-        # 创建提取函数
-        async def extract_products(browser_service):
-            products = await self._extract_products_list_async(browser_service, max_products, product_filter_func)
-            return {'products': products, 'total_count': len(products)}
-
-        # 使用浏览器服务抓取数据
-        return self.browser_service.scrape_page_data(url, extract_products)
-
-    def scrape(self, store_id: str, include_products: bool = True, **kwargs) -> ScrapingResult:
-        """
-        综合抓取店铺信息
-        
-        Args:
-            store_id: 店铺ID
-            include_products: 是否包含商品信息
+            store_filter_func: 店铺过滤函数，接受销售数据字典，返回布尔值
             **kwargs: 其他参数
-            
+
         Returns:
-            ScrapingResult: 抓取结果
+            ScrapingResult: 抓取结果，包含销售数据和商品列表
+
+        使用场景：
+            1. 只获取销售数据：scrape(store_id, include_products=False)
+            2. 获取完整信息：scrape(store_id, include_products=True)
+            3. 带过滤的抓取：scrape(store_id, store_filter_func=..., product_filter_func=...)
         """
         start_time = time.time()
 
         try:
-            # 抓取销售数据
+            # 1. 抓取销售数据
             sales_result = self.scrape_store_sales_data(store_id)
             if not sales_result.success:
                 return sales_result
@@ -128,9 +114,48 @@ class SeerfarScraper:
                 'sales_data': sales_result.data
             }
 
-            # 如果需要，抓取商品信息
+            # 2. 应用店铺过滤（如果提供）
+            if store_filter_func:
+                # 转换字段名以匹配过滤函数期望的格式
+                filter_data = {
+                    'store_sales_30days': sales_result.data.get('sold_30days', 0),
+                    'store_orders_30days': sales_result.data.get('sold_count_30days', 0)
+                }
+                if not store_filter_func(filter_data):
+                    self.logger.info(f"店铺{store_id}未通过店铺过滤条件，跳过商品抓取")
+                    return ScrapingResult(
+                        success=False,
+                        data=result_data,
+                        error_message="店铺未通过过滤条件",
+                        execution_time=time.time() - start_time
+                    )
+
+            # 3. 如果需要，抓取商品信息
             if include_products:
-                products_result = self.scrape_store_products(store_id)
+                # 使用配置中的默认值或传入的值
+                max_products = max_products or self.config.store_filter.max_products_to_check
+
+                # 构建店铺详情页URL
+                url = f"{self.base_url}{self.store_detail_path}?storeId={store_id}&platform=OZON"
+
+                # dryrun模式下记录入参
+                if self.config.dryrun:
+                    self.logger.info(f"🧪 试运行模式 - Seerfar店铺商品抓取入参: 店铺ID={store_id}, "
+                                     f"最大商品数={max_products}, URL={url}")
+                    self.logger.info("🧪 试运行模式 - 执行真实的商品抓取流程（结果不会保存到文件）")
+
+                # 创建提取函数
+                async def extract_products(browser_service):
+                    products = await self._extract_products_list_async(
+                        browser_service,
+                        max_products,
+                        product_filter_func
+                    )
+                    return {'products': products, 'total_count': len(products)}
+
+                # 使用浏览器服务抓取数据
+                products_result = self.browser_service.scrape_page_data(url, extract_products)
+
                 if products_result.success:
                     result_data['products'] = products_result.data['products']
                 else:
@@ -406,11 +431,52 @@ class SeerfarScraper:
                 # 尝试其他可能的选择器
                 product_rows = await page.query_selector_all(product_rows_alt_selector)
 
-            self.logger.info(f"📋 找到 {len(product_rows)} 个商品行，开始处理（最多 {max_products} 个）")
-
-            # 遍历商品行
-            for i, row in enumerate(product_rows[:max_products]):
+            # 🔧 修复：去重，避免 CSS 和 XPath 选择器匹配到相同元素
+            # 使用 data-index 属性去重
+            seen_indices = set()
+            unique_rows = []
+            for row in product_rows:
                 try:
+                    data_index = await row.get_attribute('data-index')
+                    if data_index and data_index not in seen_indices:
+                        seen_indices.add(data_index)
+                        unique_rows.append(row)
+                except Exception:
+                    # 如果没有 data-index 属性，也加入列表
+                    unique_rows.append(row)
+
+            product_rows = unique_rows
+            total_rows = len(product_rows)
+            self.logger.info(f"📋 找到 {total_rows} 个商品行（去重后），开始处理（最多 {max_products} 个）")
+
+            # 🔧 修复：每次循环重新获取商品行，避免页面导航后元素失效
+            # 使用索引而不是直接遍历元素
+            for i in range(min(total_rows, max_products)):
+                try:
+                    # 🔧 关键修复：每次循环重新获取商品行列表
+                    current_rows = await page.query_selector_all(product_rows_selector)
+                    if not current_rows:
+                        current_rows = await page.query_selector_all(product_rows_alt_selector)
+
+                    # 去重
+                    seen_indices_current = set()
+                    unique_current_rows = []
+                    for row in current_rows:
+                        try:
+                            data_index = await row.get_attribute('data-index')
+                            if data_index and data_index not in seen_indices_current:
+                                seen_indices_current.add(data_index)
+                                unique_current_rows.append(row)
+                        except Exception:
+                            unique_current_rows.append(row)
+
+                    # 检查索引是否有效
+                    if i >= len(unique_current_rows):
+                        self.logger.warning(f"⚠️  索引 {i} 超出范围，跳过")
+                        break
+
+                    row = unique_current_rows[i]
+
                     # 先提取基础字段（类目、上架时间、销量、重量）
                     category_data = await self._extract_category(row)
                     listing_date_data = await self._extract_listing_date(row)
@@ -588,8 +654,8 @@ class SeerfarScraper:
                     # page_content = await page.content()
                     # ozon_price_data = await ozon_scraper._extract_price_data_from_content(page_content)
                     # ozon_competitor_data = await ozon_scraper._extract_competitor_stores_from_content(page_content, 10)
-
-                    # 合并OZON数据
+                    #
+                    # # 合并OZON数据
                     # product_data.update(ozon_price_data)
                     # if ozon_competitor_data:
                     #     product_data['competitors'] = ozon_competitor_data
