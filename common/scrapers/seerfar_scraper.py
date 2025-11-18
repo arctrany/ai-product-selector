@@ -386,6 +386,11 @@ class SeerfarScraper:
             # 直接访问 page 对象
             page = browser_service.page
 
+            # 检查 page 是否为 None
+            if page is None:
+                self.logger.error("❌ page 对象为 None，浏览器可能未正确启动")
+                return []
+
             # 从配置文件获取商品列表选择器
             product_rows_selector = get_seerfar_selector('product_list', 'product_rows')
             product_rows_alt_selector = get_seerfar_selector('product_list', 'product_rows_alt')
@@ -485,6 +490,11 @@ class SeerfarScraper:
             try:
                 # 直接访问 page 对象
                 page = self.browser_service.page
+
+                # 检查 page 是否为 None
+                if page is None:
+                    self.logger.error("❌ page 对象为 None，浏览器可能未正确启动")
+                    return None
 
                 # 从配置文件获取选择器
                 third_column_selector = get_seerfar_selector('product_list', 'third_column')
