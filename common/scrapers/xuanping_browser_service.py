@@ -144,6 +144,21 @@ class XuanpingBrowserService:
             browser_config_dict = self.config.get('browser', {})
             headless = browser_config_dict.get('headless', False)
 
+            # 检测有登录态的 Profile
+            active_profile = detect_active_profile(required_domains[0] if required_domains else "seerfar.cn")
+
+            # 获取用户数据目录
+            user_data_dir = detector._get_edge_user_data_dir() if browser_type == 'edge' else None
+
+            if active_profile and user_data_dir:
+                # 使用有登录态的 Profile
+                self.logger.info(f"✅ 检测到有登录态的 Profile: {active_profile}")
+                profile_name = active_profile
+            else:
+                # 没有登录态，使用默认 Profile
+                self.logger.warning("⚠️ 未检测到有登录态的 Profile，将使用默认 Profile")
+                profile_name = "Default"
+
             # 启动模式配置
             config = {
                 'debug_mode': True,
@@ -151,7 +166,7 @@ class XuanpingBrowserService:
                     'browser_type': browser_type,
                     'headless': headless,
                     'debug_port': int(debug_port),
-                    'user_data_dir': None,  # None 表示使用系统默认目录
+                    'user_data_dir': user_data_dir,  # 使用检测到的用户数据目录
                     'viewport': {
                         'width': 1280,
                         'height': 800
@@ -160,10 +175,10 @@ class XuanpingBrowserService:
                 },
                 'use_persistent_context': False,
                 'connect_to_existing': False,
-                'profile_name': None
+                'profile_name': profile_name  # 使用检测到的 Profile
             }
 
-            self.logger.info(f"🚀 配置为启动模式: headless={headless}")
+            self.logger.info(f"🚀 配置为启动模式: headless={headless}, profile={profile_name}")
             return config
 
         # 连接模式：浏览器正在运行
