@@ -10,6 +10,7 @@ import re
 from typing import Dict, Any, List, Optional, Callable
 
 from .xuanping_browser_service import XuanpingBrowserServiceSync
+from .scraper_utils import ScraperUtils
 from ..models import ScrapingResult
 from common.config import GoodStoreSelectorConfig
 from common.config.seerfar_selectors import get_seerfar_selector
@@ -193,9 +194,8 @@ class SeerfarScraper:
             # 直接访问 page 对象
             page = browser_service.page
 
-            # 检查 page 是否为 None
-            if page is None:
-                self.logger.error("❌ page 对象为 None，浏览器可能未正确启动")
+            # 验证 page 对象
+            if not self._validate_page(page):
                 return {}
 
             # 使用配置文件中的选择器提取销售额
@@ -246,7 +246,7 @@ class SeerfarScraper:
                 text = await element.text_content()
                 if text and text.strip():
                     # 提取数字并转换为销售额
-                    number = self._extract_number_from_text(text.strip())
+                    number = ScraperUtils.extract_number_from_text(text.strip())
                     if number:
                         sales_data['sold_30days'] = number
                         return
@@ -276,7 +276,7 @@ class SeerfarScraper:
                 text = await element.text_content()
                 if text and text.strip():
                     # 提取数字并转换为销量
-                    number = self._extract_number_from_text(text.strip())
+                    number = ScraperUtils.extract_number_from_text(text.strip())
                     if number:
                         sales_data['sold_count_30days'] = int(number)
                         return
@@ -306,7 +306,7 @@ class SeerfarScraper:
                 text = await element.text_content()
                 if text and text.strip():
                     # 提取数字并转换为日均销量
-                    number = self._extract_number_from_text(text.strip())
+                    number = ScraperUtils.extract_number_from_text(text.strip())
                     if number:
                         sales_data['daily_avg_sold'] = number
                         return
@@ -368,13 +368,13 @@ class SeerfarScraper:
 
                     # 判断是否为销售额
                     if any(keyword in text for keyword in ['销售额', '营业额', '收入', '₽']):
-                        number = self._extract_number_from_text(text)
+                        number = ScraperUtils.extract_number_from_text(text)
                         if number and number > 1000:  # 销售额通常较大
                             sales_data['sold_30days'] = number
 
                     # 判断是否为销量
                     elif any(keyword in text for keyword in ['销量', '订单', '件数']):
-                        number = self._extract_number_from_text(text)
+                        number = ScraperUtils.extract_number_from_text(text)
                         if number and 10 <= number <= 10000:  # 销量通常在合理范围内
                             sales_data['sold_count_30days'] = int(number)
                 except Exception as e:
@@ -411,9 +411,8 @@ class SeerfarScraper:
             # 直接访问 page 对象
             page = browser_service.page
 
-            # 检查 page 是否为 None
-            if page is None:
-                self.logger.error("❌ page 对象为 None，浏览器可能未正确启动")
+            # 验证 page 对象
+            if not self._validate_page(page):
                 return []
 
             # 从配置文件获取商品列表选择器
@@ -432,20 +431,7 @@ class SeerfarScraper:
                 product_rows = await page.query_selector_all(product_rows_alt_selector)
 
             # 🔧 修复：去重，避免 CSS 和 XPath 选择器匹配到相同元素
-            # 使用 data-index 属性去重
-            seen_indices = set()
-            unique_rows = []
-            for row in product_rows:
-                try:
-                    data_index = await row.get_attribute('data-index')
-                    if data_index and data_index not in seen_indices:
-                        seen_indices.add(data_index)
-                        unique_rows.append(row)
-                except Exception:
-                    # 如果没有 data-index 属性，也加入列表
-                    unique_rows.append(row)
-
-            product_rows = unique_rows
+            product_rows = await self._deduplicate_rows(product_rows)
             total_rows = len(product_rows)
             self.logger.info(f"📋 找到 {total_rows} 个商品行（去重后），开始处理（最多 {max_products} 个）")
 
@@ -459,16 +445,7 @@ class SeerfarScraper:
                         current_rows = await page.query_selector_all(product_rows_alt_selector)
 
                     # 去重
-                    seen_indices_current = set()
-                    unique_current_rows = []
-                    for row in current_rows:
-                        try:
-                            data_index = await row.get_attribute('data-index')
-                            if data_index and data_index not in seen_indices_current:
-                                seen_indices_current.add(data_index)
-                                unique_current_rows.append(row)
-                        except Exception:
-                            unique_current_rows.append(row)
+                    unique_current_rows = await self._deduplicate_rows(current_rows)
 
                     # 检查索引是否有效
                     if i >= len(unique_current_rows):
@@ -557,9 +534,8 @@ class SeerfarScraper:
                 # 直接访问 page 对象
                 page = self.browser_service.page
 
-                # 检查 page 是否为 None
-                if page is None:
-                    self.logger.error("❌ page 对象为 None，浏览器可能未正确启动")
+                # 验证 page 对象
+                if not self._validate_page(page):
                     return None
 
                 # 从配置文件获取选择器
@@ -691,35 +667,48 @@ class SeerfarScraper:
             self.logger.error(f"提取商品信息失败: {e}")
             return None
 
-    def _extract_number_from_text(self, text: str) -> Optional[float]:
+    def _validate_page(self, page) -> bool:
         """
-        从文本中提取数字
-        
+        验证 page 对象是否有效
+
         Args:
-            text: 包含数字的文本
-            
+            page: Playwright 页面对象
+
         Returns:
-            float: 提取的数字，如果提取失败返回None
+            bool: 页面是否有效
         """
-        if not text:
-            return None
+        if page is None:
+            self.logger.error("❌ page 对象为 None，浏览器可能未正确启动")
+            return False
+        return True
 
-        # 移除常见的非数字字符
-        cleaned_text = re.sub(r'[^\d.,\-+]', '', text.replace(',', '').replace(' ', ''))
+    async def _deduplicate_rows(self, rows: list) -> list:
+        """
+        去重商品行，避免 CSS 和 XPath 选择器匹配到相同元素
 
-        try:
-            # 尝试转换为浮点数
-            return float(cleaned_text)
-        except (ValueError, TypeError):
-            # 尝试提取第一个数字
-            numbers = re.findall(r'-?\d+\.?\d*', text)
-            if numbers:
-                try:
-                    return float(numbers[0])
-                except (ValueError, TypeError):
-                    pass
+        使用 data-index 属性进行去重。如果元素没有 data-index 属性，
+        则保留该元素。
 
-            return None
+        Args:
+            rows: 商品行元素列表
+
+        Returns:
+            list: 去重后的商品行列表
+        """
+        seen_indices = set()
+        unique_rows = []
+
+        for row in rows:
+            try:
+                data_index = await row.get_attribute('data-index')
+                if data_index and data_index not in seen_indices:
+                    seen_indices.add(data_index)
+                    unique_rows.append(row)
+            except Exception:
+                # 如果没有 data-index 属性，也加入列表
+                unique_rows.append(row)
+
+        return unique_rows
 
     async def _extract_category(self, row_element) -> Dict[str, Optional[str]]:
         """

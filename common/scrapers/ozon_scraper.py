@@ -325,7 +325,7 @@ class OzonScraper:
             return price_data
 
         except Exception as e:
-            self.logger.error(f"提取价格数据失败: {e}")
+            self._handle_extraction_error(e, "提取价格数据")
             return {}
 
     def _extract_basic_prices(self, soup) -> Dict[str, Any]:
@@ -342,7 +342,9 @@ class OzonScraper:
 
                 for element in elements:
                     price = self._extract_price_from_element(element)
-                    if not price or price <= 0:
+
+                    # 使用 _validate_price 验证价格
+                    if not self._validate_price(price, price_type):
                         continue
 
                     # 🔧 修复：严格按照价格类型分配，避免重复赋值
@@ -374,6 +376,32 @@ class OzonScraper:
         self.logger.debug(f"🎯 最终提取的价格数据: {prices}")
         return prices
 
+    def _validate_price(self, price: Optional[float], price_type: str) -> bool:
+        """
+        验证价格是否有效
+
+        Args:
+            price: 价格值
+            price_type: 价格类型名称（用于日志）
+
+        Returns:
+            bool: 价格是否有效
+        """
+        if price is None or price <= 0:
+            self.logger.debug(f"⚠️ {price_type}价格无效: {price}")
+            return False
+        return True
+
+    def _handle_extraction_error(self, error: Exception, context: str) -> None:
+        """
+        统一处理提取错误
+
+        Args:
+            error: 异常对象
+            context: 上下文描述
+        """
+        self.logger.error(f"❌ {context}失败: {error}")
+
     def _extract_price_from_element(self, element) -> Optional[float]:
         """
         从元素中提取价格数值
@@ -398,7 +426,7 @@ class OzonScraper:
             return price
 
         except Exception as e:
-            self.logger.debug(f"从元素提取价格失败: {e}")
+            self._handle_extraction_error(e, "从元素提取价格")
             return None
 
     def _extract_competitor_price_value(self, soup) -> Optional[float]:
@@ -425,7 +453,7 @@ class OzonScraper:
 
                 # 提取价格数值 - 处理 "From 3 800 ₽" 格式
                 price = self._extract_price_from_element(element)
-                if price and price > 0:
+                if self._validate_price(price, "跟卖"):
                     self.logger.debug(f"🎯 成功提取跟卖价格: {price}₽")
                     return price
 
@@ -433,7 +461,7 @@ class OzonScraper:
             return None
 
         except Exception as e:
-            self.logger.error(f"提取跟卖价格失败: {e}")
+            self._handle_extraction_error(e, "提取跟卖价格")
             return None
 
     # 🔧 修复：删除重复的跟卖店铺提取逻辑，这些功能应该由 CompetitorScraper 负责
@@ -465,7 +493,7 @@ class OzonScraper:
             return None
 
         except Exception as e:
-            self.logger.error(f"提取商品图片失败: {e}")
+            self._handle_extraction_error(e, "提取商品图片")
             return None
 
     def _convert_to_high_res_image(self, image_url: str) -> str:
