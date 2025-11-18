@@ -183,26 +183,85 @@ class TestXuanpingBrowserServiceSyncIntegration:
             # 清理
             service.close()
     
-    @pytest.mark.skip(reason="需要实际浏览器环境，仅在集成测试时运行")
+    @pytest.mark.skip(reason="需要关闭所有 Edge 浏览器实例后手动运行。运行前请：1) 关闭所有 Edge 窗口 2) 运行: pytest tests/test_xuanping_browser_service_sync.py::TestXuanpingBrowserServiceSyncIntegration::test_page_navigation -v -s")
     def test_page_navigation(self):
-        """测试使用 page 对象进行导航"""
+        """测试使用 page 对象进行实际页面导航
+
+        ⚠️ 运行此测试前的准备工作：
+        1. 关闭所有 Microsoft Edge 浏览器窗口
+        2. 确保端口 9222 未被占用
+        3. 运行命令：pytest tests/test_xuanping_browser_service_sync.py::TestXuanpingBrowserServiceSyncIntegration::test_page_navigation -v -s
+
+        测试内容：
+        1. page 对象可以成功导航到 URL
+        2. 可以使用简化的 API (browser_service.page) 进行操作
+        3. 页面加载成功并能查询元素
+        4. 访问真实的 Ozon 商品页面：https://www.ozon.ru/product/2369901364
+        """
+        import time
+
+        # 使用项目默认配置创建服务
         service = XuanpingBrowserServiceSync()
-        
+
         try:
-            service.initialize()
-            service.start_browser()
-            
-            # 使用 page 对象导航
+            # 初始化浏览器服务
+            init_success = service.initialize()
+            assert init_success is True, "浏览器服务初始化失败"
+
+            # 启动浏览器
+            start_success = service.start_browser()
+            assert start_success is True, "浏览器启动失败"
+
+            # 验证 page 对象已通过简化 API 暴露
             page = service.page
-            assert page is not None
-            
-            # 验证 page 有必要的方法
-            assert hasattr(page, 'goto')
-            assert hasattr(page, 'query_selector')
-            assert hasattr(page, 'query_selector_all')
-            
+            assert page is not None, "page 对象应该通过 service.page 直接访问"
+            assert service.browser is not None, "browser 对象应该可用"
+            assert service.context is not None, "context 对象应该可用"
+
+            # 测试页面导航 - 访问 Ozon 商品页面
+            test_url = "https://www.ozon.ru/product/2369901364"
+            service.logger.info(f"🌐 导航到测试页面: {test_url}")
+
+            # 使用简化的 API 进行导航
+            goto_result = service.goto(test_url, wait_until='domcontentloaded', timeout=30000)
+            assert goto_result is True, f"页面导航失败: {test_url}"
+
+            # 等待页面稳定
+            time.sleep(2)
+
+            # 验证页面加载成功 - 检查 URL
+            current_url = service.get_current_url()
+            assert current_url is not None, "无法获取当前 URL"
+            assert "ozon.ru" in current_url, f"URL 不正确: {current_url}"
+
+            # 验证可以使用 page 对象查询元素
+            # 尝试查找页面标题或商品信息
+            title_selector = "h1"
+            title_element = service.query_selector(title_selector)
+
+            if title_element:
+                service.logger.info("✅ 成功找到页面标题元素")
+            else:
+                service.logger.warning("⚠️ 未找到标题元素，可能页面结构已变化")
+
+            # 验证 page 对象的核心方法可用
+            assert hasattr(page, 'goto'), "page 应该有 goto 方法"
+            assert hasattr(page, 'query_selector'), "page 应该有 query_selector 方法"
+            assert hasattr(page, 'query_selector_all'), "page 应该有 query_selector_all 方法"
+            assert hasattr(page, 'url'), "page 应该有 url 属性"
+
+            service.logger.info("✅ 页面导航测试通过")
+
+        except Exception as e:
+            service.logger.error(f"❌ 页面导航测试失败: {e}")
+            raise
         finally:
-            service.close()
+            # 清理资源
+            try:
+                service.close()
+                service.logger.info("🧹 浏览器服务已关闭")
+            except Exception as e:
+                service.logger.warning(f"关闭浏览器时出错: {e}")
 
 
 if __name__ == '__main__':
