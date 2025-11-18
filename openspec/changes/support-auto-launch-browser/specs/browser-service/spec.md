@@ -30,7 +30,8 @@ GIVEN 用户已手动启动浏览器并开启调试端口 9222
 WHEN 系统初始化浏览器服务
 THEN 系统应连接到已运行的浏览器
 AND 保留用户的登录态和会话
-AND 输出日志 "✅ 检测到现有浏览器实例在端口 9222"
+AND 输出日志 "🔗 检测到现有浏览器，将连接到端口 9222"
+AND 输出日志 "✅ 成功连接到现有浏览器"
 ```
 
 #### Scenario 2: 没有运行中的浏览器
@@ -38,75 +39,24 @@ AND 输出日志 "✅ 检测到现有浏览器实例在端口 9222"
 GIVEN 没有运行中的浏览器
 WHEN 系统初始化浏览器服务
 THEN 系统应自动启动浏览器
-AND 使用智能选择的 Profile
+AND 使用系统默认的用户数据目录
 AND 开启调试端口
-AND 输出日志 "🚀 自动启动浏览器: Profile=xxx, Port=9222"
+AND 输出日志 "🚀 未检测到浏览器，将自动启动"
+AND 输出日志 "✅ 浏览器启动成功"
 ```
 
 #### Scenario 3: 启动失败
 ```
 GIVEN 没有运行中的浏览器
-AND 浏览器可执行文件不存在
+AND 浏览器启动失败（如：可执行文件不存在）
 WHEN 系统尝试启动浏览器
 THEN 系统应输出详细错误信息
-AND 提供解决方案
 AND 退出程序（不重试）
 ```
 
 ---
 
-### REQ-BS-002: Profile 智能选择
-**Priority**: P0  
-**Status**: Modified
-
-**Description**:
-系统应根据登录态和使用历史智能选择最佳 Profile。
-
-**Previous Behavior**:
-- 使用固定的 Profile（通常是 Default）
-- 不检查登录态
-
-**New Behavior**:
-- 扫描所有 Profile
-- 检查登录态
-- 选择最佳 Profile（最近使用 + 满足登录态）
-
-**Scenarios**:
-
-#### Scenario 1: 有满足登录态的 Profile
-```
-GIVEN 配置要求登录 ["seerfar.cn", "www.maozierp.com"]
-AND Profile 1 满足所有登录态要求
-AND Profile 2 只满足部分登录态要求
-AND Profile 1 是最近使用的
-WHEN 系统选择 Profile
-THEN 系统应选择 Profile 1
-AND 输出日志 "✅ 选择 Profile: Profile 1 (满足所有登录态要求)"
-```
-
-#### Scenario 2: 无满足登录态的 Profile
-```
-GIVEN 配置要求登录 ["seerfar.cn", "www.maozierp.com"]
-AND 所有 Profile 都不满足登录态要求
-AND Default 是最近使用的
-WHEN 系统选择 Profile
-THEN 系统应选择 Default
-AND 输出警告日志 "⚠️ 未找到满足登录态要求的 Profile，使用 Default"
-AND 输出提示 "💡 请登录以下域名: seerfar.cn, www.maozierp.com"
-```
-
-#### Scenario 3: 多个 Profile 都满足登录态
-```
-GIVEN 配置要求登录 ["seerfar.cn"]
-AND Profile 1 和 Profile 2 都满足登录态要求
-AND Profile 2 是最近使用的
-WHEN 系统选择 Profile
-THEN 系统应选择 Profile 2（最近使用优先）
-```
-
----
-
-### REQ-BS-003: 浏览器配置管理
+### REQ-BS-002: 配置管理
 **Priority**: P0  
 **Status**: Modified
 
@@ -114,257 +64,214 @@ THEN 系统应选择 Profile 2（最近使用优先）
 系统应从统一的配置中读取浏览器启动参数。
 
 **Previous Behavior**:
-- 配置分散在多处
-- 缺少启动相关配置
+- 强制要求 `connect_to_existing = True`
+- 不支持启动模式配置
 
 **New Behavior**:
-- 从 `config.browser` 读取所有配置
-- 支持完整的启动参数
+- 自动设置 `connect_to_existing`（根据检测结果）
+- 支持 `headless` 模式配置
+- 使用系统默认用户数据目录
 
 **Configuration Schema**:
 ```json
 {
   "browser": {
-    "browser_type": "edge",           // 浏览器类型
-    "headless": false,                // 是否无头模式
-    "window_width": 1920,             // 窗口宽度
-    "window_height": 1080,            // 窗口高度
-    "timeout_seconds": 30,            // 超时时间
-    "max_retries": 3,                 // 最大重试次数
-    "required_login_domains": [       // 必需登录的域名
-      "seerfar.cn",
-      "www.maozierp.com"
-    ],
-    "debug_port": 9222                // CDP 调试端口
+    "browser_type": "edge",
+    "headless": false,
+    "timeout_seconds": 30,
+    "max_retries": 3,
+    "required_login_domains": ["seerfar.cn", "www.maozierp.com"],
+    "debug_port": 9222
   }
 }
 ```
 
 **Scenarios**:
 
-#### Scenario 1: 读取完整配置
+#### Scenario 1: 读取 headless 配置
 ```
-GIVEN 配置文件包含完整的 browser 配置
-WHEN 系统初始化浏览器服务
-THEN 系统应读取所有配置项
-AND 使用配置的值启动浏览器
+GIVEN 配置文件设置 "headless": true
+WHEN 系统启动浏览器
+THEN 系统应以 headless 模式启动浏览器
+AND 输出日志 "🚀 未检测到浏览器，将自动启动（headless=True）"
 ```
 
 #### Scenario 2: 使用默认配置
 ```
-GIVEN 配置文件缺少某些 browser 配置项
-WHEN 系统初始化浏览器服务
-THEN 系统应使用默认值填充缺失项
-AND 输出日志说明使用了默认值
+GIVEN 配置文件未设置 headless
+WHEN 系统启动浏览器
+THEN 系统应使用默认值 headless=False
+AND 以正常模式启动浏览器
+```
+
+---
+
+### REQ-BS-003: 错误处理
+**Priority**: P1  
+**Status**: Modified
+
+**Description**:
+系统应提供清晰的错误信息，不再要求用户手动启动浏览器。
+
+**Previous Behavior**:
+```
+❌ 未检测到运行中的 Edge 浏览器
+💡 请先手动启动 Edge 浏览器，或运行启动脚本：
+   ./start_edge_with_debug.sh
+```
+
+**New Behavior**:
+```
+# 连接失败时
+❌ 连接现有浏览器失败
+💡 解决方案：
+   1. 确保浏览器的调试端口 9222 已开启
+   2. 或关闭所有浏览器窗口，让系统自动启动
+
+# 启动失败时
+❌ 浏览器启动失败
+💡 请检查浏览器是否已正确安装
+```
+
+**Scenarios**:
+
+#### Scenario 1: 连接失败
+```
+GIVEN 检测到浏览器在运行
+AND CDP 端口不可用
+WHEN 系统尝试连接
+THEN 系统应输出连接失败错误
+AND 提供解决方案
+AND 退出程序
+```
+
+#### Scenario 2: 启动失败
+```
+GIVEN 没有运行中的浏览器
+AND 浏览器启动失败
+WHEN 系统尝试启动浏览器
+THEN 系统应输出启动失败错误
+AND 提供解决方案
+AND 退出程序
 ```
 
 ---
 
 ## ADDED Requirements
 
-### REQ-BS-004: 浏览器进程管理
-**Priority**: P1  
-**Status**: New
-
-**Description**:
-系统应正确管理启动的浏览器进程生命周期。
-
-**Scenarios**:
-
-#### Scenario 1: 启动的浏览器应被记录
-```
-GIVEN 系统自动启动了浏览器
-WHEN 浏览器启动成功
-THEN 系统应记录浏览器进程 PID
-AND 记录是否为自己启动的浏览器
-```
-
-#### Scenario 2: 关闭自己启动的浏览器
-```
-GIVEN 系统自动启动了浏览器
-WHEN 系统关闭浏览器服务
-THEN 系统应终止浏览器进程
-AND 清理相关资源
-```
-
-#### Scenario 3: 不关闭连接的浏览器
-```
-GIVEN 系统连接到已运行的浏览器
-WHEN 系统关闭浏览器服务
-THEN 系统应只断开连接
-AND 不终止浏览器进程
-```
-
----
-
-### REQ-BS-005: 跨平台支持
+### REQ-BS-004: 利用现有实现
 **Priority**: P0  
 **Status**: New
 
 **Description**:
-系统应支持在 macOS、Windows、Linux 上启动浏览器。
+系统应利用现有的 `PlaywrightBrowserDriver._launch_browser()` 方法，不重复实现。
+
+**Rationale**:
+`PlaywrightBrowserDriver._launch_browser()` 已经实现了：
+- 跨平台支持（macOS/Windows/Linux）
+- 多浏览器支持（Edge/Chrome）
+- 用户数据目录处理
+- Profile 选择（包括 Default Profile）
+- 扩展支持
+- 反检测脚本注入
+
+**Implementation**:
+- 移除阻止调用 `_launch_browser()` 的限制
+- 通过 `SimplifiedPlaywrightBrowserDriver.initialize()` 调用
+- 配置 `connect_to_existing=False` 触发启动逻辑
 
 **Scenarios**:
 
-#### Scenario 1: macOS 平台
+#### Scenario 1: 调用现有实现
 ```
-GIVEN 系统运行在 macOS 上
-AND 浏览器类型为 edge
-WHEN 系统启动浏览器
-THEN 系统应使用路径 "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
-AND 使用 macOS 特定的启动参数
-```
-
-#### Scenario 2: Windows 平台
-```
-GIVEN 系统运行在 Windows 上
-AND 浏览器类型为 edge
-WHEN 系统启动浏览器
-THEN 系统应使用路径 "C:\Program Files\Microsoft\Edge\Application\msedge.exe"
-AND 使用 Windows 特定的启动参数
-```
-
-#### Scenario 3: Linux 平台
-```
-GIVEN 系统运行在 Linux 上
-AND 浏览器类型为 edge
-WHEN 系统启动浏览器
-THEN 系统应使用路径 "/usr/bin/microsoft-edge"
-AND 使用 Linux 特定的启动参数
-```
-
----
-
-### REQ-BS-006: 启动后验证
-**Priority**: P1  
-**Status**: New
-
-**Description**:
-系统应在浏览器启动后验证登录态并提供友好提示。
-
-**Scenarios**:
-
-#### Scenario 1: 登录态满足要求
-```
-GIVEN 浏览器启动成功
-AND 选择的 Profile 满足所有登录态要求
-WHEN 系统验证登录态
-THEN 系统应输出日志 "✅ 登录态验证通过"
-AND 继续执行
-```
-
-#### Scenario 2: 登录态不满足要求
-```
-GIVEN 浏览器启动成功
-AND 选择的 Profile 不满足登录态要求
-WHEN 系统验证登录态
-THEN 系统应输出警告 "⚠️ 部分域名未登录"
-AND 列出需要登录的域名
-AND 继续执行（不中断）
-```
-
----
-
-### REQ-BS-007: 错误处理和提示
-**Priority**: P1  
-**Status**: New
-
-**Description**:
-系统应提供清晰的错误信息和解决方案。
-
-**Scenarios**:
-
-#### Scenario 1: 浏览器可执行文件不存在
-```
-GIVEN 浏览器可执行文件不存在
-WHEN 系统尝试启动浏览器
-THEN 系统应输出错误 "❌ 浏览器可执行文件不存在"
-AND 输出文件路径
-AND 提供解决方案 "💡 请安装 Microsoft Edge 浏览器"
-AND 退出程序
-```
-
-#### Scenario 2: Profile 被占用
-```
-GIVEN 选择的 Profile 正被其他进程使用
-WHEN 系统尝试启动浏览器
-THEN 系统应输出错误 "❌ Profile 被占用"
-AND 提供解决方案 "💡 请关闭其他使用该 Profile 的浏览器实例"
-AND 退出程序
-```
-
-#### Scenario 3: CDP 连接超时
-```
-GIVEN 浏览器启动成功
-AND CDP 端口在 30 秒内未响应
-WHEN 系统尝试连接 CDP
-THEN 系统应输出错误 "❌ CDP 连接超时"
-AND 提供解决方案 "💡 请检查防火墙设置或增加超时时间"
-AND 退出程序
+GIVEN 配置 connect_to_existing=False
+WHEN 系统初始化 SimplifiedPlaywrightBrowserDriver
+THEN 系统应调用 initialize() 方法
+AND initialize() 应调用 _launch_browser()
+AND 使用现有的成熟实现
 ```
 
 ---
 
 ## Implementation Notes
 
-### Profile 登录态检查方法
-1. 读取 Profile 目录下的 Cookies 文件
-2. 检查是否存在 required_login_domains 的 Cookie
-3. 验证 Cookie 是否过期
+### 关键修改点
 
-### 浏览器启动参数
-```bash
-# 基础参数
---remote-debugging-port=9222
---user-data-dir=/path/to/profile
---profile-directory=Profile 1
+#### 1. SimplifiedBrowserService.initialize()
+**文件**: `rpa/browser/browser_service.py`
 
-# headless 模式
---headless=new
-
-# 窗口大小
---window-size=1920,1080
-
-# 禁用扩展（可选）
---disable-extensions
-
-# 其他优化参数
---no-first-run
---no-default-browser-check
---disable-background-networking
+**移除**:
+```python
+if not connect_to_existing:
+    raise RuntimeError("未启用连接模式")
 ```
 
-### 跨平台路径处理
-- 使用 `pathlib.Path` 处理路径
-- 使用 `platform.system()` 检测操作系统
-- 使用字典映射浏览器可执行文件路径
+**添加**:
+```python
+if connect_to_existing:
+    # 连接逻辑（保留）
+    ...
+else:
+    # 启动逻辑（新增）
+    self.browser_driver = SimplifiedPlaywrightBrowserDriver(browser_config)
+    success = await self.browser_driver.initialize()
+```
 
-### 进程管理
-- 使用 `subprocess.Popen()` 启动进程
-- 记录进程 PID
-- 使用 `process.terminate()` 或 `process.kill()` 终止进程
-- 使用 `atexit` 注册清理函数
+#### 2. XuanpingBrowserService._create_browser_config()
+**文件**: `common/scrapers/xuanping_browser_service.py`
+
+**修改**:
+```python
+has_browser = self._check_existing_browser(debug_port)
+
+if has_browser:
+    config['connect_to_existing'] = True
+    self.logger.info(f"🔗 检测到现有浏览器")
+else:
+    config['connect_to_existing'] = False
+    config['headless'] = self.config.get('browser', {}).get('headless', False)
+    self.logger.info(f"🚀 未检测到浏览器，将自动启动")
+```
+
+### 现有实现的优势
+
+`PlaywrightBrowserDriver._launch_browser()` 提供：
+1. **跨平台路径处理**：自动检测操作系统并使用正确的路径
+2. **默认用户数据目录**：自动使用系统默认的浏览器用户数据目录
+3. **Profile 处理**：自动选择 Default Profile
+4. **扩展支持**：保留用户的扩展和设置
+5. **反检测**：注入反检测脚本，避免被识别为自动化
+6. **错误处理**：完善的错误处理和日志输出
+
+### 不需要实现的功能
+
+以下功能**已经存在**，不需要重新实现：
+- ❌ Profile 扫描和选择
+- ❌ 登录态检查
+- ❌ 浏览器启动命令生成
+- ❌ 跨平台路径处理
+- ❌ 进程管理
+
+只需要：
+- ✅ 移除阻止调用的限制
+- ✅ 修改配置逻辑
 
 ---
 
 ## Testing Requirements
 
 ### Unit Tests
-- Profile 扫描和选择逻辑
-- 登录态检查逻辑
-- 启动命令生成逻辑
-- 配置读取和验证
+不需要新的单元测试，现有测试应该通过。
 
 ### Integration Tests
-- 完整的启动流程
-- 连接流程
-- 错误处理流程
-- 跨平台兼容性
+1. 测试自动启动功能
+2. 测试连接功能（确保不破坏）
+3. 测试 headless 模式
 
 ### Manual Tests
-- 不同操作系统上的实际启动
-- 不同浏览器的支持
-- 各种错误场景的提示
+1. 没有浏览器时启动程序
+2. 有浏览器时启动程序
+3. headless 模式测试
 
 ---
 
@@ -379,10 +286,25 @@ AND 退出程序
 如果有自定义的浏览器启动逻辑，需要：
 1. 移除手动启动浏览器的代码
 2. 依赖系统的自动启动功能
-3. 配置 `required_login_domains` 以启用智能 Profile 选择
+3. 配置 `headless` 参数（如果需要）
 
 ---
 
 ## Related Specifications
 - [Config Management](../config-management/spec.md) - 配置管理规范
 - [Browser Service](../../specs/browser-service/spec.md) - 浏览器服务规范（原有）
+
+---
+
+## Key Insight
+
+**这是一个"解锁"变更，而不是重新实现！**
+
+现有的代码已经实现了所有需要的功能，我们只需要：
+1. 移除阻止使用它的限制
+2. 修改配置逻辑以触发启动模式
+3. 让现有的成熟代码发挥作用
+
+**代码修改量**：< 50 行  
+**功能增强**：巨大（从"必须手动启动"到"自动启动"）  
+**风险**：极低（使用现有的成熟实现）
