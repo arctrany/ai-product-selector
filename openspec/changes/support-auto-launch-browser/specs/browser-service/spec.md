@@ -1,6 +1,6 @@
 # Browser Service Specification
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: 浏览器启动策略
 系统 SHALL 支持智能浏览器启动策略，根据运行状态自动选择连接或启动模式。
@@ -83,8 +83,6 @@
 - **AND** 退出程序
 
 ---
-
-## ADDED Requirements
 
 ### Requirement: Profile 锁定处理
 系统 SHALL 检测 Profile 是否被占用，并提示用户关闭现有浏览器。
