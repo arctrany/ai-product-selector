@@ -248,9 +248,10 @@ class SimplifiedBrowserService:
 
         except Exception as e:
             self.logger.error(f"❌ 浏览器服务初始化失败: {e}")
-            # 🔧 Task 2.1: 确保异常时 browser_driver 为 None
+            # 🔧 确保异常时 browser_driver 为 None
             self.browser_driver = None
-            return False
+            # 🔧 浏览器错误应该终止程序，而不是返回 False
+            raise BrowserError(f"浏览器服务初始化失败: {e}") from e
 
     async def start_browser(self) -> bool:
         """启动浏览器"""
