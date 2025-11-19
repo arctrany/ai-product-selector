@@ -148,46 +148,47 @@ class XuanpingBrowserService:
             # 检测有登录态的 Profile
             active_profile = detect_active_profile(required_domains[0] if required_domains else "seerfar.cn")
 
-            # 获取用户数据目录
-            base_user_data_dir = detector._get_edge_user_data_dir() if browser_type == 'edge' else None
+            # 获取用户数据目录（父目录）
+            user_data_dir = detector._get_edge_user_data_dir() if browser_type == 'edge' else None
 
-            # 🔧 关键修复：将 Profile 路径拼接到 user_data_dir 中
-            if active_profile and base_user_data_dir:
-                # 使用有登录态的 Profile，拼接完整路径
-                import os
-                user_data_dir = os.path.join(base_user_data_dir, active_profile)
-                self.logger.info(f"✅ 检测到有登录态的 Profile: {active_profile}")
-                self.logger.info(f"📁 完整 Profile 路径: {user_data_dir}")
+            # 🔧 关键修复：根据 Playwright 官方文档
+            # user_data_dir 应该是父目录，Profile 通过 --profile-directory 参数指定
+            # 参考：https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context
+            # "Chromium's user data directory is the parent directory of the Profile Path"
+
+            if not active_profile:
+                active_profile = "Default"
+                self.logger.warning("⚠️ 未检测到有登录态的 Profile，将使用默认 Profile")
             else:
-                # 没有登录态，使用默认 Profile
-                import os
-                if base_user_data_dir:
-                    user_data_dir = os.path.join(base_user_data_dir, "Default")
-                    self.logger.warning("⚠️ 未检测到有登录态的 Profile，将使用默认 Profile")
-                    self.logger.info(f"📁 默认 Profile 路径: {user_data_dir}")
-                else:
-                    user_data_dir = None
-                    self.logger.warning("⚠️ 无法获取用户数据目录")
+                self.logger.info(f"✅ 检测到有登录态的 Profile: {active_profile}")
+
+            if not user_data_dir:
+                self.logger.error("❌ 无法获取用户数据目录")
+                raise RuntimeError("无法获取用户数据目录")
+
+            self.logger.info(f"📁 用户数据目录（父目录）: {user_data_dir}")
+            self.logger.info(f"📁 Profile 名称: {active_profile}")
 
             # 启动模式配置
+            # 注意：user_data_dir 是父目录，Profile 通过 launch_args 指定
             config = {
                 'debug_mode': True,
                 'browser_config': {
                     'browser_type': browser_type,
                     'headless': headless,
                     'debug_port': int(debug_port),
-                    'user_data_dir': user_data_dir,  # 使用完整的 Profile 路径
+                    'user_data_dir': user_data_dir,  # 父目录，不是 Profile 目录
                     'viewport': {
                         'width': 1280,
                         'height': 800
                     },
-                    'launch_args': []
+                    'launch_args': [f'--profile-directory={active_profile}']  # 通过参数指定 Profile
                 },
                 'use_persistent_context': False,
                 'connect_to_existing': False
             }
 
-            self.logger.info(f"🚀 配置为启动模式: headless={headless}, user_data_dir={user_data_dir}")
+            self.logger.info(f"🚀 配置为启动模式: headless={headless}, profile={active_profile}")
             return config
 
         # 连接模式：浏览器正在运行
