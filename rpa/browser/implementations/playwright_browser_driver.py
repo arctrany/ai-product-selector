@@ -446,10 +446,30 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
                 self._logger.info(f"🔍 使用指定的用户数据目录: {user_data_dir}")
                 self._logger.info(f"🔍 目录是否存在: {os.path.exists(user_data_dir) if user_data_dir else False}")
 
+                # 🔧 关键修复：添加 ignore_default_args 以启用扩展和保留登录态
+                launch_options_with_extensions = launch_options.copy()
+                launch_options_with_extensions.update({
+                    'ignore_default_args': [
+                        # 扩展相关
+                        '--disable-extensions',
+                        '--disable-component-extensions-with-background-pages',
+                        '--disable-default-apps',
+                        '--enable-automation',
+                        '--disable-component-update',
+                        # 🔧 关键：忽略破坏登录状态的参数
+                        '--password-store=basic',
+                        '--use-mock-keychain',
+                        '--disable-background-networking',
+                        '--metrics-recording-only',
+                        '--no-service-autorun',
+                        '--disable-sync',
+                    ]
+                })
+
                 # 使用指定的用户数据目录
                 self.context = await self.playwright.chromium.launch_persistent_context(
                     user_data_dir=user_data_dir,
-                    **launch_options
+                    **launch_options_with_extensions
                 )
                 self._is_persistent_context = True
                 self._logger.info(f"Browser launched with custom user data dir: {user_data_dir}")
