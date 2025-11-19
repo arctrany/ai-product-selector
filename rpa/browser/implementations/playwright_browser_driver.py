@@ -447,8 +447,12 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
                 self._logger.info(f"🔍 目录是否存在: {os.path.exists(user_data_dir) if user_data_dir else False}")
 
                 # 🔧 关键修复：添加 ignore_default_args 以启用扩展和保留登录态
-                launch_options_with_extensions = launch_options.copy()
-                launch_options_with_extensions.update({
+                # 注意：launch_persistent_context 支持 args 参数
+                self._logger.info(f"🔍 启动参数: {launch_options.get('args', [])}")
+
+                launch_options_with_extensions = {
+                    'headless': headless,
+                    'args': launch_options.get('args', []),  # 确保包含 --profile-directory 等参数
                     'ignore_default_args': [
                         # 扩展相关
                         '--disable-extensions',
@@ -464,7 +468,13 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
                         '--no-service-autorun',
                         '--disable-sync',
                     ]
-                })
+                }
+
+                # 添加 channel（如果有）
+                if 'channel' in launch_options:
+                    launch_options_with_extensions['channel'] = launch_options['channel']
+
+                self._logger.info(f"🔍 最终启动配置: args={launch_options_with_extensions.get('args')}")
 
                 # 使用指定的用户数据目录
                 self.context = await self.playwright.chromium.launch_persistent_context(
