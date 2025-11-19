@@ -109,6 +109,7 @@ class XuanpingBrowserService:
         """
         from rpa.browser.utils import detect_active_profile, BrowserDetector, LoginRequiredError
         import json
+        import os
 
         # 从环境变量获取配置
         browser_type = os.environ.get('PREFERRED_BROWSER', 'edge').lower()
@@ -148,16 +149,25 @@ class XuanpingBrowserService:
             active_profile = detect_active_profile(required_domains[0] if required_domains else "seerfar.cn")
 
             # 获取用户数据目录
-            user_data_dir = detector._get_edge_user_data_dir() if browser_type == 'edge' else None
+            base_user_data_dir = detector._get_edge_user_data_dir() if browser_type == 'edge' else None
 
-            if active_profile and user_data_dir:
-                # 使用有登录态的 Profile
+            # 🔧 关键修复：将 Profile 路径拼接到 user_data_dir 中
+            if active_profile and base_user_data_dir:
+                # 使用有登录态的 Profile，拼接完整路径
+                import os
+                user_data_dir = os.path.join(base_user_data_dir, active_profile)
                 self.logger.info(f"✅ 检测到有登录态的 Profile: {active_profile}")
-                profile_name = active_profile
+                self.logger.info(f"📁 完整 Profile 路径: {user_data_dir}")
             else:
                 # 没有登录态，使用默认 Profile
-                self.logger.warning("⚠️ 未检测到有登录态的 Profile，将使用默认 Profile")
-                profile_name = "Default"
+                import os
+                if base_user_data_dir:
+                    user_data_dir = os.path.join(base_user_data_dir, "Default")
+                    self.logger.warning("⚠️ 未检测到有登录态的 Profile，将使用默认 Profile")
+                    self.logger.info(f"📁 默认 Profile 路径: {user_data_dir}")
+                else:
+                    user_data_dir = None
+                    self.logger.warning("⚠️ 无法获取用户数据目录")
 
             # 启动模式配置
             config = {
@@ -166,7 +176,7 @@ class XuanpingBrowserService:
                     'browser_type': browser_type,
                     'headless': headless,
                     'debug_port': int(debug_port),
-                    'user_data_dir': user_data_dir,  # 使用检测到的用户数据目录
+                    'user_data_dir': user_data_dir,  # 使用完整的 Profile 路径
                     'viewport': {
                         'width': 1280,
                         'height': 800
@@ -174,11 +184,10 @@ class XuanpingBrowserService:
                     'launch_args': []
                 },
                 'use_persistent_context': False,
-                'connect_to_existing': False,
-                'profile_name': profile_name  # 使用检测到的 Profile
+                'connect_to_existing': False
             }
 
-            self.logger.info(f"🚀 配置为启动模式: headless={headless}, profile={profile_name}")
+            self.logger.info(f"🚀 配置为启动模式: headless={headless}, user_data_dir={user_data_dir}")
             return config
 
         # 连接模式：浏览器正在运行
