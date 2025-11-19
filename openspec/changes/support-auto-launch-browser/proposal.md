@@ -7,6 +7,7 @@
 1. **保留扩展插件**：浏览器必须加载用户已安装的扩展
 2. **保留登录态**：必须使用用户已登录的浏览器会话
 3. **无需手动操作**：不想每次都手动启动浏览器
+4. **支持主流浏览器**：支持 Chrome 和 Edge 浏览器（已实现）
 
 ### 问题背景
 当前实现存在严重的逻辑错误：
@@ -20,7 +21,9 @@
 查看 `rpa/browser/implementations/playwright_browser_driver.py` 的 `_launch_browser()` 方法，它已经实现了：
 - ✅ 完整的浏览器启动逻辑
 - ✅ 跨平台支持（macOS/Windows/Linux）
-- ✅ 多浏览器支持（Edge/Chrome）
+- ✅ **多浏览器支持（Chrome 和 Edge）**
+  - Chrome: 通过 Chromium 内核
+  - Edge: 通过 `channel='msedge'` 参数
 - ✅ 用户数据目录处理
 - ✅ Profile 选择（包括 Default Profile）
 - ✅ 扩展支持
@@ -150,7 +153,7 @@ else:
 ```json
 {
   "browser": {
-    "browser_type": "edge",
+    "browser_type": "edge",  // 支持 "edge" 或 "chrome"
     "headless": false,
     "timeout_seconds": 30,
     "max_retries": 3,
@@ -159,6 +162,10 @@ else:
   }
 }
 ```
+
+**浏览器类型说明**：
+- `"edge"`: 使用 Microsoft Edge 浏览器（推荐，macOS/Windows）
+- `"chrome"`: 使用 Google Chrome 浏览器（跨平台）
 
 ## Breaking Changes - 破坏性变更
 
@@ -213,10 +220,22 @@ else:
    - [ ] 所有 Profile 被占用 → 创建临时 Profile
    - [ ] 临时 Profile 清理验证
 
-#### 3.2 跨平台测试
-- [ ] **macOS**: Edge/Chrome 启动和连接
-- [ ] **Windows**: Edge/Chrome 启动和连接
-- [ ] **Linux**: Chrome 启动和连接
+#### 3.2 跨平台和浏览器测试
+**macOS**:
+- [ ] Edge 启动模式
+- [ ] Edge 连接模式
+- [ ] Chrome 启动模式
+- [ ] Chrome 连接模式
+
+**Windows**:
+- [ ] Edge 启动模式
+- [ ] Edge 连接模式
+- [ ] Chrome 启动模式
+- [ ] Chrome 连接模式
+
+**Linux**:
+- [ ] Chrome 启动模式（Edge 不支持 Linux）
+- [ ] Chrome 连接模式
 
 #### 3.3 边界情况测试
 - [ ] 浏览器启动失败（权限问题）
@@ -264,7 +283,9 @@ else:
 1. ✅ 没有运行中的浏览器时，能自动启动
 2. ✅ 有运行中的浏览器时，能正常连接
 3. ✅ 支持 headless 模式（默认 False）
-4. ✅ 支持多种浏览器（Chrome/Edge）
+4. ✅ **支持主流浏览器**
+   - ✅ Chrome（Chromium 内核）
+   - ✅ Edge（通过 `channel='msedge'`）
 5. ✅ 跨平台兼容（macOS/Windows/Linux）
 6. ✅ 启动失败时报错并退出
 7. ✅ 所有现有功能正常工作
