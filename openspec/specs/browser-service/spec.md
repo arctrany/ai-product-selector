@@ -1,9 +1,7 @@
 # Browser Service Specification
 
-## Overview
-浏览器服务规范定义了浏览器启动、连接、管理的核心行为。
-
----
+## Purpose
+浏览器服务提供统一的浏览器启动、连接和管理能力，支持自动启动和连接两种模式，确保扩展和登录态的完整保留。
 
 ## Requirements
 
