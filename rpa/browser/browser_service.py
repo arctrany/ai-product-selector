@@ -92,6 +92,52 @@ class SimplifiedBrowserService:
             self.logger.warning(f"生成实例键失败，使用默认键: {e}")
             return "default_browser_instance"
 
+    def _check_existing_browser(self, debug_port: int) -> bool:
+        """
+        检查是否有现有浏览器在指定调试端口运行，并且 CDP 端点可用
+
+        Args:
+            debug_port: 调试端口号
+
+        Returns:
+            bool: 是否有现有浏览器且 CDP 端点可用
+        """
+        try:
+            import socket
+            import urllib.request
+            import json
+
+            # 第一步：检查端口是否被占用
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)  # 1秒超时
+            result = sock.connect_ex(('localhost', int(debug_port)))
+            sock.close()
+
+            if result != 0:
+                self.logger.debug(f"🔍 端口 {debug_port} 未被占用")
+                return False
+
+            # 第二步：验证 CDP 端点是否可用
+            cdp_url = f"http://localhost:{debug_port}/json/version"
+            try:
+                req = urllib.request.Request(cdp_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=2) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                    # 检查是否有 webSocketDebuggerUrl 字段
+                    if 'webSocketDebuggerUrl' in data:
+                        self.logger.debug(f"✅ 检测到现有浏览器实例在端口 {debug_port}，CDP 端点可用")
+                        return True
+                    else:
+                        self.logger.warning(f"⚠️ 端口 {debug_port} 被占用，但 CDP 端点不可用")
+                        return False
+            except Exception as cdp_error:
+                self.logger.warning(f"⚠️ 端口 {debug_port} 被占用，但无法访问 CDP 端点: {cdp_error}")
+                return False
+
+        except Exception as e:
+            self.logger.debug(f"检查现有浏览器失败: {e}")
+            return False
+
     # ==================== 核心服务方法 ====================
 
     async def initialize(self) -> bool:
@@ -115,7 +161,31 @@ class SimplifiedBrowserService:
 
             # 准备浏览器配置
             browser_config = self._prepare_browser_config()
+
+            # 🆕 智能检测：如果配置中没有明确指定 connect_to_existing，则自动检测
             connect_to_existing = browser_config.get('connect_to_existing', None)
+
+            if connect_to_existing is None:
+                # 自动检测浏览器是否运行
+                debug_port = browser_config.get('debug_port', 9222)
+                has_existing_browser = self._check_existing_browser(debug_port)
+
+                if has_existing_browser:
+                    # 检测到现有浏览器，切换到连接模式
+                    connect_to_existing = f"http://localhost:{debug_port}"
+                    browser_config['connect_to_existing'] = connect_to_existing
+                    self.logger.info(f"🔗 检测到现有浏览器，将连接到端口 {debug_port}")
+                else:
+                    # 未检测到浏览器，切换到启动模式
+                    connect_to_existing = False
+                    browser_config['connect_to_existing'] = False
+                    self.logger.info(f"🚀 未检测到浏览器，将自动启动")
+            else:
+                # 手动配置优先级高于自动检测
+                if connect_to_existing:
+                    self.logger.info(f"🔗 使用手动配置：连接模式")
+                else:
+                    self.logger.info(f"🚀 使用手动配置：启动模式")
 
             if connect_to_existing:
                 # 连接到现有浏览器
@@ -343,12 +413,15 @@ class SimplifiedBrowserService:
         if hasattr(self.config.browser_config, 'user_data_dir'):
             browser_config['user_data_dir'] = self.config.browser_config.user_data_dir
         
-        # 🔧 Task 2.4 (P0-0): 传递浏览器复用配置
+        # 🔧 传递浏览器复用配置
         if hasattr(self.config.browser_config, 'connect_to_existing'):
             browser_config['connect_to_existing'] = self.config.browser_config.connect_to_existing
 
+        # 🆕 确保传递 debug_port（默认 9222）
         if hasattr(self.config.browser_config, 'debug_port'):
             browser_config['debug_port'] = self.config.browser_config.debug_port
+        else:
+            browser_config['debug_port'] = 9222  # 默认端口
 
         return browser_config
 
