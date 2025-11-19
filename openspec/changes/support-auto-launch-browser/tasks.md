@@ -32,12 +32,12 @@
 - [x] 3.3.2 macOS + Edge 连接模式
 - [x] 3.3.3 macOS + Chrome 启动模式
 - [x] 3.3.4 macOS + Chrome 连接模式
-- [ ] 3.3.5 Windows + Edge 启动模式
-- [ ] 3.3.6 Windows + Edge 连接模式
-- [ ] 3.3.7 Windows + Chrome 启动模式
-- [ ] 3.3.8 Windows + Chrome 连接模式
-- [ ] 3.3.9 Linux + Chrome 启动模式
-- [ ] 3.3.10 Linux + Chrome 连接模式
+- [~] 3.3.5 Windows + Edge 启动模式（暂不实施：无 Windows 测试环境）
+- [~] 3.3.6 Windows + Edge 连接模式（暂不实施：无 Windows 测试环境）
+- [~] 3.3.7 Windows + Chrome 启动模式（暂不实施：无 Windows 测试环境）
+- [~] 3.3.8 Windows + Chrome 连接模式（暂不实施：无 Windows 测试环境）
+- [~] 3.3.9 Linux + Chrome 启动模式（暂不实施：无 Linux 测试环境）
+- [~] 3.3.10 Linux + Chrome 连接模式（暂不实施：无 Linux 测试环境）
 
 ### 3.4 边界情况测试
 - [x] 3.4.1 浏览器启动失败（权限问题）
