@@ -1,0 +1,165 @@
+
+"""
+Scraper 基类
+
+提供所有 scraper 的通用功能，包括同步的页面数据抓取方法和资源清理。
+将业务逻辑（数据抓取流程）与技术层（浏览器服务）分离。
+"""
+
+import asyncio
+import time
+import logging
+from typing import Any, Callable, Optional
+
+from ..models import ScrapingResult
+
+class BaseScraper:
+    """
+    Scraper 基类
+    
+    提供通用的数据抓取功能：
+    1. scrape_page_data - 同步的页面数据抓取方法
+    2. 统一的错误处理和日志记录
+    3. 执行时间统计
+    4. 资源清理和析构函数
+    """
+    
+    def __init__(self):
+        """初始化基类"""
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+    
+    def scrape_page_data(self, url: str, extractor_func: Callable) -> ScrapingResult:
+        """
+        同步抓取页面数据
+        
+        这是一个业务层的便捷方法，封装了完整的数据抓取流程：
+        1. 导航到目标URL
+        2. 等待页面加载
+        3. 提取数据
+        4. 返回结果
+        
+        Args:
+            url: 目标页面URL
+            extractor_func: 数据提取函数（异步），接收 browser_service 参数
+            
+        Returns:
+            ScrapingResult: 抓取结果对象
+            
+        使用示例:
+            async def extract_data(browser_service):
+                content = await browser_service.get_page_content()
+                return parse_content(content)
+            
+            result = self.scrape_page_data(url, extract_data)
+            if result.success:
+                data = result.data
+        """
+        start_time = time.time()
+        
+        try:
+            # 检查是否有 browser_service
+            if not hasattr(self, 'browser_service'):
+                raise AttributeError(
+                    f"{self.__class__.__name__} 必须设置 browser_service 属性"
+                )
+            
+            # 定义异步执行函数
+            async def async_scrape():
+                try:
+                    # 1. 导航到页面
+                    success = await self.browser_service.navigate_to(url)
+                    if not success:
+                        return ScrapingResult(
+                            success=False,
+                            data={},
+                            error_message="页面导航失败",
+                            execution_time=time.time() - start_time
+                        )
+                    
+                    # 2. 等待页面加载
+                    await asyncio.sleep(1)
+                    
+                    # 3. 提取数据 - 传递 browser_service
+                    data = await extractor_func(self.browser_service)
+                    
+                    # 4. 返回成功结果
+                    return ScrapingResult(
+                        success=True,
+                        data=data,
+                        execution_time=time.time() - start_time
+                    )
+                    
+                except Exception as e:
+                    self.logger.error(f"❌ 异步数据抓取失败: {e}")
+                    return ScrapingResult(
+                        success=False,
+                        data={},
+                        error_message=str(e),
+                        execution_time=time.time() - start_time
+                    )
+            
+            # 同步执行异步函数
+            result = asyncio.run(async_scrape())
+            return result
+            
+        except Exception as e:
+            execution_time = time.time() - start_time
+            self.logger.error(f"❌ 页面数据抓取失败: {e}")
+            
+            return ScrapingResult(
+                success=False,
+                data={},
+                error_message=str(e),
+                execution_time=execution_time
+            )
+    
+    def close(self):
+        """
+        关闭抓取器，清理资源
+        
+        子类应该重写此方法以实现特定的资源清理逻辑。
+        基类提供通用的资源清理机制：
+        1. 关闭 browser_service（如果存在且需要关闭）
+        2. 关闭其他 scraper 组件（如果存在）
+        """
+        try:
+            # 关闭 browser_service
+            if hasattr(self, 'browser_service') and self.browser_service:
+                try:
+                    # 异步调用 browser_service.close()
+                    asyncio.run(self.browser_service.close())
+                    self.logger.info(f"🔒 {self.__class__.__name__} 浏览器服务已关闭")
+                except Exception as e:
+                    self.logger.warning(f"关闭浏览器服务时出错: {e}")
+            
+            # 关闭其他 scraper 组件
+            # 查找所有以 '_scraper' 结尾的属性并尝试关闭它们
+            for attr_name in dir(self):
+                if attr_name.endswith('_scraper') and attr_name != 'browser_service':
+                    scraper = getattr(self, attr_name)
+                    if scraper and hasattr(scraper, 'close'):
+                        try:
+                            scraper.close()
+                            self.logger.info(f"🔒 {self.__class__.__name__}.{attr_name} 已关闭")
+                        except Exception as e:
+                            self.logger.warning(f"关闭 {attr_name} 时出错: {e}")
+                            
+        except Exception as e:
+            self.logger.error(f"关闭 {self.__class__.__name__} 时发生错误: {e}")
+    
+    def __del__(self):
+        """
+        析构函数，确保资源被正确释放
+        """
+        try:
+            self.close()
+        except:
+            pass
+    
+    def __enter__(self):
+        """上下文管理器入口"""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """上下文管理器出口"""
+        self.close()
