@@ -53,34 +53,34 @@ class StoreInfo:
 @dataclass
 class ProductInfo:
     """商品基础信息"""
-    product_id: str
+    product_id: Optional[str] = None  # 商品ID（从URL提取）
     image_url: Optional[str] = None
     brand_name: Optional[str] = None
     sku: Optional[str] = None
-    
+
     # OZON价格信息
     green_price: Optional[float] = None  # 绿标价格（促销价）
     black_price: Optional[float] = None  # 黑标价格（原价）
     competitor_price: Optional[float] = None  # 跟卖价格
-    
+
     # ERP插件数据
     commission_rate: Optional[float] = None  # 佣金率
     weight: Optional[float] = None  # 重量(克)
     length: Optional[float] = None  # 长度
     width: Optional[float] = None  # 宽度
     height: Optional[float] = None  # 高度
-    
+
     # 货源匹配
     source_price: Optional[float] = None  # 采购价格
     source_matched: bool = False  # 是否匹配到货源
-    
+
     # 上架时间信息
     shelf_days: Optional[int] = None  # 已上架时间（天）
 
     def __post_init__(self):
         """数据验证"""
-        if not self.product_id or not self.product_id.strip():
-            raise ValueError("商品ID不能为空")
+        # product_id 现在是可选的，允许为 None
+        pass
 
 
 @dataclass
