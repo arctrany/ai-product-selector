@@ -388,7 +388,7 @@ class OzonCompetitorScenarioTester:
                     traceback.print_exc()
                     return {"success": False, "error": str(e)}
 
-            result = self.scraper.browser_service.scrape_page_data(test_url, simple_test)
+            result = self.scraper.scrape_page_data(test_url, simple_test)
 
             # 修复：result已经是ScrapingResult对象，不需要await
             if result.success:

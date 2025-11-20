@@ -42,8 +42,8 @@ class TestGlobalBrowserSingletonBasic:
     """测试全局浏览器单例基本功能"""
     
     @patch('common.scrapers.global_browser_singleton.SimplifiedBrowserService')
-    @patch('common.scrapers.global_browser_singleton.BrowserDetector')
-    @patch('common.scrapers.global_browser_singleton.detect_active_profile')
+    @patch('rpa.browser.utils.BrowserDetector')
+    @patch('rpa.browser.utils.detect_active_profile')
     def test_first_call_creates_instance(self, mock_detect_profile, mock_detector_class, mock_service_class):
         """测试场景：第一次调用创建实例"""
         from common.scrapers.global_browser_singleton import get_global_browser_service
@@ -66,8 +66,8 @@ class TestGlobalBrowserSingletonBasic:
         mock_service_class.assert_called_once()
 
     @patch('common.scrapers.global_browser_singleton.SimplifiedBrowserService')
-    @patch('common.scrapers.global_browser_singleton.BrowserDetector')
-    @patch('common.scrapers.global_browser_singleton.detect_active_profile')
+    @patch('rpa.browser.utils.BrowserDetector')
+    @patch('rpa.browser.utils.detect_active_profile')
     def test_subsequent_calls_return_same_instance(self, mock_detect_profile, mock_detector_class, mock_service_class):
         """测试场景：后续调用返回同一实例"""
         from common.scrapers.global_browser_singleton import get_global_browser_service
@@ -98,10 +98,10 @@ class TestGlobalBrowserSingletonBasic:
 
 class TestGlobalBrowserSingletonThreadSafety:
     """测试全局浏览器单例线程安全"""
-    
+
     @patch('common.scrapers.global_browser_singleton.SimplifiedBrowserService')
-    @patch('common.scrapers.global_browser_singleton.BrowserDetector')
-    @patch('common.scrapers.global_browser_singleton.detect_active_profile')
+    @patch('rpa.browser.utils.BrowserDetector')
+    @patch('rpa.browser.utils.detect_active_profile')
     def test_thread_safety_single_instance(self, mock_detect_profile, mock_detector_class, mock_service_class):
         """测试场景：多线程访问返回同一实例"""
         from common.scrapers.global_browser_singleton import get_global_browser_service
@@ -117,7 +117,7 @@ class TestGlobalBrowserSingletonThreadSafety:
         mock_service_class.return_value = mock_service
 
         results = []
-        
+
         def worker():
             result = get_global_browser_service()
             results.append(result)
@@ -145,8 +145,8 @@ class TestGlobalBrowserSingletonThreadSafety:
         mock_service_class.assert_called_once()
 
     @patch('common.scrapers.global_browser_singleton.SimplifiedBrowserService')
-    @patch('common.scrapers.global_browser_singleton.BrowserDetector')
-    @patch('common.scrapers.global_browser_singleton.detect_active_profile')
+    @patch('rpa.browser.utils.BrowserDetector')
+    @patch('rpa.browser.utils.detect_active_profile')
     def test_thread_safety_with_delay(self, mock_detect_profile, mock_detector_class, mock_service_class):
         """测试场景：有延迟的多线程访问"""
         from common.scrapers.global_browser_singleton import get_global_browser_service
@@ -162,7 +162,7 @@ class TestGlobalBrowserSingletonThreadSafety:
         mock_service_class.return_value = mock_service
 
         results = []
-        
+
         def worker_with_delay():
             time.sleep(0.01)  # 模拟延迟
             result = get_global_browser_service()
@@ -193,14 +193,14 @@ class TestGlobalBrowserSingletonThreadSafety:
 
 class TestGlobalBrowserSingletonConfigurationHandling:
     """测试全局浏览器单例配置处理"""
-    
+
     @patch.dict(os.environ, {
         'PREFERRED_BROWSER': 'chrome',
         'BROWSER_DEBUG_PORT': '9223'
     })
     @patch('common.scrapers.global_browser_singleton.SimplifiedBrowserService')
-    @patch('common.scrapers.global_browser_singleton.BrowserDetector')
-    @patch('common.scrapers.global_browser_singleton.detect_active_profile')
+    @patch('rpa.browser.utils.BrowserDetector')
+    @patch('rpa.browser.utils.detect_active_profile')
     def test_environment_variable_configuration(self, mock_detect_profile, mock_detector_class, mock_service_class):
         """测试场景：从环境变量读取配置"""
         from common.scrapers.global_browser_singleton import get_global_browser_service
@@ -227,8 +227,8 @@ class TestGlobalBrowserSingletonConfigurationHandling:
         assert config_dict['browser_config']['debug_port'] == 9223
 
     @patch('common.scrapers.global_browser_singleton.SimplifiedBrowserService')
-    @patch('common.scrapers.global_browser_singleton.BrowserDetector')
-    @patch('common.scrapers.global_browser_singleton.detect_active_profile')
+    @patch('rpa.browser.utils.BrowserDetector')
+    @patch('rpa.browser.utils.detect_active_profile')
     def test_custom_config_parameter(self, mock_detect_profile, mock_detector_class, mock_service_class):
         """测试场景：传递自定义配置参数"""
         from common.scrapers.global_browser_singleton import get_global_browser_service
@@ -245,7 +245,7 @@ class TestGlobalBrowserSingletonConfigurationHandling:
 
         # 自定义配置
         custom_config = {'browser': {'headless': True}}
-        
+
         # 调用函数
         get_global_browser_service(custom_config)
 
@@ -258,8 +258,8 @@ class TestGlobalBrowserSingletonConfigurationHandling:
         assert config_dict['browser_config']['headless'] is True
 
     @patch('common.scrapers.global_browser_singleton.SimplifiedBrowserService')
-    @patch('common.scrapers.global_browser_singleton.BrowserDetector')
-    @patch('common.scrapers.global_browser_singleton.detect_active_profile')
+    @patch('rpa.browser.utils.BrowserDetector')
+    @patch('rpa.browser.utils.detect_active_profile')
     def test_subsequent_config_ignored(self, mock_detect_profile, mock_detector_class, mock_service_class):
         """测试场景：后续调用忽略配置参数"""
         from common.scrapers.global_browser_singleton import get_global_browser_service
@@ -289,11 +289,11 @@ class TestGlobalBrowserSingletonConfigurationHandling:
 
 class TestGlobalBrowserSingletonStateManagement:
     """测试全局浏览器单例状态管理"""
-    
+
     def test_initial_state_not_initialized(self):
         """测试场景：初始状态未初始化"""
         from common.scrapers.global_browser_singleton import is_global_browser_initialized
-        
+
         assert is_global_browser_initialized() is False
 
     def test_set_initialized_state(self):
@@ -302,14 +302,14 @@ class TestGlobalBrowserSingletonStateManagement:
             is_global_browser_initialized,
             set_global_browser_initialized
         )
-        
+
         # 初始状态
         assert is_global_browser_initialized() is False
-        
+
         # 设置为已初始化
         set_global_browser_initialized(True)
         assert is_global_browser_initialized() is True
-        
+
         # 设置为未初始化
         set_global_browser_initialized(False)
         assert is_global_browser_initialized() is False
@@ -317,7 +317,7 @@ class TestGlobalBrowserSingletonStateManagement:
     def test_global_lock_type(self):
         """测试场景：全局锁类型检查"""
         from common.scrapers.global_browser_singleton import get_global_lock
-        
+
         lock = get_global_lock()
         assert isinstance(lock, type(threading.Lock()))
 
@@ -328,15 +328,15 @@ class TestGlobalBrowserSingletonStateManagement:
             is_global_browser_initialized
         )
         import common.scrapers.global_browser_singleton as singleton_module
-        
+
         # 模拟有全局服务实例
         mock_service = Mock()
         singleton_module._global_browser_service = mock_service
         singleton_module._global_initialized = True
-        
+
         # 重置
         reset_global_browser_on_failure()
-        
+
         # 验证状态被重置
         assert singleton_module._global_browser_service is None
         assert singleton_module._global_initialized is False
@@ -344,10 +344,10 @@ class TestGlobalBrowserSingletonStateManagement:
 
 class TestGlobalBrowserSingletonProfileHandling:
     """测试全局浏览器单例 Profile 处理"""
-    
+
     @patch('common.scrapers.global_browser_singleton.SimplifiedBrowserService')
-    @patch('common.scrapers.global_browser_singleton.BrowserDetector')
-    @patch('common.scrapers.global_browser_singleton.detect_active_profile')
+    @patch('rpa.browser.utils.BrowserDetector')
+    @patch('rpa.browser.utils.detect_active_profile')
     def test_profile_detection_success(self, mock_detect_profile, mock_detector_class, mock_service_class):
         """测试场景：成功检测到 Profile"""
         from common.scrapers.global_browser_singleton import get_global_browser_service
@@ -369,8 +369,8 @@ class TestGlobalBrowserSingletonProfileHandling:
         mock_detector.is_profile_available.assert_called_with("/fake/edge/data", "Profile 1")
 
     @patch('common.scrapers.global_browser_singleton.SimplifiedBrowserService')
-    @patch('common.scrapers.global_browser_singleton.BrowserDetector')
-    @patch('common.scrapers.global_browser_singleton.detect_active_profile')
+    @patch('rpa.browser.utils.BrowserDetector')
+    @patch('rpa.browser.utils.detect_active_profile')
     def test_profile_detection_fallback_to_default(self, mock_detect_profile, mock_detector_class, mock_service_class):
         """测试场景：Profile 检测失败，回退到默认"""
         from common.scrapers.global_browser_singleton import get_global_browser_service
@@ -392,8 +392,8 @@ class TestGlobalBrowserSingletonProfileHandling:
         mock_detector.is_profile_available.assert_called_with("/fake/edge/data", "Default")
 
     @patch('common.scrapers.global_browser_singleton.SimplifiedBrowserService')
-    @patch('common.scrapers.global_browser_singleton.BrowserDetector')
-    @patch('common.scrapers.global_browser_singleton.detect_active_profile')
+    @patch('rpa.browser.utils.BrowserDetector')
+    @patch('rpa.browser.utils.detect_active_profile')
     def test_profile_locked_recovery_success(self, mock_detect_profile, mock_detector_class, mock_service_class):
         """测试场景：Profile 被锁定，成功恢复"""
         from common.scrapers.global_browser_singleton import get_global_browser_service
@@ -461,7 +461,7 @@ class TestGlobalBrowserSingletonProfileHandling:
 
 class TestGlobalBrowserSingletonExceptionHandling:
     """测试全局浏览器单例异常处理"""
-    
+
     @patch('common.scrapers.global_browser_singleton.BrowserDetector')
     @patch('common.scrapers.global_browser_singleton.detect_active_profile')
     def test_no_user_data_dir(self, mock_detect_profile, mock_detector_class):
@@ -479,8 +479,8 @@ class TestGlobalBrowserSingletonExceptionHandling:
             get_global_browser_service()
 
     @patch('common.scrapers.global_browser_singleton.SimplifiedBrowserService')
-    @patch('common.scrapers.global_browser_singleton.BrowserDetector')
-    @patch('common.scrapers.global_browser_singleton.detect_active_profile')
+    @patch('rpa.browser.utils.BrowserDetector')
+    @patch('rpa.browser.utils.detect_active_profile')
     def test_browser_service_creation_exception(self, mock_detect_profile, mock_detector_class, mock_service_class):
         """测试场景：浏览器服务创建时抛出异常"""
         from common.scrapers.global_browser_singleton import get_global_browser_service
@@ -502,10 +502,10 @@ class TestGlobalBrowserSingletonExceptionHandling:
 
 class TestGlobalBrowserSingletonIntegration:
     """测试全局浏览器单例集成功能"""
-    
+
     @patch('common.scrapers.global_browser_singleton.SimplifiedBrowserService')
-    @patch('common.scrapers.global_browser_singleton.BrowserDetector')
-    @patch('common.scrapers.global_browser_singleton.detect_active_profile')
+    @patch('rpa.browser.utils.BrowserDetector')
+    @patch('rpa.browser.utils.detect_active_profile')
     def test_full_workflow_success(self, mock_detect_profile, mock_detector_class, mock_service_class):
         """测试场景：完整工作流程成功"""
         from common.scrapers.global_browser_singleton import (
@@ -542,7 +542,7 @@ class TestGlobalBrowserSingletonIntegration:
 
         # 5. 重置状态
         reset_global_browser_on_failure()
-        
+
         # 6. 验证重置后状态
         import common.scrapers.global_browser_singleton as singleton_module
         assert singleton_module._global_browser_service is None
@@ -552,8 +552,8 @@ class TestGlobalBrowserSingletonIntegration:
         mock_service_class.assert_called_once()
 
     @patch('common.scrapers.global_browser_singleton.SimplifiedBrowserService')
-    @patch('common.scrapers.global_browser_singleton.BrowserDetector')
-    @patch('common.scrapers.global_browser_singleton.detect_active_profile')
+    @patch('rpa.browser.utils.BrowserDetector')
+    @patch('rpa.browser.utils.detect_active_profile')
     def test_configuration_precedence(self, mock_detect_profile, mock_detector_class, mock_service_class):
         """测试场景：配置优先级"""
         from common.scrapers.global_browser_singleton import get_global_browser_service

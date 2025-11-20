@@ -52,6 +52,14 @@ def get_global_browser_service(config: Optional[Dict[str, Any]] = None) -> 'Simp
             browser_config_dict = (config or {}).get('browser', {})
             headless = browser_config_dict.get('headless', False)
             
+            # 🔧 关键修复：添加 Profile 可用性验证和降级策略
+            detector = BrowserDetector()
+            base_user_data_dir = detector._get_edge_user_data_dir() if browser_type == 'edge' else None
+
+            if not base_user_data_dir:
+                logger.error("❌ 无法获取用户数据目录")
+                raise RuntimeError("无法获取用户数据目录")
+
             # 检测最近使用的 Profile
             active_profile = detect_active_profile()
             if not active_profile:
@@ -59,48 +67,65 @@ def get_global_browser_service(config: Optional[Dict[str, Any]] = None) -> 'Simp
                 logger.warning("⚠️ 未检测到 Profile，将使用默认 Profile")
             else:
                 logger.info(f"✅ 检测到最近使用的 Profile: {active_profile}")
-            
-            # 获取用户数据目录
-            detector = BrowserDetector()
-            base_user_data_dir = detector._get_edge_user_data_dir() if browser_type == 'edge' else None
-            
-            if not base_user_data_dir:
-                logger.error("❌ 无法获取用户数据目录")
-                raise RuntimeError("无法获取用户数据目录")
-            
-            # 完整的 Profile 路径
+
+            # 🔧 验证 Profile 可用性（带自动恢复机制）
+            if not detector.is_profile_available(base_user_data_dir, active_profile):
+                logger.warning(f"⚠️ Profile '{active_profile}' 不可用（可能被锁定）")
+                logger.info("🔧 尝试清理僵尸浏览器进程并重试...")
+
+                # 尝试清理僵尸进程
+                if detector.kill_browser_processes():
+                    # 等待 Profile 解锁
+                    profile_path = os.path.join(base_user_data_dir, active_profile)
+                    if detector.wait_for_profile_unlock(profile_path, max_wait_seconds=5):
+                        logger.info("✅ Profile 已解锁，继续启动")
+                        # 再次验证 Profile 是否真的可用
+                        if not detector.is_profile_available(base_user_data_dir, active_profile):
+                            error_msg = f"❌ Profile '{active_profile}' 解锁后仍不可用"
+                            logger.error(error_msg)
+                            raise RuntimeError(error_msg)
+                    else:
+                        error_msg = f"❌ Profile '{active_profile}' 清理后仍然被锁定"
+                        logger.error(error_msg)
+                        logger.error("💡 请手动关闭所有 Edge 浏览器窗口后重试")
+                        raise RuntimeError(error_msg)
+                else:
+                    error_msg = f"❌ 清理僵尸进程失败，Profile '{active_profile}' 不可用"
+                    logger.error(error_msg)
+                    logger.error("💡 请手动运行：pkill -f 'Microsoft Edge'")
+                    raise RuntimeError(error_msg)
+
+            # Profile 可用，使用完整路径
             user_data_dir = os.path.join(base_user_data_dir, active_profile)
-            
+            logger.info(f"✅ Profile 可用，将使用: {user_data_dir}")
             logger.info(f"📁 用户数据目录: {user_data_dir}")
-            logger.info(f"🚀 配置: browser={browser_type}, headless={headless}, profile={active_profile}")
-            
-            # 创建浏览器服务配置
-            browser_config = {
-                'debug_mode': True,
-                'browser_config': {
-                    'browser_type': browser_type,
-                    'headless': headless,
-                    'debug_port': int(debug_port),
-                    'user_data_dir': user_data_dir,  # 保留用户数据目录
-                    'viewport': {
-                        'width': 1280,
-                        'height': 800
-                    },
-                    'launch_args': []
-                },
-                'use_persistent_context': False,
-                'connect_to_existing': False,
-                'use_shared_browser': True  # 启用 SimplifiedBrowserService 的内部共享机制
-            }
-            
+            logger.info(f"🚀 配置: browser={browser_type}, headless={headless}")
+
+            # 🔧 简化：直接使用 BrowserConfig 对象
+            from rpa.browser.core.models.browser_config import BrowserConfig, BrowserType, ViewportConfig
+            from rpa.browser.core.config.config import BrowserServiceConfig
+
+            # 创建简化的配置
+            browser_cfg = BrowserConfig(
+                browser_type=BrowserType.EDGE if browser_type == 'edge' else BrowserType.CHROME,
+                headless=headless,
+                debug_port=int(debug_port),
+                user_data_dir=user_data_dir
+            )
+
+            service_config = BrowserServiceConfig(
+                browser_config=browser_cfg,
+                debug_mode=True
+            )
+
             # 创建全局实例
-            _global_browser_service = SimplifiedBrowserService(browser_config)
+            _global_browser_service = SimplifiedBrowserService(service_config.to_dict())
             _global_initialized = False  # 标记为未初始化，需要调用 initialize()
-            
+
             logger.info("✅ 全局浏览器服务实例创建完成")
         else:
             logger.info("♻️ 复用现有的全局浏览器服务实例")
-    
+
     return _global_browser_service
 
 
@@ -118,3 +143,22 @@ def set_global_browser_initialized(value: bool):
 def get_global_lock():
     """获取全局锁"""
     return _global_lock
+
+def reset_global_browser_on_failure():
+    """
+    重置全局浏览器单例（仅在初始化失败时调用）
+
+    🔧 设计说明：
+    - 当浏览器初始化失败时调用此函数
+    - 清理全局单例状态，允许下次调用重新创建
+    - 确保不会无限循环使用失败的实例
+    """
+    global _global_browser_service, _global_initialized
+
+    logger = logging.getLogger(__name__)
+
+    with _global_lock:
+        if _global_browser_service is not None:
+            logger.warning("🔄 重置全局浏览器单例（初始化失败）")
+            _global_browser_service = None
+            _global_initialized = False

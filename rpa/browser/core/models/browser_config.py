@@ -5,7 +5,7 @@
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Any
 from pathlib import Path
 from enum import Enum
 
@@ -50,7 +50,7 @@ class ExtensionConfig:
     """扩展配置"""
     path: Union[str, Path]
     enabled: bool = True
-    options: Dict[str, any] = field(default_factory=dict)
+    options: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -124,7 +124,7 @@ class BrowserConfig:
         if not (1024 <= self.debug_port <= 65535):
             raise ValueError("debug_port must be between 1024 and 65535")
     
-    def to_dict(self) -> Dict[str, any]:
+    def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式"""
         result = {}
         for key, value in self.__dict__.items():
@@ -141,7 +141,7 @@ class BrowserConfig:
         return result
     
     @classmethod
-    def from_dict(cls, data: Dict[str, any]) -> 'BrowserConfig':
+    def from_dict(cls, data: Dict[str, Any]) -> 'BrowserConfig':
         """从字典创建配置对象"""
         # 处理枚举类型
         if 'browser_type' in data:

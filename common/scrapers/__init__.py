@@ -5,15 +5,16 @@
 """
 
 from ..models import ScrapingResult
-from .xuanping_browser_service import XuanpingBrowserService, XuanpingBrowserServiceSync
+from .base_scraper import BaseScraper
+from .global_browser_singleton import get_global_browser_service
 from .seerfar_scraper import SeerfarScraper
 from .ozon_scraper import OzonScraper
 from .erp_plugin_scraper import ErpPluginScraper
 
 __all__ = [
     'ScrapingResult',
-    'XuanpingBrowserService',
-    'XuanpingBrowserServiceSync',
+    'BaseScraper',
+    'get_global_browser_service',
     'SeerfarScraper',
     'OzonScraper',
     'ErpPluginScraper'

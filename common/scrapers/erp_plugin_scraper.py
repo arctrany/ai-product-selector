@@ -12,31 +12,33 @@ import re
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
-from .xuanping_browser_service import XuanpingBrowserServiceSync
+from .base_scraper import BaseScraper
+from .global_browser_singleton import get_global_browser_service
 from ..models import ProductInfo, ScrapingResult
 from ..config import GoodStoreSelectorConfig
 
-class ErpPluginScraper:
-    """毛子ERP插件抓取器 - 支持共享browser_service实例"""
-    
-    def __init__(self, config: Optional[GoodStoreSelectorConfig] = None, browser_service: Optional[XuanpingBrowserServiceSync] = None):
+class ErpPluginScraper(BaseScraper):
+    """毛子ERP插件抓取器 - 使用全局浏览器单例"""
+
+    def __init__(self, config: Optional[GoodStoreSelectorConfig] = None, browser_service = None):
         """
         初始化ERP插件抓取器
-        
+
         Args:
             config: 配置对象
-            browser_service: 可选的共享浏览器服务实例
+            browser_service: 可选的共享浏览器服务实例（向后兼容，推荐使用全局单例）
         """
+        super().__init__()
         self.config = config or GoodStoreSelectorConfig()
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        
-        # 支持共享browser_service实例
+
+        # 使用全局浏览器单例
         if browser_service:
             self.browser_service = browser_service
             self._owns_browser_service = False  # 不拥有浏览器服务，不负责关闭
         else:
-            self.browser_service = XuanpingBrowserServiceSync()
-            self._owns_browser_service = True  # 拥有浏览器服务，负责关闭
+            self.browser_service = get_global_browser_service()
+            self._owns_browser_service = False  # 使用全局单例，不负责关闭
         
         # ERP区域数据字段映射
         self.field_mappings = {
@@ -84,41 +86,39 @@ class ErpPluginScraper:
 
         try:
             if product_url:
-                # 如果提供了URL，使用浏览器服务抓取页面数据
-                async def extract_erp_data(browser_service):
-                    """异步提取ERP数据"""
+                # 如果提供了URL，导航并抓取页面数据
+                async def scrape_with_navigation():
+                    """异步导航并提取数据"""
                     try:
+                        # 导航到页面
+                        await self.browser_service.navigate_to(product_url)
+
+                        # 等待页面加载
+                        await asyncio.sleep(1)
+
                         # 智能等待ERP插件加载完成
-                        await self._wait_for_erp_plugin_loaded(browser_service)
+                        await self._wait_for_erp_plugin_loaded(self.browser_service)
 
                         # 获取页面内容
-                        page_content = await browser_service.get_page_content()
-                        
+                        page_content = await self.browser_service.get_page_content()
+
                         # 解析ERP信息
                         erp_data = self._extract_erp_data_from_content(page_content)
-                        
+
                         return erp_data
-                        
+
                     except Exception as e:
                         self.logger.error(f"提取ERP数据失败: {e}")
-                        return {}
-                
-                # 使用浏览器服务抓取页面数据
-                result = self.browser_service.scrape_page_data(product_url, extract_erp_data)
-                
-                if result.success:
-                    return ScrapingResult(
-                        success=True,
-                        data=result.data,
-                        execution_time=time.time() - start_time
-                    )
-                else:
-                    return ScrapingResult(
-                        success=False,
-                        data={},
-                        error_message=result.error_message or "未能提取到ERP信息",
-                        execution_time=time.time() - start_time
-                    )
+                        raise
+
+                # 运行异步抓取
+                erp_data = asyncio.run(scrape_with_navigation())
+
+                return ScrapingResult(
+                    success=True,
+                    data=erp_data,
+                    execution_time=time.time() - start_time
+                )
             else:
                 # 从当前页面直接抓取
                 async def get_current_page_content():
@@ -454,9 +454,10 @@ class ErpPluginScraper:
         return False
 
     def close(self):
-        """关闭资源"""
-        if self._owns_browser_service and self.browser_service:
-            self.browser_service.close()
+        """关闭资源 - 使用全局单例时不需要关闭"""
+        # 使用全局单例时不需要主动关闭浏览器服务
+        # 全局单例的生命周期由应用程序管理
+        pass
 
     def __enter__(self):
         return self

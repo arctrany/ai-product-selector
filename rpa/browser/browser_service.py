@@ -11,6 +11,7 @@
 
 import asyncio
 import logging
+import sys
 from typing import Dict, Any, Optional
 
 from .core.config.config import (
@@ -42,10 +43,6 @@ class SimplifiedBrowserService:
     4. 清晰的职责分离
     """
 
-    # 共享实例管理（简化版）
-    _shared_instances = {}
-    _instance_lock = asyncio.Lock()
-
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
         初始化浏览器服务
@@ -71,176 +68,48 @@ class SimplifiedBrowserService:
         self._initialized = False
         self._browser_started = False
 
-        # 共享实例配置
-        self._instance_key = self._generate_instance_key()
-        self._use_shared_browser = getattr(self.config, 'use_shared_browser', True)
-
         if self.config.debug_mode:
-            self.logger.info(f"🚀 浏览器服务创建完成，实例键: {self._instance_key}")
-
-    def _generate_instance_key(self) -> str:
-        """生成实例键用于浏览器复用"""
-        try:
-            browser_config = self.config.browser_config
-            key_parts = [
-                str(getattr(browser_config, 'browser_type', 'chrome')),
-                str(getattr(browser_config, 'debug_port', 9222)),
-                str(getattr(browser_config, 'user_data_dir', 'default'))
-            ]
-            return '_'.join(key_parts)
-        except Exception as e:
-            self.logger.warning(f"生成实例键失败，使用默认键: {e}")
-            return "default_browser_instance"
-
-    def _check_existing_browser(self, debug_port: int) -> bool:
-        """
-        检查是否有现有浏览器在指定调试端口运行，并且 CDP 端点可用
-
-        Args:
-            debug_port: 调试端口号
-
-        Returns:
-            bool: 是否有现有浏览器且 CDP 端点可用
-        """
-        try:
-            import socket
-            import urllib.request
-            import json
-
-            # 第一步：检查端口是否被占用
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(1)  # 1秒超时
-            result = sock.connect_ex(('localhost', int(debug_port)))
-            sock.close()
-
-            if result != 0:
-                self.logger.debug(f"🔍 端口 {debug_port} 未被占用")
-                return False
-
-            # 第二步：验证 CDP 端点是否可用
-            cdp_url = f"http://localhost:{debug_port}/json/version"
-            try:
-                req = urllib.request.Request(cdp_url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=2) as response:
-                    data = json.loads(response.read().decode('utf-8'))
-                    # 检查是否有 webSocketDebuggerUrl 字段
-                    if 'webSocketDebuggerUrl' in data:
-                        self.logger.debug(f"✅ 检测到现有浏览器实例在端口 {debug_port}，CDP 端点可用")
-                        return True
-                    else:
-                        self.logger.warning(f"⚠️ 端口 {debug_port} 被占用，但 CDP 端点不可用")
-                        return False
-            except Exception as cdp_error:
-                self.logger.warning(f"⚠️ 端口 {debug_port} 被占用，但无法访问 CDP 端点: {cdp_error}")
-                return False
-
-        except Exception as e:
-            self.logger.debug(f"检查现有浏览器失败: {e}")
-            return False
+            self.logger.info(f"🚀 浏览器服务创建完成")
 
     # ==================== 核心服务方法 ====================
 
     async def initialize(self) -> bool:
-        """初始化浏览器服务"""
+        """
+        初始化浏览器服务 - 简化版：只支持启动模式
+
+        🔧 简化说明：
+        - 移除 CDP 连接模式（避免 connect_over_cdp 的 hang 问题）
+        - 只保留浏览器启动模式
+        - 更可靠和可预测
+        """
         try:
             if self._initialized:
                 return True
-            
+
             self.logger.info("🔧 开始初始化浏览器服务")
-            
-            # 检查共享实例
-            if self._use_shared_browser:
-                async with self._instance_lock:
-                    if self._instance_key in self._shared_instances:
-                        shared_driver = self._shared_instances[self._instance_key]
-                        if shared_driver and shared_driver.is_initialized():
-                            self.browser_driver = shared_driver
-                            self._initialized = True
-                            self.logger.info(f"✅ 复用现有浏览器实例: {self._instance_key}")
-                            return True
 
             # 准备浏览器配置
             browser_config = self._prepare_browser_config()
 
-            # 🆕 智能检测：如果配置中没有明确指定 connect_to_existing，则自动检测
-            connect_to_existing = browser_config.get('connect_to_existing', None)
+            # 🔧 简化：直接启动新浏览器（移除 CDP 连接模式）
+            self.logger.info(f"🚀 启动新浏览器")
+            self.browser_driver = SimplifiedPlaywrightBrowserDriver(browser_config)
 
-            if connect_to_existing is None:
-                # 自动检测浏览器是否运行
-                debug_port = browser_config.get('debug_port', 9222)
-                has_existing_browser = self._check_existing_browser(debug_port)
+            try:
+                success = await self.browser_driver.initialize()
 
-                if has_existing_browser:
-                    # 检测到现有浏览器，切换到连接模式
-                    connect_to_existing = f"http://localhost:{debug_port}"
-                    browser_config['connect_to_existing'] = connect_to_existing
-                    self.logger.info(f"🔗 检测到现有浏览器，将连接到端口 {debug_port}")
-                else:
-                    # 未检测到浏览器，切换到启动模式
-                    connect_to_existing = False
-                    browser_config['connect_to_existing'] = False
-                    self.logger.info(f"🚀 未检测到浏览器，将自动启动")
-            else:
-                # 手动配置优先级高于自动检测
-                if connect_to_existing:
-                    self.logger.info(f"🔗 使用手动配置：连接模式")
-                else:
-                    self.logger.info(f"🚀 使用手动配置：启动模式")
-
-            if connect_to_existing:
-                # 连接到现有浏览器
-                self.logger.info(f"🔗 尝试连接到现有浏览器")
-                self.browser_driver = SimplifiedPlaywrightBrowserDriver(browser_config)
-
-                # 使用 CDP 连接
-                cdp_url = connect_to_existing if isinstance(connect_to_existing, str) else f"http://localhost:{browser_config.get('debug_port', 9222)}"
-
-                try:
-                    success = await self.browser_driver.connect_to_existing_browser(cdp_url)
-
-                    if not success:
-                        error_msg = (
-                            f"❌ 连接现有浏览器失败\n"
-                            f"💡 解决方案：\n"
-                            f"   1. 确保浏览器的调试端口 {browser_config.get('debug_port', 9222)} 已开启\n"
-                            f"   2. 或关闭所有浏览器窗口，让系统自动启动"
-                        )
-                        self.logger.error(error_msg)
-                        self.browser_driver = None
-                        raise RuntimeError(error_msg)
-
-                    self.logger.info(f"✅ 成功连接到现有浏览器")
-
-                except Exception as e:
-                    self.logger.error(f"❌ 连接浏览器异常: {e}")
+                if not success:
+                    error_msg = "❌ 浏览器启动失败"
+                    self.logger.error(error_msg)
                     self.browser_driver = None
-                    raise
-            else:
-                # 启动新浏览器
-                self.logger.info(f"🚀 启动新浏览器")
-                self.browser_driver = SimplifiedPlaywrightBrowserDriver(browser_config)
+                    raise RuntimeError(error_msg)
 
-                try:
-                    success = await self.browser_driver.initialize()
+                self.logger.info(f"✅ 浏览器启动成功")
 
-                    if not success:
-                        error_msg = "❌ 浏览器启动失败"
-                        self.logger.error(error_msg)
-                        self.browser_driver = None
-                        raise RuntimeError(error_msg)
-
-                    self.logger.info(f"✅ 浏览器启动成功")
-
-                except Exception as e:
-                    self.logger.error(f"❌ 启动浏览器异常: {e}")
-                    self.browser_driver = None
-                    raise
-
-            # 加入共享池
-            if self._use_shared_browser:
-                async with self._instance_lock:
-                    self._shared_instances[self._instance_key] = self.browser_driver
-                    self.logger.info(f"📝 新浏览器实例已加入共享池: {self._instance_key}")
+            except Exception as e:
+                self.logger.error(f"❌ 启动浏览器异常: {e}")
+                self.browser_driver = None
+                raise
 
             self._initialized = True
             self.logger.info("✅ 浏览器服务初始化完成")
@@ -248,10 +117,24 @@ class SimplifiedBrowserService:
 
         except Exception as e:
             self.logger.error(f"❌ 浏览器服务初始化失败: {e}")
-            # 🔧 确保异常时 browser_driver 为 None
+
+            # 🔧 关键修复：清理失败状态
             self.browser_driver = None
-            # 🔧 浏览器错误应该终止程序，而不是返回 False
-            raise BrowserError(f"浏览器服务初始化失败: {e}") from e
+            self._initialized = False
+            self._browser_started = False
+
+            # 🔧 关键修复：通知全局单例重置（如果使用全局单例）
+            try:
+                from common.scrapers.global_browser_singleton import reset_global_browser_on_failure
+                reset_global_browser_on_failure()
+                self.logger.info("🔄 已重置全局浏览器单例")
+            except ImportError:
+                # 如果不使用全局单例，忽略
+                pass
+
+            # 🔧 关键修复：清理完成后退出程序
+            self.logger.critical(f"💀 浏览器初始化失败，程序即将退出")
+            sys.exit(1)
 
     async def start_browser(self) -> bool:
         """启动浏览器"""
@@ -318,23 +201,9 @@ class SimplifiedBrowserService:
     async def close(self) -> bool:
         """关闭浏览器服务"""
         try:
-            # 如果使用共享浏览器，不关闭共享实例
-            if self._use_shared_browser and self._instance_key in self._shared_instances:
-                self.logger.info(f"🔄 保持共享浏览器实例运行: {self._instance_key}")
-                self._initialized = False
-                self._browser_started = False
-                return True
-
-            # 非共享模式，正常关闭
+            # 关闭浏览器驱动
             if self.browser_driver:
                 await self.browser_driver.shutdown()
-
-                # 从共享池中移除
-                if self._use_shared_browser:
-                    async with self._instance_lock:
-                        if self._instance_key in self._shared_instances:
-                            del self._shared_instances[self._instance_key]
-                            self.logger.info(f"🗑️ 已从共享池移除浏览器实例: {self._instance_key}")
 
             self._initialized = False
             self._browser_started = False
@@ -344,6 +213,23 @@ class SimplifiedBrowserService:
         except Exception as e:
             self.logger.error(f"❌ 关闭浏览器服务失败: {e}")
             return False
+
+
+
+    # ==================== 页面访问属性 ====================
+
+    @property
+    def page(self):
+        """获取浏览器页面对象（兼容性属性）"""
+        if not self.browser_driver:
+            return None
+        return self.browser_driver.get_page()
+
+    def get_page(self):
+        """获取浏览器页面对象"""
+        if not self.browser_driver:
+            return None
+        return self.browser_driver.get_page()
 
     # ==================== 组件访问方法 ====================
 
@@ -407,24 +293,8 @@ class SimplifiedBrowserService:
     # ==================== 内部方法 ====================
 
     def _prepare_browser_config(self) -> Dict[str, Any]:
-        """准备浏览器配置"""
-        browser_config = self.config.browser_config.to_dict()
-        
-        # 确保传递关键配置
-        if hasattr(self.config.browser_config, 'user_data_dir'):
-            browser_config['user_data_dir'] = self.config.browser_config.user_data_dir
-        
-        # 🔧 传递浏览器复用配置
-        if hasattr(self.config.browser_config, 'connect_to_existing'):
-            browser_config['connect_to_existing'] = self.config.browser_config.connect_to_existing
-
-        # 🆕 确保传递 debug_port（默认 9222）
-        if hasattr(self.config.browser_config, 'debug_port'):
-            browser_config['debug_port'] = self.config.browser_config.debug_port
-        else:
-            browser_config['debug_port'] = 9222  # 默认端口
-
-        return browser_config
+        """准备浏览器配置 - 直接使用 to_dict() 转换"""
+        return self.config.browser_config.to_dict()
 
     async def _initialize_page_components(self) -> None:
         """初始化页面组件"""
@@ -457,26 +327,6 @@ class SimplifiedBrowserService:
             self.logger.error(f"❌ 页面组件初始化失败: {e}")
             raise
 
-    @classmethod
-    async def cleanup_all_shared_instances(cls) -> bool:
-        """清理所有共享浏览器实例"""
-        try:
-            async with cls._instance_lock:
-                for instance_key, driver in cls._shared_instances.items():
-                    try:
-                        if driver and hasattr(driver, 'shutdown'):
-                            await driver.shutdown()
-                    except Exception as e:
-                        print(f"清理共享实例 {instance_key} 失败: {e}")
-
-                cls._shared_instances.clear()
-                print("✅ 所有共享浏览器实例已清理")
-                return True
-
-        except Exception as e:
-            print(f"❌ 清理共享实例失败: {e}")
-            return False
-
 
 # ==================== 工厂函数 ====================
 
@@ -485,10 +335,7 @@ def create_simplified_browser_service(config: Optional[Dict[str, Any]] = None) -
     return SimplifiedBrowserService(config)
 
 def create_shared_browser_service(config: Optional[Dict[str, Any]] = None) -> SimplifiedBrowserService:
-    """创建共享浏览器服务"""
-    if config is None:
-        config = {}
-    config['use_shared_browser'] = True
+    """创建共享浏览器服务（推荐使用 global_browser_singleton）"""
     return SimplifiedBrowserService(config)
 
 def create_headless_browser_service() -> SimplifiedBrowserService:

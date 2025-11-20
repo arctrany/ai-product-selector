@@ -207,24 +207,28 @@ class TestBaseScraper:
         # Act & Assert - 不应该抛出异常
         self.scraper.close()
 
-    def test_close_with_browser_service_exception(self):
+    def test_close_with_browser_service_exception(self, caplog):
         """测试 close 方法处理 browser_service.close() 异常"""
         # Arrange
         self.scraper.browser_service = self.mock_browser_service
-        self.mock_browser_service.close.side_effect = Exception("关闭失败")
-        
+        self.mock_browser_service.close.side_effect = Exception("测试用异常：关闭失败")
+
         # Act & Assert - 不应该抛出异常，异常应该被捕获
-        self.scraper.close()
-        
+        with caplog.at_level(logging.WARNING):
+            self.scraper.close()
+
         # 验证仍然调用了 close
         self.mock_browser_service.close.assert_called_once()
+
+        # 验证日志中记录了警告信息
+        assert "关闭浏览器服务时出错" in caplog.text
 
     def test_close_with_scraper_components(self):
         """测试 close 方法关闭其他 scraper 组件"""
         # Arrange
         mock_component = MagicMock()
         mock_component.close = MagicMock()
-        self.scraper.test_scraper = mock_component
+        self.scraper.mock_test_scraper = mock_component  # 使用更清晰的命名
         
         # Act
         self.scraper.close()
@@ -232,18 +236,23 @@ class TestBaseScraper:
         # Assert
         mock_component.close.assert_called_once()
 
-    def test_close_with_scraper_component_exception(self):
+    def test_close_with_scraper_component_exception(self, caplog):
         """测试 close 方法处理 scraper 组件关闭异常"""
         # Arrange
         mock_component = MagicMock()
-        mock_component.close = MagicMock(side_effect=Exception("组件关闭失败"))
-        self.scraper.test_scraper = mock_component
-        
-        # Act & Assert - 不应该抛出异常
-        self.scraper.close()
-        
+        mock_component.close = MagicMock(side_effect=Exception("测试用异常：模拟组件关闭失败"))
+        self.scraper.mock_test_scraper = mock_component  # 使用更清晰的命名
+
+        # Act & Assert - 不应该抛出异常，异常应该被日志记录
+        with caplog.at_level(logging.WARNING):
+            self.scraper.close()
+
         # 验证仍然调用了 close
         mock_component.close.assert_called_once()
+
+        # 验证日志中记录了警告信息，但不会显示在测试输出中
+        assert "关闭 mock_test_scraper 时出错" in caplog.text
+        assert "测试用异常：模拟组件关闭失败" in caplog.text
 
     def test_del_calls_close(self):
         """测试 __del__ 方法调用 close"""
@@ -256,12 +265,15 @@ class TestBaseScraper:
         # Assert
         self.mock_browser_service.close.assert_called_once()
 
-    def test_del_handles_exception(self):
+    def test_del_handles_exception(self, caplog):
         """测试 __del__ 方法处理异常"""
         # Arrange
-        with patch.object(self.scraper, 'close', side_effect=Exception("删除失败")):
-            # Act & Assert - 不应该抛出异常
-            self.scraper.__del__()
+        with patch.object(self.scraper, 'close', side_effect=Exception("测试用异常：析构失败")):
+            # Act & Assert - 不应该抛出异常，异常应该被静默处理
+            with caplog.at_level(logging.ERROR):
+                self.scraper.__del__()
+
+        # __del__ 方法中的异常应该被静默处理，不记录日志
 
     # ==================== 上下文管理器测试 ====================
 

@@ -24,7 +24,7 @@ sys.path.insert(0, str(project_root))
 from common.config import get_config
 from common.scrapers.erp_plugin_scraper import ErpPluginScraper
 from common.scrapers.ozon_scraper import OzonScraper
-from common.scrapers.xuanping_browser_service import XuanpingBrowserService
+from common.scrapers.global_browser_singleton import get_global_browser_service
 from common.models import ProductInfo, ScrapingResult
 
 
@@ -80,15 +80,9 @@ class ErpOzonIntegrationTester:
     async def _setup_browser_service(self):
         """设置浏览器服务"""
         try:
-            browser_config = {
-                'browser_type': 'edge',
-                'headless': False,
-                'port': 9222
-            }
-            self.browser_service = XuanpingBrowserService(browser_config)
-            await self.browser_service.initialize()
-            await self.browser_service.start_browser()
-            print("✅ 共享浏览器服务初始化成功")
+            # 使用全局浏览器服务（自动初始化）
+            self.browser_service = get_global_browser_service()
+            print("✅ 全局浏览器服务获取成功")
         except Exception as e:
             raise Exception(f"浏览器服务初始化失败: {e}")
 

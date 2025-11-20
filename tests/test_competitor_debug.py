@@ -17,7 +17,7 @@ import os
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from common.scrapers.xuanping_browser_service import XuanpingBrowserService
+from common.scrapers.global_browser_singleton import get_global_browser_service
 from common.scrapers.competitor_scraper import CompetitorScraper
 from common.config.ozon_selectors import get_ozon_selectors_config
 
@@ -41,10 +41,8 @@ async def debug_competitor_extraction(url: str, description: str):
     
     browser_service = None
     try:
-        # 初始化浏览器服务
-        browser_service = XuanpingBrowserService()
-        await browser_service.initialize()
-        await browser_service.start_browser()
+        # 使用全局浏览器服务
+        browser_service = get_global_browser_service()
 
         # 导航到页面
         success = await browser_service.navigate_to(url)

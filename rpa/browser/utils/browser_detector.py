@@ -6,9 +6,9 @@
 
 import os
 import platform
-import sqlite3
+
 import subprocess
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 import logging
 
 
@@ -19,13 +19,10 @@ class BrowserDetector:
         self.logger = logging.getLogger(__name__)
         self.system = platform.system()
         
-    def detect_active_profile(self, target_domain: str = "seerfar.cn") -> Optional[str]:
+    def detect_active_profile(self) -> Optional[str]:
         """
-        检测有指定域名登录态的 Profile
-        
-        Args:
-            target_domain: 目标域名，用于验证登录态
-            
+        检测最近使用的浏览器 Profile
+
         Returns:
             Profile 名称，如 "Profile 1"、"Default" 等，未找到返回 None
         """
@@ -34,19 +31,19 @@ class BrowserDetector:
             if not user_data_dir or not os.path.exists(user_data_dir):
                 self.logger.warning(f"Edge 用户数据目录不存在: {user_data_dir}")
                 return None
-            
-            # 获取所有 Profile
+
+            # 获取所有 Profile（已按最近使用时间排序）
             profiles = self._list_profiles(user_data_dir)
             self.logger.info(f"🔍 发现 {len(profiles)} 个 Profile: {profiles}")
-            
-            # 检查每个 Profile 是否有目标域名的登录态
-            for profile in profiles:
-                if self._has_login_cookies(user_data_dir, profile, target_domain):
-                    self.logger.info(f"✅ 找到有 {target_domain} 登录态的 Profile: {profile}")
-                    return profile
-            
-            self.logger.warning(f"⚠️ 未找到有 {target_domain} 登录态的 Profile")
-            return None
+
+            if not profiles:
+                self.logger.warning("⚠️ 未找到任何 Profile")
+                return None
+
+            # 返回最近使用的 Profile
+            most_recent_profile = profiles[0]
+            self.logger.info(f"✅ 使用最近使用的 Profile: {most_recent_profile}")
+            return most_recent_profile
             
         except Exception as e:
             self.logger.error(f"❌ 检测 Profile 失败: {e}")
@@ -90,67 +87,78 @@ class BrowserDetector:
         
         return profiles
     
-    def _has_login_cookies(self, user_data_dir: str, profile: str, domain: str) -> bool:
+    def is_profile_locked(self, profile_path: str) -> bool:
         """
-        检查指定 Profile 是否有目标域名的登录 Cookies
-        
+        检查 Profile 是否被锁定
+
+        Args:
+            profile_path: Profile 的完整路径
+
+        Returns:
+            True 表示被锁定，False 表示未锁定
+        """
+        try:
+            if not os.path.exists(profile_path):
+                return False
+
+            # 检查锁定文件
+            # Chromium/Edge 使用多种锁定机制
+            lock_files = [
+                "Singleton Lock",  # Linux/macOS
+                "lockfile",        # Linux
+                "SingletonLock",   # Windows
+            ]
+
+            for lock_file in lock_files:
+                lock_path = os.path.join(profile_path, lock_file)
+                if os.path.exists(lock_path):
+                    self.logger.debug(f"🔒 发现锁定文件: {lock_path}")
+                    return True
+
+            return False
+
+        except Exception as e:
+            self.logger.warning(f"检查 Profile 锁定状态失败: {e}")
+            # 出错时保守处理，假设未锁定
+            return False
+
+    def is_profile_available(self, user_data_dir: str, profile_name: str) -> bool:
+        """
+        检查 Profile 是否可用（存在且未被锁定）
+
         Args:
             user_data_dir: 用户数据目录
-            profile: Profile 名称
-            domain: 目标域名
-            
+            profile_name: Profile 名称
+
         Returns:
-            是否有登录态
+            True 表示可用，False 表示不可用
         """
-        cookies_db = os.path.join(user_data_dir, profile, "Cookies")
-        
-        if not os.path.exists(cookies_db):
-            self.logger.debug(f"Cookies 文件不存在: {cookies_db}")
-            return False
-        
         try:
-            # 创建临时副本以避免数据库锁定
-            import tempfile
-            import shutil
-            
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp_file:
-                tmp_cookies_db = tmp_file.name
-            
-            try:
-                shutil.copy2(cookies_db, tmp_cookies_db)
-                
-                # 查询 Cookies
-                conn = sqlite3.connect(tmp_cookies_db)
-                cursor = conn.cursor()
-                
-                # 查找包含目标域名的 cookies
-                cursor.execute(
-                    "SELECT name FROM cookies WHERE host_key LIKE ? LIMIT 1",
-                    (f"%{domain}%",)
-                )
-                
-                result = cursor.fetchone()
-                conn.close()
-                
-                has_cookies = result is not None
-                if has_cookies:
-                    self.logger.debug(f"✅ {profile} 有 {domain} 的 cookies")
-                else:
-                    self.logger.debug(f"❌ {profile} 没有 {domain} 的 cookies")
-                
-                return has_cookies
-                
-            finally:
-                # 清理临时文件
-                try:
-                    os.unlink(tmp_cookies_db)
-                except:
-                    pass
-                    
+            profile_path = os.path.join(user_data_dir, profile_name)
+
+            # 检查 Profile 目录是否存在
+            if not os.path.exists(profile_path):
+                self.logger.warning(f"⚠️ Profile 不存在: {profile_path}")
+                return False
+
+            # 检查是否可访问（读写权限）
+            if not os.access(profile_path, os.R_OK | os.W_OK):
+                self.logger.warning(f"⚠️ Profile 无访问权限: {profile_path}")
+                return False
+
+            # 检查是否被锁定
+            if self.is_profile_locked(profile_path):
+                self.logger.warning(f"🔒 Profile 已被锁定: {profile_path}")
+                return False
+
+            self.logger.info(f"✅ Profile 可用: {profile_path}")
+            return True
+
         except Exception as e:
-            self.logger.error(f"检查 Cookies 失败: {e}")
+            self.logger.error(f"❌ 检查 Profile 可用性失败: {e}")
             return False
-    
+
+
     def is_browser_running(self) -> bool:
         """检查 Edge 浏览器是否正在运行"""
         try:
@@ -177,15 +185,110 @@ class BrowserDetector:
                 return result.returncode == 0
             else:
                 return False
-                
+
         except Exception as e:
             self.logger.error(f"检查浏览器进程失败: {e}")
             return False
-    
-    def get_browser_info(self) -> Dict[str, any]:
+
+    def kill_browser_processes(self, force: bool = True) -> bool:
+        """
+        清理僵尸浏览器进程
+
+        Args:
+            force: 是否强制杀死进程（使用 SIGKILL/-9）
+
+        Returns:
+            True 表示成功清理，False 表示清理失败
+        """
+        try:
+            self.logger.info("🧹 开始清理浏览器进程...")
+
+            if self.system == "Darwin":  # macOS
+                # 使用 pkill 命令清理 Edge 进程
+                signal_flag = "-9" if force else "-15"
+                result = subprocess.run(
+                    ["pkill", signal_flag, "-f", "Microsoft Edge"],
+                    capture_output=True,
+                    text=True
+                )
+                # pkill 返回 0 表示成功杀死进程，返回 1 表示没有找到进程
+                success = result.returncode in [0, 1]
+
+            elif self.system == "Windows":
+                # 使用 taskkill 命令清理 Edge 进程
+                force_flag = "/F" if force else ""
+                result = subprocess.run(
+                    ["taskkill", force_flag, "/IM", "msedge.exe", "/T"],
+                    capture_output=True,
+                    text=True
+                )
+                success = result.returncode == 0 or "not found" in result.stdout.lower()
+
+            elif self.system == "Linux":
+                # 使用 pkill 命令清理 Edge 进程
+                signal_flag = "-9" if force else "-15"
+                result = subprocess.run(
+                    ["pkill", signal_flag, "-f", "microsoft-edge"],
+                    capture_output=True,
+                    text=True
+                )
+                success = result.returncode in [0, 1]
+
+            else:
+                self.logger.warning(f"不支持的操作系统: {self.system}")
+                return False
+
+            if success:
+                self.logger.info("✅ 浏览器进程清理完成")
+                # 等待进程完全退出
+                import time
+                time.sleep(1)
+                return True
+            else:
+                self.logger.warning("⚠️ 浏览器进程清理可能失败")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"❌ 清理浏览器进程失败: {e}")
+            return False
+
+    def wait_for_profile_unlock(self, profile_path: str, max_wait_seconds: int = 5) -> bool:
+        """
+        等待 Profile 解锁
+
+        Args:
+            profile_path: Profile 的完整路径
+            max_wait_seconds: 最大等待时间（秒）
+
+        Returns:
+            True 表示 Profile 已解锁，False 表示仍然被锁定
+        """
+        try:
+            import time
+            waited = 0
+            check_interval = 0.5  # 每 0.5 秒检查一次
+
+            self.logger.info(f"⏳ 等待 Profile 解锁（最多 {max_wait_seconds} 秒）...")
+
+            while waited < max_wait_seconds:
+                if not self.is_profile_locked(profile_path):
+                    self.logger.info(f"✅ Profile 已解锁（等待了 {waited:.1f} 秒）")
+                    return True
+
+                time.sleep(check_interval)
+                waited += check_interval
+
+            self.logger.warning(f"⚠️ Profile 仍然被锁定（已等待 {max_wait_seconds} 秒）")
+            return False
+
+        except Exception as e:
+            self.logger.error(f"❌ 等待 Profile 解锁失败: {e}")
+            return False
+
+    def get_browser_info(self) -> Dict[str, Any]:
         """
         获取浏览器信息
-        
+
         Returns:
             包含浏览器信息的字典
         """
@@ -195,216 +298,29 @@ class BrowserDetector:
             "active_profile": None,
             "all_profiles": []
         }
-        
+
         if info["user_data_dir"] and os.path.exists(info["user_data_dir"]):
             info["all_profiles"] = self._list_profiles(info["user_data_dir"])
             info["active_profile"] = self.detect_active_profile()
-        
+
         return info
 
-    def check_domain_login(self, profile: str, domain: str) -> Dict[str, any]:
-        """
-        检查指定 Profile 对某个域名的登录状态
 
-        Args:
-            profile: Profile 名称
-            domain: 域名
-
-        Returns:
-            包含登录状态信息的字典
-        """
-        user_data_dir = self._get_edge_user_data_dir()
-        if not user_data_dir or not os.path.exists(user_data_dir):
-            return {
-                "domain": domain,
-                "has_login": False,
-                "cookie_count": 0,
-                "error": "用户数据目录不存在"
-            }
-
-        cookies_db = os.path.join(user_data_dir, profile, "Cookies")
-
-        if not os.path.exists(cookies_db):
-            return {
-                "domain": domain,
-                "has_login": False,
-                "cookie_count": 0,
-                "error": "Cookies 文件不存在"
-            }
-
-        try:
-            import tempfile
-            import shutil
-
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp_file:
-                tmp_cookies_db = tmp_file.name
-
-            try:
-                shutil.copy2(cookies_db, tmp_cookies_db)
-
-                conn = sqlite3.connect(tmp_cookies_db)
-                cursor = conn.cursor()
-
-                # 查询该域名的所有 cookies
-                cursor.execute(
-                    "SELECT name, value, expires_utc FROM cookies WHERE host_key LIKE ?",
-                    (f"%{domain}%",)
-                )
-
-                cookies = cursor.fetchall()
-                conn.close()
-
-                return {
-                    "domain": domain,
-                    "has_login": len(cookies) > 0,
-                    "cookie_count": len(cookies),
-                    "error": None
-                }
-
-            finally:
-                try:
-                    os.unlink(tmp_cookies_db)
-                except:
-                    pass
-
-        except Exception as e:
-            return {
-                "domain": domain,
-                "has_login": False,
-                "cookie_count": 0,
-                "error": str(e)
-            }
-
-    def analyze_all_profiles_login_status(self, domains: List[str]) -> Dict[str, Dict[str, any]]:
-        """
-        分析所有 Profile 对指定域名列表的登录状态
-
-        Args:
-            domains: 需要检查的域名列表
-
-        Returns:
-            {
-                "Profile 1": {
-                    "seerfar.cn": {"has_login": True, "cookie_count": 3},
-                    "www.maozierp.com": {"has_login": True, "cookie_count": 1}
-                },
-                ...
-            }
-        """
-        user_data_dir = self._get_edge_user_data_dir()
-        if not user_data_dir or not os.path.exists(user_data_dir):
-            self.logger.error("用户数据目录不存在")
-            return {}
-
-        profiles = self._list_profiles(user_data_dir)
-        result = {}
-
-        for profile in profiles:
-            profile_status = {}
-            for domain in domains:
-                status = self.check_domain_login(profile, domain)
-                profile_status[domain] = {
-                    "has_login": status["has_login"],
-                    "cookie_count": status["cookie_count"]
-                }
-            result[profile] = profile_status
-
-        return result
-
-    def validate_required_logins(self, required_domains: List[str]) -> tuple[bool, List[str], str]:
-        """
-        验证所有必需域名的登录态（AND 逻辑）
-
-        Args:
-            required_domains: 必需登录的域名列表
-
-        Returns:
-            (是否全部已登录, 未登录的域名列表, 使用的 Profile)
-        """
-        if not required_domains:
-            self.logger.info("未配置必需登录域名，跳过检查")
-            return True, [], None
-
-        user_data_dir = self._get_edge_user_data_dir()
-        if not user_data_dir or not os.path.exists(user_data_dir):
-            self.logger.error("用户数据目录不存在")
-            return False, required_domains, None
-
-        profiles = self._list_profiles(user_data_dir)
-
-        # 尝试找到一个所有域名都已登录的 Profile
-        for profile in profiles:
-            missing_domains = []
-
-            for domain in required_domains:
-                if not self._has_login_cookies(user_data_dir, profile, domain):
-                    missing_domains.append(domain)
-
-            # 如果这个 Profile 所有域名都已登录
-            if not missing_domains:
-                self.logger.info(f"✅ {profile} 所有必需域名都已登录: {required_domains}")
-                return True, [], profile
-
-        # 没有找到满足条件的 Profile，返回第一个 Profile 的缺失域名
-        if profiles:
-            first_profile = profiles[0]
-            missing_domains = []
-            for domain in required_domains:
-                if not self._has_login_cookies(user_data_dir, first_profile, domain):
-                    missing_domains.append(domain)
-
-            self.logger.warning(f"⚠️ {first_profile} 缺少以下域名的登录态: {missing_domains}")
-            return False, missing_domains, first_profile
-
-        # 没有任何 Profile
-        self.logger.error("未找到任何 Profile")
-        return False, required_domains, None
-
-    def print_login_status_report(self, domains: List[str]) -> None:
-        """
-        打印所有 Profile 的登录状态详细报告
-
-        Args:
-            domains: 需要检查的域名列表
-        """
-        print("\n" + "="*80)
-        print("📊 浏览器登录状态详细报告")
-        print("="*80)
-
-        status = self.analyze_all_profiles_login_status(domains)
-
-        if not status:
-            print("❌ 未找到任何 Profile 或用户数据目录不存在")
-            return
-
-        for profile, domain_status in status.items():
-            print(f"\n🔹 {profile}")
-            print("-" * 60)
-
-            for domain, info in domain_status.items():
-                status_icon = "✅" if info["has_login"] else "❌"
-                cookie_info = f"({info['cookie_count']} cookies)" if info["has_login"] else ""
-                print(f"  {status_icon} {domain:30s} {cookie_info}")
-
-        print("\n" + "="*80)
 
 
 # 便捷函数
-def detect_active_profile(target_domain: str = "seerfar.cn") -> Optional[str]:
+def detect_active_profile() -> Optional[str]:
     """
-    检测有指定域名登录态的 Profile
-    
-    Args:
-        target_domain: 目标域名
-        
+    检测最近使用的浏览器 Profile
+
     Returns:
         Profile 名称或 None
     """
     detector = BrowserDetector()
-    return detector.detect_active_profile(target_domain)
+    return detector.detect_active_profile()
 
 
-def get_browser_info() -> Dict[str, any]:
+def get_browser_info() -> Dict[str, Any]:
     """获取浏览器信息"""
     detector = BrowserDetector()
     return detector.get_browser_info()

@@ -9,18 +9,20 @@ import time
 import re
 from typing import Dict, Any, List, Optional, Callable
 
-from .xuanping_browser_service import XuanpingBrowserServiceSync
+from .base_scraper import BaseScraper
+from .global_browser_singleton import get_global_browser_service
 from .scraper_utils import ScraperUtils
 from ..models import ScrapingResult
 from common.config import GoodStoreSelectorConfig
 from common.config.seerfar_selectors import get_seerfar_selector
 
 
-class SeerfarScraper:
+class SeerfarScraper(BaseScraper):
     """Seerfar平台抓取器"""
 
     def __init__(self, config: Optional[GoodStoreSelectorConfig] = None):
         """初始化Seerfar抓取器"""
+        super().__init__()
         from common.config import get_config
         import logging
 
@@ -29,8 +31,8 @@ class SeerfarScraper:
         self.base_url = self.config.scraping.seerfar_base_url
         self.store_detail_path = self.config.scraping.seerfar_store_detail_path
 
-        # 创建浏览器服务
-        self.browser_service = XuanpingBrowserServiceSync()
+        # 使用全局浏览器服务
+        self.browser_service = get_global_browser_service()
 
     def scrape_store_sales_data(self, store_id: str, store_filter_func=None) -> ScrapingResult:
         """
@@ -51,8 +53,8 @@ class SeerfarScraper:
             self.logger.info(f"🧪 试运行模式 - Seerfar店铺销售数据抓取入参: 店铺ID={store_id}, URL={url}")
             self.logger.info("🧪 试运行模式 - 执行真实的销售数据抓取流程（结果不会保存到文件）")
 
-        # 使用浏览器服务抓取数据
-        result = self.browser_service.scrape_page_data(url, self._extract_sales_data_async)
+        # 使用继承的抓取方法
+        result = self.scrape_page_data(url, self._extract_sales_data_async)
 
         # 如果提供了过滤函数，则应用过滤
         # 注意：需要将字段名转换为统一格式
@@ -154,8 +156,8 @@ class SeerfarScraper:
                     )
                     return {'products': products, 'total_count': len(products)}
 
-                # 使用浏览器服务抓取数据
-                products_result = self.browser_service.scrape_page_data(url, extract_products)
+                # 使用继承的抓取方法
+                products_result = self.scrape_page_data(url, extract_products)
 
                 if products_result.success:
                     result_data['products'] = products_result.data['products']
@@ -941,15 +943,3 @@ class SeerfarScraper:
             self.logger.error(f"❌ 重量提取失败: {e}")
             return None
 
-    def close(self):
-        """关闭抓取器"""
-        if hasattr(self, 'browser_service'):
-            self.browser_service.close()
-
-    def __enter__(self):
-        """上下文管理器入口"""
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """上下文管理器出口"""
-        self.close()

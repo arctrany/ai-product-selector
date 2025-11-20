@@ -168,39 +168,106 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             return False
 
     async def shutdown(self) -> bool:
-        """关闭浏览器驱动"""
+        """关闭浏览器驱动 - 修复AsyncIO事件循环错误"""
         if not self._initialized:
             return True
-        
+
         try:
             self._logger.info("Shutting down Playwright browser driver...")
-            
-            # 关闭页面
+
+            # 🔧 关键修复：安全关闭页面，处理事件循环冲突
             if self.page:
-                await self.page.close()
-                self.page = None
-            
-            # 关闭上下文
+                try:
+                    # 检查事件循环状态
+                    loop = asyncio.get_running_loop()
+                    if loop.is_running():
+                        await self.page.close()
+                    else:
+                        self._logger.warning("Event loop not running, skipping page close")
+                except RuntimeError as e:
+                    if "different loop" in str(e):
+                        self._logger.warning(f"Event loop conflict when closing page: {e}")
+                        # 尝试在正确的事件循环中关闭
+                        try:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            loop.run_until_complete(self.page.close())
+                            loop.close()
+                        except Exception as inner_e:
+                            self._logger.error(f"Failed to close page in new loop: {inner_e}")
+                    else:
+                        self._logger.error(f"Runtime error closing page: {e}")
+                except Exception as e:
+                    self._logger.error(f"Error closing page: {e}")
+                finally:
+                    self.page = None
+
+            # 🔧 关键修复：安全关闭上下文
             if self.context:
-                await self.context.close()
-                self.context = None
-            
-            # 关闭浏览器（仅非持久化上下文）
+                try:
+                    loop = asyncio.get_running_loop()
+                    if loop.is_running():
+                        await self.context.close()
+                    else:
+                        self._logger.warning("Event loop not running, skipping context close")
+                except RuntimeError as e:
+                    if "different loop" in str(e):
+                        self._logger.warning(f"Event loop conflict when closing context: {e}")
+                    else:
+                        self._logger.error(f"Runtime error closing context: {e}")
+                except Exception as e:
+                    self._logger.error(f"Error closing context: {e}")
+                finally:
+                    self.context = None
+
+            # 🔧 关键修复：安全关闭浏览器（仅非持久化上下文）
             if self.browser and not self._is_persistent_context:
-                await self.browser.close()
-                self.browser = None
-            
-            # 关闭 Playwright
+                try:
+                    loop = asyncio.get_running_loop()
+                    if loop.is_running():
+                        await self.browser.close()
+                    else:
+                        self._logger.warning("Event loop not running, skipping browser close")
+                except RuntimeError as e:
+                    if "different loop" in str(e):
+                        self._logger.warning(f"Event loop conflict when closing browser: {e}")
+                    else:
+                        self._logger.error(f"Runtime error closing browser: {e}")
+                except Exception as e:
+                    self._logger.error(f"Error closing browser: {e}")
+                finally:
+                    self.browser = None
+
+            # 🔧 关键修复：安全关闭 Playwright
             if self.playwright:
-                await self.playwright.stop()
-                self.playwright = None
-            
+                try:
+                    loop = asyncio.get_running_loop()
+                    if loop.is_running():
+                        await self.playwright.stop()
+                    else:
+                        self._logger.warning("Event loop not running, skipping playwright stop")
+                except RuntimeError as e:
+                    if "different loop" in str(e):
+                        self._logger.warning(f"Event loop conflict when stopping playwright: {e}")
+                    else:
+                        self._logger.error(f"Runtime error stopping playwright: {e}")
+                except Exception as e:
+                    self._logger.error(f"Error stopping playwright: {e}")
+                finally:
+                    self.playwright = None
+
             self._initialized = False
             self._logger.info("Playwright browser driver shutdown successfully")
             return True
-            
+
         except Exception as e:
             self._logger.error(f"Failed to shutdown browser driver: {e}")
+            # 确保状态重置
+            self.page = None
+            self.context = None
+            self.browser = None
+            self.playwright = None
+            self._initialized = False
             return False
 
     def is_initialized(self) -> bool:
@@ -439,21 +506,43 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             # 🔧 优化：简化日志输出，只显示关键信息
             self._logger.info(f"🔧 启动浏览器: {browser_type}, headless={headless}")
 
-            # 🔧 关键修复：当 user_data_dir 为 None 时，使用默认用户数据目录
+            # 🔧 关键修复：正确配置用户数据目录
             if user_data_dir is not None:
-                # 🔍 DEBUG: 打印指定的用户数据目录信息
                 import os
-                self._logger.info(f"🔍 使用指定的用户数据目录: {user_data_dir}")
-                self._logger.info(f"🔍 目录是否存在: {os.path.exists(user_data_dir) if user_data_dir else False}")
 
-                # 🔧 关键修复：添加 ignore_default_args 以启用扩展和保留登录态
-                # 注意：launch_persistent_context 支持 args 参数
-                self._logger.info(f"🔍 启动参数: {launch_options.get('args', [])}")
+                # 🔧 修复根因：检查路径是否指向Profile子目录
+                profile_name = "Default"  # 默认Profile
+                if user_data_dir.endswith('/Default') or user_data_dir.endswith('\\Default'):
+                    # 提取主User Data目录和Profile名称
+                    actual_user_data_dir = os.path.dirname(user_data_dir)
+                    profile_name = os.path.basename(user_data_dir)
+                    self._logger.info(f"🔧 修正路径：{user_data_dir} -> {actual_user_data_dir} + Profile={profile_name}")
+                else:
+                    actual_user_data_dir = user_data_dir
+
+                self._logger.info(f"🔍 使用主用户数据目录: {actual_user_data_dir}")
+                self._logger.info(f"🔍 Profile名称: {profile_name}")
+                self._logger.info(f"🔍 目录是否存在: {os.path.exists(actual_user_data_dir)}")
+
+                # 🔧 关键修复：在启动参数中指定Profile
+                corrected_args = launch_options.get('args', []).copy()
+
+                # 添加Profile目录参数（如果不是Default，或者用户明确指定了）
+                if profile_name != "Default" or user_data_dir.endswith(('/Default', '\\Default')):
+                    profile_arg = f"--profile-directory={profile_name}"
+                    if profile_arg not in corrected_args:
+                        corrected_args.append(profile_arg)
+                        self._logger.info(f"🔧 添加Profile参数: {profile_arg}")
+
+                self._logger.info(f"🔍 启动参数: {corrected_args}")
 
                 launch_options_with_extensions = {
                     'headless': headless,
-                    'args': launch_options.get('args', []),  # 确保包含 --profile-directory 等参数
+                    'args': corrected_args,
                     'ignore_default_args': [
+                        # 🔧 安全修复：排除不安全的参数
+                        '--no-sandbox',  # 排除不安全的沙盒禁用参数
+                        '--disable-setuid-sandbox',  # 排除另一个沙盒相关参数
                         # 扩展相关
                         '--disable-extensions',
                         '--disable-component-extensions-with-background-pages',
@@ -476,9 +565,9 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
 
                 self._logger.info(f"🔍 最终启动配置: args={launch_options_with_extensions.get('args')}")
 
-                # 使用指定的用户数据目录
+                # 🔧 关键修复：使用主用户数据目录（不是Profile子目录）
                 self.context = await self.playwright.chromium.launch_persistent_context(
-                    user_data_dir=user_data_dir,
+                    user_data_dir=actual_user_data_dir,
                     **launch_options_with_extensions
                 )
                 self._is_persistent_context = True
@@ -561,6 +650,9 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
                     # 🔧 最终解决方案：强制覆盖破坏登录状态和输入记忆的参数
                     launch_options_with_profile.update({
                         'ignore_default_args': [
+                            # 🔧 安全修复：排除不安全的参数
+                            '--no-sandbox',  # 排除不安全的沙盒禁用参数
+                            '--disable-setuid-sandbox',  # 排除另一个沙盒相关参数
                             # 扩展相关
                             '--disable-extensions',
                             '--disable-component-extensions-with-background-pages',
