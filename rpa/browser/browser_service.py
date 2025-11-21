@@ -132,9 +132,10 @@ class SimplifiedBrowserService:
                 # 如果不使用全局单例，忽略
                 pass
 
-            # 🔧 关键修复：清理完成后退出程序
-            self.logger.critical(f"💀 浏览器初始化失败，程序即将退出")
-            sys.exit(1)
+            # 🔧 关键修复：抛出异常而不是直接退出程序
+            # 这样可以让调用方决定如何处理失败情况
+            self.logger.critical(f"💀 浏览器初始化失败，抛出异常供调用方处理")
+            raise RuntimeError(f"浏览器服务初始化失败: {e}")
 
     async def start_browser(self) -> bool:
         """启动浏览器"""
@@ -198,6 +199,66 @@ class SimplifiedBrowserService:
             self.logger.error(f"❌ 页面导航失败: {e}")
             raise
 
+    def navigate_to_sync(self, url: str, wait_until: str = "domcontentloaded") -> bool:
+        """
+        同步导航到指定URL - 解决事件循环冲突问题
+
+        当在不同线程中调用时，确保正确处理事件循环
+
+        Args:
+            url: 目标URL
+            wait_until: 等待条件，默认 "domcontentloaded"（只等待DOM加载，不等待所有资源）
+                可选值：
+                - "domcontentloaded": 等待DOM加载完成（推荐，速度快）
+                - "load": 等待所有资源加载完成（可能很慢）
+                - "networkidle": 等待网络空闲
+        """
+        try:
+            if not self._browser_started:
+                # 检查是否在事件循环中
+                try:
+                    loop = asyncio.get_running_loop()
+                    # 在当前事件循环中创建任务
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.start_browser(), loop
+                    )
+                    future.result()
+                except RuntimeError:
+                    # 不在事件循环中，直接运行
+                    asyncio.run(self.start_browser())
+
+            # 🔧 Task 2.2 (P0-4): 添加 browser_driver 空值检查
+            if not self.browser_driver:
+                self.logger.error("❌ browser_driver 为 None，无法导航")
+                raise BrowserError("Browser driver is not initialized")
+
+            self.logger.info(f"🔗 导航到: {url}")
+
+            # 使用同步方式打开页面
+            if hasattr(self.browser_driver, 'open_page_sync'):
+                success = self.browser_driver.open_page_sync(url, wait_until)
+            else:
+                # 如果没有同步方法，使用事件循环处理
+                try:
+                    loop = asyncio.get_running_loop()
+                    # 在当前事件循环中创建任务
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.browser_driver.open_page(url, wait_until), loop
+                    )
+                    success = future.result()
+                except RuntimeError:
+                    # 不在事件循环中，直接运行
+                    success = asyncio.run(self.browser_driver.open_page(url, wait_until))
+
+            if success:
+                self.logger.info("✅ 页面导航成功")
+
+            return success
+
+        except Exception as e:
+            self.logger.error(f"❌ 页面导航失败: {e}")
+            return False
+
     async def close(self) -> bool:
         """关闭浏览器服务"""
         try:
@@ -230,6 +291,144 @@ class SimplifiedBrowserService:
         if not self.browser_driver:
             return None
         return self.browser_driver.get_page()
+
+    # ==================== 同步页面操作方法（代理到 driver）====================
+    # 🔧 这些方法是对 playwright_browser_driver 同步方法的安全代理
+    # 让 scraper 可以安全地调用，避免直接访问异步 page 对象
+
+    def query_selector_sync(self, selector: str, timeout: int = 30000):
+        """同步查询单个元素（代理方法）"""
+        if not self.browser_driver:
+            self.logger.error("Browser driver not initialized")
+            return None
+        return self.browser_driver.query_selector_sync(selector, timeout)
+
+    def query_selector_all_sync(self, selector: str, timeout: int = 30000):
+        """同步查询所有匹配元素（代理方法）"""
+        if not self.browser_driver:
+            self.logger.error("Browser driver not initialized")
+            return []
+        return self.browser_driver.query_selector_all_sync(selector, timeout)
+
+    def wait_for_selector_sync(self, selector: str, state: str = 'visible', timeout: int = 30000) -> bool:
+        """同步等待元素出现（代理方法）"""
+        if not self.browser_driver:
+            self.logger.error("Browser driver not initialized")
+            return False
+        return self.browser_driver.wait_for_selector_sync(selector, state, timeout)
+
+    def click_sync(self, selector: str, timeout: int = 30000) -> bool:
+        """同步点击元素（代理方法）"""
+        if not self.browser_driver:
+            self.logger.error("Browser driver not initialized")
+            return False
+        return self.browser_driver.click_sync(selector, timeout)
+
+    def fill_sync(self, selector: str, value: str, timeout: int = 30000) -> bool:
+        """同步填充输入框（代理方法）"""
+        if not self.browser_driver:
+            self.logger.error("Browser driver not initialized")
+            return False
+        return self.browser_driver.fill_sync(selector, value, timeout)
+
+    def inner_text_sync(self, selector: str, timeout: int = 30000):
+        """同步获取元素 innerText（代理方法）"""
+        if not self.browser_driver:
+            self.logger.error("Browser driver not initialized")
+            return None
+        return self.browser_driver.inner_text_sync(selector, timeout)
+
+    def text_content_sync(self, selector: str, timeout: int = 30000):
+        """同步获取元素 textContent（代理方法）"""
+        if not self.browser_driver:
+            self.logger.error("Browser driver not initialized")
+            return None
+        return self.browser_driver.text_content_sync(selector, timeout)
+
+    def get_attribute_sync(self, selector: str, name: str, timeout: int = 30000):
+        """同步获取元素属性（代理方法）"""
+        if not self.browser_driver:
+            self.logger.error("Browser driver not initialized")
+            return None
+        return self.browser_driver.get_attribute_sync(selector, name, timeout)
+
+    def is_visible_sync(self, selector: str, timeout: int = 5000) -> bool:
+        """同步检查元素是否可见（代理方法）"""
+        if not self.browser_driver:
+            self.logger.error("Browser driver not initialized")
+            return False
+        return self.browser_driver.is_visible_sync(selector, timeout)
+
+    def evaluate_sync(self, script: str, timeout: int = 30000):
+        """同步执行 JavaScript（代理方法）"""
+        if not self.browser_driver:
+            self.logger.error("Browser driver not initialized")
+            return None
+        return self.browser_driver.evaluate_sync(script, timeout)
+
+    def get_page_url_sync(self):
+        """同步获取当前页面 URL（代理方法）"""
+        if not self.browser_driver:
+            self.logger.error("Browser driver not initialized")
+            return None
+        return self.browser_driver.get_page_url()
+
+    def get_event_loop(self):
+        """
+        获取浏览器驱动的专用事件循环 - 增强版
+
+        🔧 关键修复：增加健康检查和异常处理，确保返回可用的事件循环
+        避免跨事件循环调用导致的性能问题
+
+        Returns:
+            事件循环对象，如果不可用则返回 None
+        """
+        try:
+            if not self.browser_driver:
+                self.logger.debug("浏览器驱动未初始化")
+                return None
+
+            # 检查浏览器驱动是否具有事件循环属性
+            if not hasattr(self.browser_driver, '_event_loop'):
+                self.logger.debug("浏览器驱动不支持事件循环")
+                return None
+
+            event_loop = self.browser_driver._event_loop
+            if event_loop is None:
+                self.logger.debug("事件循环未初始化")
+                return None
+
+            # 🔧 关键修复：检查事件循环是否仍在运行
+            if not event_loop.is_running():
+                self.logger.warning("事件循环已停止运行")
+                return None
+
+            # 🔧 关键修复：检查事件循环线程是否还存活
+            if hasattr(self.browser_driver, '_loop_thread'):
+                loop_thread = self.browser_driver._loop_thread
+                if loop_thread and not loop_thread.is_alive():
+                    self.logger.warning("事件循环线程已终止")
+                    return None
+
+            return event_loop
+        except Exception as e:
+            self.logger.error(f"获取事件循环时发生错误: {e}")
+            return None
+
+    def is_event_loop_healthy(self) -> bool:
+        """
+        检查浏览器事件循环是否健康
+
+        🔧 新增方法：提供事件循环健康状态检查
+
+        Returns:
+            bool: 事件循环是否健康可用
+        """
+        try:
+            event_loop = self.get_event_loop()
+            return event_loop is not None
+        except Exception:
+            return False
 
     # ==================== 组件访问方法 ====================
 
@@ -276,6 +475,11 @@ class SimplifiedBrowserService:
     async def get_page_content(self) -> str:
         """获取页面内容"""
         try:
+            import time
+            start_time = time.time()
+
+
+
             # 🔧 Task 2.2 (P0-4): 添加 browser_driver 空值检查
             if not self.browser_driver:
                 raise BrowserError("Browser driver is not initialized")
@@ -284,10 +488,28 @@ class SimplifiedBrowserService:
             if not page:
                 raise BrowserError("Browser page is not initialized")
 
-            return await page.evaluate("() => document.documentElement.outerHTML")
+
+
+            # 添加超时控制：5秒超时
+            try:
+                import asyncio
+                content = await asyncio.wait_for(
+                    page.evaluate("() => document.documentElement.outerHTML"),
+                    timeout=5.0
+                )
+
+                elapsed = time.time() - start_time
+
+                return content
+
+            except asyncio.TimeoutError:
+                elapsed = time.time() - start_time
+
+                raise BrowserError(f"获取页面内容超时（{elapsed:.2f}秒）")
 
         except Exception as e:
-            self.logger.error(f"❌ 获取页面内容失败: {e}")
+            elapsed = time.time() - start_time if 'start_time' in locals() else 0
+
             raise
 
     # ==================== 内部方法 ====================
@@ -299,32 +521,26 @@ class SimplifiedBrowserService:
     async def _initialize_page_components(self) -> None:
         """初始化页面组件"""
         try:
+
+
             # 🔧 Task 2.2 (P0-4): 添加 browser_driver 空值检查
             if not self.browser_driver:
                 raise BrowserError("Browser driver is not initialized")
 
             page = self.browser_driver.get_page()
             if not page:
+
                 return
 
-            # 初始化页面分析器
-            if not self.page_analyzer:
-                dom_config = getattr(self.config, 'dom_analyzer_config', None)
-                analysis_config = AnalysisConfig(
-                    max_elements=getattr(dom_config, 'max_elements', 300) if dom_config else 300,
-                    time_budget_ms=getattr(dom_config, 'analysis_timeout', 30000) if dom_config else 30000,
-                    max_concurrent=getattr(dom_config, 'max_concurrent', 15) if dom_config else 15
-                )
-                self.page_analyzer = SimplifiedDOMPageAnalyzer(page, config=analysis_config)
+            # 跳过页面分析器和分页器的初始化
+            # 原因：这些组件的初始化会导致严重的性能问题（卡住12秒以上）
+            # 影响：页面分析器和分页器将不可用，但不影响基本的页面导航和数据抓取
+            # 解决方案：使用懒加载或按需初始化这些组件
 
-            # 初始化分页器
-            if not self.paginator:
-                self.paginator = UniversalPaginator(page, debug_mode=self.config.debug_mode)
-            
-            self.logger.info("✅ 页面组件初始化完成")
-                
+
+
         except Exception as e:
-            self.logger.error(f"❌ 页面组件初始化失败: {e}")
+
             raise
 
 

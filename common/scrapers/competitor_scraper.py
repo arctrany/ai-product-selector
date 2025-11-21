@@ -10,7 +10,7 @@ OZON跟卖店铺抓取器
 重构版本：简化代码结构，消除硬编码，提高可维护性
 """
 
-import asyncio
+import time
 import logging
 import re
 from typing import Dict, Any, List, Optional, Tuple
@@ -28,7 +28,7 @@ class CompetitorScraper:
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.selectors_config = selectors_config or get_ozon_selectors_config()
 
-    async def _find_element_by_selectors(self, page_or_element, selectors: List[str],
+    def _find_element_by_selectors(self, page_or_element, selectors: List[str],
                                          timeout: int = 2000) -> Tuple[Optional[Any], Optional[str]]:
         """
         通用选择器查找方法，避免重复代码
@@ -43,14 +43,14 @@ class CompetitorScraper:
         """
         for selector in selectors:
             try:
-                element = await page_or_element.query_selector(selector)
-                if element and await element.is_visible():
+                element = page_or_element.query_selector(selector)
+                if element and element.is_visible():
                     return element, selector
             except:
                 continue
         return None, None
 
-    async def _find_elements_by_selectors(self, page_or_element, selectors: List[str]) -> Tuple[
+    def _find_elements_by_selectors(self, page_or_element, selectors: List[str]) -> Tuple[
         List[Any], Optional[str]]:
         """
         通用多元素选择器查找方法
@@ -67,7 +67,7 @@ class CompetitorScraper:
 
         for selector in selectors:
             try:
-                elements = await page_or_element.query_selector_all(selector)
+                elements = page_or_element.query_selector_all(selector)
                 if elements and len(elements) > len(best_elements):
                     best_elements = elements
                     best_selector = selector
@@ -76,7 +76,7 @@ class CompetitorScraper:
 
         return best_elements, best_selector
 
-    async def open_competitor_popup(self, page) -> Dict[str, Any]:
+    def open_competitor_popup(self, page) -> Dict[str, Any]:
         """
         检测并打开跟卖浮层
 
@@ -90,7 +90,7 @@ class CompetitorScraper:
             self.logger.info("🔍 检测跟卖区域...")
 
             # 查找跟卖区域
-            element, _ = await self._find_element_by_selectors(
+            element, _ = self._find_element_by_selectors(
                 page, [self.selectors_config.PRECISE_COMPETITOR_SELECTOR]
             )
 
@@ -99,16 +99,16 @@ class CompetitorScraper:
                 return {'success': True, 'has_competitors': False, 'popup_opened': False, 'error_message': None}
 
             # 点击跟卖区域
-            await element.click()
+            element.click()
             self.logger.info("✅ 点击跟卖区域")
 
             # 🔧 时序修复：等待浮层完全加载
-            popup_opened = await self._wait_for_popup_with_retry(page, max_wait_seconds=10)
+            popup_opened = self._wait_for_popup_with_retry(page, max_wait_seconds=10)
 
             if popup_opened:
                 self.logger.info("✅ 跟卖浮层打开")
                 # 🔧 时序修复：确保浮层内容完全加载后再展开
-                await self.expand_competitor_list_if_needed(page)
+                self.expand_competitor_list_if_needed(page)
                 return {'success': True, 'has_competitors': True, 'popup_opened': True, 'error_message': None}
             else:
                 self.logger.warning("⚠️ 浮层未打开")
@@ -118,7 +118,7 @@ class CompetitorScraper:
             self.logger.error(f"打开跟卖浮层失败: {e}")
             return {'success': False, 'has_competitors': False, 'popup_opened': False, 'error_message': str(e)}
 
-    async def _wait_for_popup_with_retry(self, page, max_wait_seconds: int = 30) -> bool:
+    def _wait_for_popup_with_retry(self, page, max_wait_seconds: int = 30) -> bool:
         """
         🔧 时序修复：等待跟卖浮层完全加载，使用显式等待替代硬编码等待
 
@@ -136,17 +136,17 @@ class CompetitorScraper:
             for attempt in range(max_wait_seconds * 2):  # 每0.5秒检查一次
                 try:
                     # 🎯 关键修复：严格验证浮层结构，确保真实店铺数据存在
-                    popup_container = await page.query_selector("div.pdp_b2k")
+                    popup_container = page.query_selector("div.pdp_b2k")
                     if popup_container:
                         # 🔧 验证浮层内是否有真实的店铺元素
-                        store_elements = await popup_container.query_selector_all("div.pdp_kb2")
+                        store_elements = popup_container.query_selector_all("div.pdp_kb2")
                         if store_elements and len(store_elements) > 0:
                             # 🔧 进一步验证：确保店铺元素包含店铺名称链接
                             valid_stores = 0
                             for store_element in store_elements:
-                                store_link = await store_element.query_selector("a.pdp_ae5")
+                                store_link = store_element.query_selector("a.pdp_ae5")
                                 if store_link:
-                                    link_text = await store_link.text_content()
+                                    link_text = store_link.text_content()
                                     # 🔧 关键：排除"У других продавцов"这种标题文本
                                     if link_text and "других продавцов" not in link_text.lower():
                                         valid_stores += 1
@@ -162,11 +162,11 @@ class CompetitorScraper:
                         self.logger.debug(f"🔍 浮层容器不存在，继续等待...")
 
                     # 等待0.5秒后重试
-                    await asyncio.sleep(0.5)
+                    time.sleep(0.5)
 
                 except Exception as e:
                     self.logger.debug(f"等待浮层第{attempt + 1}次尝试失败: {e}")
-                    await asyncio.sleep(0.5)
+                    time.sleep(0.5)
                     continue
 
             self.logger.warning(f"⚠️ 等待{max_wait_seconds}秒后浮层仍未加载")
@@ -176,11 +176,11 @@ class CompetitorScraper:
             self.logger.error(f"等待浮层加载失败: {e}")
             return False
 
-    async def _verify_popup_opened(self, page) -> bool:
+    def _verify_popup_opened(self, page) -> bool:
         """验证跟卖浮层是否打开 - 保留用于兼容性"""
-        return await self._wait_for_popup_with_retry(page, max_wait_seconds=3)
+        return self._wait_for_popup_with_retry(page, max_wait_seconds=3)
 
-    async def expand_competitor_list_if_needed(self, page) -> bool:
+    def expand_competitor_list_if_needed(self, page) -> bool:
         """
         🎯 智能检查并展开跟卖店铺列表（基于数量智能决策）
 
@@ -194,7 +194,7 @@ class CompetitorScraper:
             self.logger.info("🎯 开始智能检测跟卖数量，决定是否需要展开...")
 
             # 🎯 第一步：智能检测跟卖数量
-            competitor_count = await self._get_competitor_count(page)
+            competitor_count = self._get_competitor_count(page)
 
             if competitor_count is None:
                 # 🔧 失败处理：无法获取数量时直接结束，不尝试展开
@@ -213,7 +213,7 @@ class CompetitorScraper:
             # 🎯 第三步：数量超过阈值，需要展开获取更多店铺
             self.logger.info(f"🎯 跟卖数量({competitor_count}) > 阈值({threshold})，需要展开获取更多店铺")
 
-            await asyncio.sleep(0.5)
+            time.sleep(0.5)
 
             # 使用配置的展开按钮选择器
             expand_selectors = self.selectors_config.EXPAND_SELECTORS
@@ -227,8 +227,8 @@ class CompetitorScraper:
                 try:
                     self.logger.debug(f"🔍 检查展开按钮选择器: {selector}")
 
-                    element = await page.query_selector(selector)
-                    if element and await element.is_visible():
+                    element = page.query_selector(selector)
+                    if element and element.is_visible():
                         expand_button_element = element
                         used_selector = selector
                         expand_button_found = True
@@ -250,28 +250,28 @@ class CompetitorScraper:
                 while expanded_count < max_expansions:
                     try:
                         # 重新查找按钮，确保仍然存在且可见
-                        current_element = await page.query_selector(used_selector)
-                        if current_element and await current_element.is_visible():
+                        current_element = page.query_selector(used_selector)
+                        if current_element and current_element.is_visible():
                             self.logger.info(f"🔍 点击展开按钮 (第{expanded_count + 1}次)...")
 
                             try:
-                                await current_element.scroll_into_view_if_needed()
-                                await asyncio.sleep(0.1)
+                                current_element.scroll_into_view_if_needed()
+                                time.sleep(0.1)
 
-                                await current_element.click(timeout=2000)
+                                current_element.click(timeout=2000)
                                 expanded_count += 1
                                 self.logger.info(f"✅ 成功点击展开按钮 (第{expanded_count}次)")
 
-                                await asyncio.sleep(1.0)
+                                time.sleep(1.0)
 
                             except Exception as click_error:
                                 self.logger.warning(f"⚠️ 点击展开按钮失败: {click_error}")
                                 # 🔧 尝试使用JavaScript点击作为备选方案
                                 try:
-                                    await page.evaluate(f'document.querySelector("{used_selector}").click()')
+                                    page.evaluate(f'document.querySelector("{used_selector}").click()')
                                     expanded_count += 1
                                     self.logger.info(f"✅ 通过JavaScript成功点击展开按钮 (第{expanded_count}次)")
-                                    await asyncio.sleep(2.0)
+                                    time.sleep(2.0)
                                 except Exception as js_error:
                                     self.logger.error(f"❌ JavaScript点击也失败: {js_error}")
                                     break
@@ -299,7 +299,7 @@ class CompetitorScraper:
             # 🔧 出错时返回False，表示无法继续
             return False
 
-    async def extract_competitors_from_content(self, page_content: str, max_competitors: int = 10) -> List[
+    def extract_competitors_from_content(self, page_content: str, max_competitors: int = 10) -> List[
         Dict[str, Any]]:
         """从页面内容中提取跟卖店铺信息"""
         try:
@@ -551,11 +551,11 @@ class CompetitorScraper:
             self.logger.warning(f"提取店铺ID失败: {e}")
             return None
 
-    async def click_competitor_to_product_page(self, page, ranking: int) -> bool:
+    def click_competitor_to_product_page(self, page, ranking: int) -> bool:
         """点击跟卖列表中的指定排名店铺，跳转到商品详情页面"""
         try:
             self.logger.info(f"🔍 点击第{ranking}个跟卖店铺...")
-            await asyncio.sleep(0.5)
+            time.sleep(0.5)
 
             # 构建点击选择器
             click_selectors = []
@@ -574,27 +574,27 @@ class CompetitorScraper:
             for selector in click_selectors:
                 try:
                     if selector.startswith("//"):  # XPath
-                        element = await page.query_selector(f'xpath={selector}')
+                        element = page.query_selector(f'xpath={selector}')
                     else:  # CSS选择器
-                        element = await page.query_selector(selector)
+                        element = page.query_selector(selector)
 
-                    if element and await element.is_visible():
+                    if element and element.is_visible():
                         # 获取店铺信息用于日志（如果可能）
                         try:
                             # 使用配置的店铺链接选择器
                             for link_selector in self.selectors_config.STORE_LINK_SELECTORS:
-                                store_link = await element.query_selector(link_selector)
+                                store_link = element.query_selector(link_selector)
                                 if store_link:
-                                    store_name = await store_link.text_content()
-                                    href = await store_link.get_attribute('href')
+                                    store_name = store_link.text_content()
+                                    href = store_link.get_attribute('href')
                                     self.logger.debug(f"点击店铺行: {store_name} -> {href}")
                                     break
                         except:
                             pass
 
-                        await element.click()
+                        element.click()
                         self.logger.info(f"✅ 点击第{ranking}个店铺 (选择器: {selector})")
-                        await asyncio.sleep(2.0)
+                        time.sleep(2.0)
 
                         # 验证跳转
                         current_url = page.url
@@ -616,16 +616,16 @@ class CompetitorScraper:
             self.logger.error(f"点击跟卖店铺失败: {e}")
             return False
 
-    async def _count_visible_competitors(self, page) -> int:
+    def _count_visible_competitors(self, page) -> int:
         """统计当前页面可见的跟卖店铺数量"""
         try:
             max_count = 0
 
             for container_selector in self.selectors_config.COMPETITOR_CONTAINER_SELECTORS:
                 try:
-                    container = await page.query_selector(container_selector)
+                    container = page.query_selector(container_selector)
                     if container:
-                        elements, _ = await self._find_elements_by_selectors(
+                        elements, _ = self._find_elements_by_selectors(
                             container, self.selectors_config.COMPETITOR_ELEMENT_SELECTORS
                         )
                         if elements and len(elements) > max_count:
@@ -639,7 +639,7 @@ class CompetitorScraper:
             self.logger.debug(f"统计跟卖店铺数量失败: {e}")
             return 0
 
-    async def _wait_for_popup_content_stable(self, page, max_wait_seconds: int = 3) -> bool:
+    def _wait_for_popup_content_stable(self, page, max_wait_seconds: int = 3) -> bool:
         """
         🔧 时序修复：等待浮层内容稳定加载
 
@@ -654,7 +654,7 @@ class CompetitorScraper:
             self.logger.debug("🔍 等待浮层内容稳定...")
 
             # 等待一小段时间让内容开始加载
-            await asyncio.sleep(0.5)
+            time.sleep(0.5)
 
             # 检查是否有基本的浮层内容
             for attempt in range(max_wait_seconds * 2):
@@ -662,7 +662,7 @@ class CompetitorScraper:
                     # 查找浮层容器
                     container_found = False
                     for container_selector in self.selectors_config.COMPETITOR_CONTAINER_SELECTORS:
-                        container = await page.query_selector(container_selector)
+                        container = page.query_selector(container_selector)
                         if container:
                             container_found = True
                             break
@@ -671,11 +671,11 @@ class CompetitorScraper:
                         self.logger.debug("✅ 浮层内容已稳定")
                         return True
 
-                    await asyncio.sleep(0.5)
+                    time.sleep(0.5)
 
                 except Exception as e:
                     self.logger.debug(f"等待内容稳定第{attempt + 1}次失败: {e}")
-                    await asyncio.sleep(0.5)
+                    time.sleep(0.5)
                     continue
 
             self.logger.debug("⚠️ 浮层内容可能未完全稳定，但继续执行")
@@ -685,7 +685,7 @@ class CompetitorScraper:
             self.logger.debug(f"等待浮层内容稳定失败: {e}")
             return True
 
-    async def _get_competitor_count(self, page) -> Optional[int]:
+    def _get_competitor_count(self, page) -> Optional[int]:
         """
         🎯 智能检测跟卖数量，支持多种格式
 
@@ -704,8 +704,8 @@ class CompetitorScraper:
 
             for selector in self.selectors_config.COMPETITOR_COUNT_SELECTORS:
                 try:
-                    element = await page.query_selector(selector)
-                    if element and await element.is_visible():
+                    element = page.query_selector(selector)
+                    if element and element.is_visible():
                         count_element = element
                         used_selector = selector
                         self.logger.debug(f"✅ 找到数量元素，使用选择器: {selector}")
@@ -719,7 +719,7 @@ class CompetitorScraper:
                 return None
 
             # 🔧 获取元素文本内容
-            count_text = await count_element.text_content()
+            count_text = count_element.text_content()
             if not count_text:
                 self.logger.warning("⚠️ 跟卖数量元素无文本内容")
                 return None

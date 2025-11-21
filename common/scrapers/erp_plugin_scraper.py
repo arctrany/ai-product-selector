@@ -87,64 +87,35 @@ class ErpPluginScraper(BaseScraper):
         try:
             if product_url:
                 # 如果提供了URL，导航并抓取页面数据
-                async def scrape_with_navigation():
-                    """异步导航并提取数据"""
-                    try:
-                        # 导航到页面
-                        await self.browser_service.navigate_to(product_url)
+                success = self.navigate_to(product_url)
+                if not success:
+                    raise Exception("页面导航失败")
 
-                        # 等待页面加载
-                        await asyncio.sleep(1)
+                # 等待页面加载
+                self.wait(1)
 
-                        # 智能等待ERP插件加载完成
-                        await self._wait_for_erp_plugin_loaded(self.browser_service)
+            # 智能等待ERP插件加载完成
+            self._wait_for_erp_plugin_loaded()
 
-                        # 获取页面内容
-                        page_content = await self.browser_service.get_page_content()
+            # 获取页面内容 - 使用同步方法
+            page_content = self.browser_service.evaluate_sync("() => document.documentElement.outerHTML")
 
-                        # 解析ERP信息
-                        erp_data = self._extract_erp_data_from_content(page_content)
-
-                        return erp_data
-
-                    except Exception as e:
-                        self.logger.error(f"提取ERP数据失败: {e}")
-                        raise
-
-                # 运行异步抓取
-                erp_data = asyncio.run(scrape_with_navigation())
-
+            if not page_content:
                 return ScrapingResult(
-                    success=True,
-                    data=erp_data,
+                    success=False,
+                    data={},
+                    error_message="未能获取当前页面内容",
                     execution_time=time.time() - start_time
                 )
-            else:
-                # 从当前页面直接抓取
-                async def get_current_page_content():
-                    # 智能等待ERP插件加载完成
-                    await self._wait_for_erp_plugin_loaded(self.browser_service)
-                    return await self.browser_service.get_page_content()
-                
-                # 获取当前页面内容
-                page_content = asyncio.run(get_current_page_content())
-                
-                if not page_content:
-                    return ScrapingResult(
-                        success=False,
-                        data={},
-                        error_message="未能获取当前页面内容",
-                        execution_time=time.time() - start_time
-                    )
-                
-                # 解析ERP信息
-                erp_data = self._extract_erp_data_from_content(page_content)
-                
-                return ScrapingResult(
-                    success=True,
-                    data=erp_data,
-                    execution_time=time.time() - start_time
-                )
+
+            # 解析ERP信息
+            erp_data = self._extract_erp_data_from_content(page_content)
+
+            return ScrapingResult(
+                success=True,
+                data=erp_data,
+                execution_time=time.time() - start_time
+            )
             
         except Exception as e:
             self.logger.error(f"抓取ERP信息失败: {e}")
@@ -398,12 +369,11 @@ class ErpPluginScraper(BaseScraper):
             self.logger.warning(f"解析佣金率失败: {commission_str}, 错误: {e}")
             return None
 
-    async def _wait_for_erp_plugin_loaded(self, browser_service, max_wait_seconds: int = 10) -> bool:
+    def _wait_for_erp_plugin_loaded(self, max_wait_seconds: int = 10) -> bool:
         """
         智能等待ERP插件加载完成
 
         Args:
-            browser_service: 浏览器服务实例
             max_wait_seconds: 最大等待时间（秒）
 
         Returns:
@@ -414,10 +384,10 @@ class ErpPluginScraper(BaseScraper):
 
         while time.time() - start_time < max_wait_seconds:
             try:
-                # 获取页面内容
-                page_content = await browser_service.get_page_content()
+                # 获取页面内容 - 使用同步方法
+                page_content = self.browser_service.evaluate_sync("() => document.documentElement.outerHTML")
                 if not page_content:
-                    await asyncio.sleep(check_interval)
+                    self.wait(check_interval)
                     continue
 
                 # 检查ERP插件区域是否存在
@@ -443,11 +413,11 @@ class ErpPluginScraper(BaseScraper):
                                 return True
 
                 # 如果没找到，继续等待
-                await asyncio.sleep(check_interval)
+                self.wait(check_interval)
 
             except Exception as e:
                 self.logger.debug(f"检查ERP插件状态时出错: {e}")
-                await asyncio.sleep(check_interval)
+                self.wait(check_interval)
 
         # 超时
         self.logger.warning(f"⚠️ ERP插件加载超时（{max_wait_seconds}秒），继续尝试抓取")

@@ -4,10 +4,9 @@
 """
 ERP插件抓取器浏览器独立测试
 
-使用真实浏览器测试 ErpPluginScraper 的功能
+使用真实浏览器测试 ErpPluginScraper 的功能 - 同步版本
 """
 
-import asyncio
 import sys
 import time
 from pathlib import Path
@@ -19,7 +18,7 @@ sys.path.insert(0, str(project_root))
 from common.config import get_config
 from common.scrapers.erp_plugin_scraper import ErpPluginScraper
 
-async def test_erp_plugin_scraper_browser():
+def test_erp_plugin_scraper_browser():
     """测试ERP插件抓取器的浏览器功能"""
     print("🚀 开始 ErpPluginScraper 浏览器独立测试")
     print("="*80)
@@ -125,11 +124,11 @@ async def test_erp_plugin_scraper_browser():
             scraper.close()
             print(f"✅ 抓取器已关闭")
 
-async def main():
-    """主函数"""
+def main():
+    """主函数 - 同步版本"""
     try:
-        success = await test_erp_plugin_scraper_browser()
-        
+        success = test_erp_plugin_scraper_browser()
+
         print(f"\n" + "="*80)
         if success:
             print("🎉 ErpPluginScraper 浏览器测试通过！")
@@ -137,7 +136,7 @@ async def main():
         else:
             print("❌ ErpPluginScraper 浏览器测试失败！")
             return 1
-            
+
     except KeyboardInterrupt:
         print("\n⚠️ 测试被用户中断")
         return 1
@@ -148,6 +147,6 @@ async def main():
         return 1
 
 if __name__ == "__main__":
-    # 运行测试
-    exit_code = asyncio.run(main())
+    # 运行同步测试
+    exit_code = main()
     sys.exit(exit_code)

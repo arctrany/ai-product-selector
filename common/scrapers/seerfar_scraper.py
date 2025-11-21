@@ -14,7 +14,7 @@ from .global_browser_singleton import get_global_browser_service
 from .scraper_utils import ScraperUtils
 from ..models import ScrapingResult
 from common.config import GoodStoreSelectorConfig
-from common.config.seerfar_selectors import get_seerfar_selector
+from common.config.seerfar_selectors import get_seerfar_selector, SEERFAR_SELECTORS
 
 
 class SeerfarScraper(BaseScraper):
@@ -54,7 +54,7 @@ class SeerfarScraper(BaseScraper):
             self.logger.info("🧪 试运行模式 - 执行真实的销售数据抓取流程（结果不会保存到文件）")
 
         # 使用继承的抓取方法
-        result = self.scrape_page_data(url, self._extract_sales_data_async)
+        result = self.scrape_page_data(url, self._extract_sales_data)
 
         # 如果提供了过滤函数，则应用过滤
         # 注意：需要将字段名转换为统一格式
@@ -148,9 +148,8 @@ class SeerfarScraper(BaseScraper):
                     self.logger.info("🧪 试运行模式 - 执行真实的商品抓取流程（结果不会保存到文件）")
 
                 # 创建提取函数
-                async def extract_products(browser_service):
-                    products = await self._extract_products_list_async(
-                        browser_service,
+                def extract_products(browser_service):
+                    products = self._extract_products_list(
                         max_products,
                         product_filter_func
                     )
@@ -180,9 +179,9 @@ class SeerfarScraper(BaseScraper):
                 execution_time=time.time() - start_time
             )
 
-    async def _extract_sales_data_async(self, browser_service) -> Dict[str, Any]:
+    def _extract_sales_data(self, browser_service) -> Dict[str, Any]:
         """
-        异步提取销售数据 - 使用配置文件中的选择器
+        同步提取销售数据 - 使用配置文件中的选择器
 
         Args:
             browser_service: 浏览器服务实例
@@ -197,21 +196,21 @@ class SeerfarScraper(BaseScraper):
             page = browser_service.page
 
             # 验证 page 对象
-            if not self._validate_page(page):
+            if not self._validate_page():
                 return {}
 
             # 使用配置文件中的选择器提取销售额
-            await self._extract_sales_amount(page, sales_data)
+            self._extract_sales_amount(page, sales_data)
 
             # 使用配置文件中的选择器提取销量
-            await self._extract_sales_volume(page, sales_data)
+            self._extract_sales_volume(page, sales_data)
 
             # 使用配置文件中的选择器提取日均销量
-            await self._extract_daily_avg_sales(page, sales_data)
+            self._extract_daily_avg_sales(page, sales_data)
 
-            # 如果没有找到具体元素，尝试通用方法
-            if not sales_data:
-                sales_data = await self._extract_sales_data_generic_async(page)
+            # # 如果没有找到具体元素，尝试通用方法
+            # if not sales_data:
+            #     sales_data = await self._extract_sales_data_generic_async(page)
 
             # 合并日志输出店铺数据摘要
             if sales_data:
@@ -228,7 +227,7 @@ class SeerfarScraper(BaseScraper):
             self.logger.error(f"提取销售数据失败: {e}")
             return {}
 
-    async def _extract_sales_amount(self, page, sales_data: Dict[str, Any]):
+    def _extract_sales_amount(self, page, sales_data: Dict[str, Any]):
         """提取销售额 - 使用配置文件中的选择器"""
         try:
             # 从配置文件获取销售额选择器
@@ -237,28 +236,21 @@ class SeerfarScraper(BaseScraper):
                 self.logger.error("❌ 未能找到销售额选择器配置")
                 return
 
-            # 等待元素出现
-            try:
-                await page.wait_for_selector(sales_amount_selector, timeout=5000)
-            except:
-                self.logger.debug("销售额元素等待超时，继续尝试提取")
-
-            element = await page.query_selector(sales_amount_selector)
-            if element:
-                text = await element.text_content()
-                if text and text.strip():
-                    # 提取数字并转换为销售额
-                    number = ScraperUtils.extract_number_from_text(text.strip())
-                    if number:
-                        sales_data['sold_30days'] = number
-                        return
+            # 🔧 使用同步方法获取文本内容
+            text = self.browser_service.text_content_sync(sales_amount_selector, timeout=5000)
+            if text and text.strip():
+                # 提取数字并转换为销售额
+                number = ScraperUtils.extract_number_from_text(text.strip())
+                if number:
+                    sales_data['sold_30days'] = number
+                    return
 
             self.logger.warning("⚠️ 未能提取到销售额数据")
 
         except Exception as e:
             self.logger.error(f"❌ 销售额提取失败: {str(e)}")
 
-    async def _extract_sales_volume(self, page, sales_data: Dict[str, Any]):
+    def _extract_sales_volume(self, page, sales_data: Dict[str, Any]):
         """提取销量 - 使用配置文件中的选择器"""
         try:
             # 从配置文件获取销量选择器
@@ -267,28 +259,21 @@ class SeerfarScraper(BaseScraper):
                 self.logger.error("❌ 未能找到销量选择器配置")
                 return
 
-            # 等待元素出现
-            try:
-                await page.wait_for_selector(sales_volume_selector, timeout=5000)
-            except:
-                self.logger.debug("销量元素等待超时，继续尝试提取")
-
-            element = await page.query_selector(sales_volume_selector)
-            if element:
-                text = await element.text_content()
-                if text and text.strip():
-                    # 提取数字并转换为销量
-                    number = ScraperUtils.extract_number_from_text(text.strip())
-                    if number:
-                        sales_data['sold_count_30days'] = int(number)
-                        return
+            # 🔧 使用同步方法获取文本内容
+            text = self.browser_service.text_content_sync(sales_volume_selector, timeout=5000)
+            if text and text.strip():
+                # 提取数字并转换为销量
+                number = ScraperUtils.extract_number_from_text(text.strip())
+                if number:
+                    sales_data['sold_count_30days'] = int(number)
+                    return
 
             self.logger.warning("⚠️ 未能提取到销量数据")
 
         except Exception as e:
             self.logger.error(f"❌ 销量提取失败: {str(e)}")
 
-    async def _extract_daily_avg_sales(self, page, sales_data: Dict[str, Any]):
+    def _extract_daily_avg_sales(self, page, sales_data: Dict[str, Any]):
         """提取日均销量 - 使用配置文件中的选择器"""
         try:
             # 从配置文件获取日均销量选择器
@@ -297,28 +282,21 @@ class SeerfarScraper(BaseScraper):
                 self.logger.error("❌ 未能找到日均销量选择器配置")
                 return
 
-            # 等待元素出现
-            try:
-                await page.wait_for_selector(daily_avg_selector, timeout=5000)
-            except:
-                self.logger.debug("日均销量元素等待超时，继续尝试提取")
-
-            element = await page.query_selector(daily_avg_selector)
-            if element:
-                text = await element.text_content()
-                if text and text.strip():
-                    # 提取数字并转换为日均销量
-                    number = ScraperUtils.extract_number_from_text(text.strip())
-                    if number:
-                        sales_data['daily_avg_sold'] = number
-                        return
+            # 🔧 使用同步方法获取文本内容
+            text = self.browser_service.text_content_sync(daily_avg_selector, timeout=5000)
+            if text and text.strip():
+                # 提取数字并转换为日均销量
+                number = ScraperUtils.extract_number_from_text(text.strip())
+                if number:
+                    sales_data['daily_avg_sold'] = number
+                    return
 
             self.logger.warning("⚠️ 未能提取到日均销量数据")
 
         except Exception as e:
             self.logger.error(f"❌ 日均销量提取失败: {str(e)}")
 
-    async def _extract_category_data(self, page, sales_data: Dict[str, Any]):
+    def _extract_category_data(self, page, sales_data: Dict[str, Any]):
         """提取类目数据 - 使用配置文件中的选择器"""
         try:
             # 从配置文件获取类目数据选择器
@@ -327,27 +305,20 @@ class SeerfarScraper(BaseScraper):
                 self.logger.debug("未配置类目数据选择器，跳过类目数据提取")
                 return
 
-            # 等待元素出现
-            try:
-                await page.wait_for_selector(f'xpath={category_xpath}', timeout=5000)
-            except:
-                self.logger.debug("类目数据元素等待超时，继续尝试提取")
-
-            element = await page.query_selector(f'xpath={category_xpath}')
-            if element:
-                text = await element.text_content()
-                if text and text.strip():
-                    sales_data['category_info'] = text.strip()
-                    return
+            # 🔧 使用同步方法获取文本内容
+            text = self.browser_service.text_content_sync(f'xpath={category_xpath}', timeout=5000)
+            if text and text.strip():
+                sales_data['category_info'] = text.strip()
+                return
 
             self.logger.warning("⚠️ 未能提取到类目数据")
 
         except Exception as e:
             self.logger.error(f"❌ 类目数据提取失败: {str(e)}")
 
-    async def _extract_sales_data_generic_async(self, page) -> Dict[str, Any]:
+    def _extract_sales_data_generic(self, page) -> Dict[str, Any]:
         """
-        异步通用方法提取销售数据
+        同步通用方法提取销售数据
         
         Args:
             page: Playwright页面对象
@@ -358,30 +329,43 @@ class SeerfarScraper(BaseScraper):
         sales_data = {}
 
         try:
-            # 查找所有包含数字的元素
-            number_elements = await page.query_selector_all(
-                "//*[contains(text(), '₽') or contains(text(), '万') or contains(text(), '千')]")
+            # 🔧 使用 evaluate_sync 直接在页面上提取文本内容
+            script = """
+                () => {
+                    const xpath = "//*[contains(text(), '₽') or contains(text(), '万') or contains(text(), '千')]";
+                    const elements = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+                    const texts = [];
+                    for (let i = 0; i < Math.min(elements.snapshotLength, 10); i++) {
+                        const element = elements.snapshotItem(i);
+                        if (element && element.textContent) {
+                            texts.push(element.textContent.trim());
+                        }
+                    }
+                    return texts;
+                }
+            """
+            text_list = self.browser_service.evaluate_sync(script, timeout=5000)
 
-            for element in number_elements[:10]:  # 限制检查前10个元素
-                try:
-                    text = await element.text_content()
-                    if not text:
+            if text_list:
+                for text in text_list:
+                    try:
+                        if not text:
+                            continue
+
+                        # 判断是否为销售额
+                        if any(keyword in text for keyword in ['销售额', '营业额', '收入', '₽']):
+                            number = ScraperUtils.extract_number_from_text(text)
+                            if number and number > 1000:  # 销售额通常较大
+                                sales_data['sold_30days'] = number
+
+                        # 判断是否为销量
+                        elif any(keyword in text for keyword in ['销量', '订单', '件数']):
+                            number = ScraperUtils.extract_number_from_text(text)
+                            if number and 10 <= number <= 10000:  # 销量通常在合理范围内
+                                sales_data['sold_count_30days'] = int(number)
+                    except Exception as e:
+                        self.logger.debug(f"处理元素文本失败: {e}")
                         continue
-
-                    # 判断是否为销售额
-                    if any(keyword in text for keyword in ['销售额', '营业额', '收入', '₽']):
-                        number = ScraperUtils.extract_number_from_text(text)
-                        if number and number > 1000:  # 销售额通常较大
-                            sales_data['sold_30days'] = number
-
-                    # 判断是否为销量
-                    elif any(keyword in text for keyword in ['销量', '订单', '件数']):
-                        number = ScraperUtils.extract_number_from_text(text)
-                        if number and 10 <= number <= 10000:  # 销量通常在合理范围内
-                            sales_data['sold_count_30days'] = int(number)
-                except Exception as e:
-                    self.logger.debug(f"处理元素文本失败: {e}")
-                    continue
 
             # 如果找到销售额和销量，计算日均销量
             if 'sold_30days' in sales_data and 'sold_count_30days' in sales_data:
@@ -393,15 +377,125 @@ class SeerfarScraper(BaseScraper):
             self.logger.error(f"通用方法提取销售数据失败: {e}")
             return {}
 
-    async def _extract_products_list_async(self, browser_service, max_products: int,
-                                           product_filter_func: Optional[Callable[[Dict[str, Any]], bool]] = None) -> List[Dict[str, Any]]:
+    def _extract_all_products_data_js(self, product_rows_selector: str) -> List[Dict[str, Any]]:
         """
-        异步提取商品列表，支持前置过滤
+        使用 JavaScript evaluate 一次性提取所有商品行数据
+
+        这个方法避免了 ElementHandle 的事件循环问题，通过在浏览器端直接提取数据
 
         Args:
-            browser_service: 浏览器服务实例
+            product_rows_selector: 商品行选择器
+
+        Returns:
+            List[Dict[str, Any]]: 商品行数据列表
+        """
+        try:
+            # 🔧 从配置文件获取选择器和列索引
+            category_cn_selector = SEERFAR_SELECTORS.product_list.get('category_cn_selector', 'span.category-title')
+            category_ru_selector = SEERFAR_SELECTORS.product_list.get('category_ru_selector', 'span.text-muted')
+            category_column_idx = SEERFAR_SELECTORS.column_indexes['category']
+            sales_volume_column_idx = SEERFAR_SELECTORS.column_indexes['sales_volume']
+
+            # JavaScript 代码：在浏览器端提取所有商品行数据
+            # 注意：正则表达式直接硬编码在JS中，避免f-string花括号冲突
+            js_code = f"""
+            () => {{
+                const rows = document.querySelectorAll('{product_rows_selector}');
+                return Array.from(rows).map((row, index) => {{
+                    const tds = row.querySelectorAll('td');
+                    
+                    // 提取类目（第{category_column_idx}列）
+                    const categoryTd = tds[{category_column_idx}];
+                    const categoryCn = categoryTd?.querySelector('{category_cn_selector}')?.textContent?.trim() || null;
+                    const categoryRu = categoryTd?.querySelector('{category_ru_selector}')?.textContent?.trim() || null;
+                    
+                    // 提取销量（第{sales_volume_column_idx}列）
+                    const salesTd = tds[{sales_volume_column_idx}];
+                    const salesText = salesTd?.textContent?.trim() || '';
+                    const salesMatch = salesText.match(/^(\\d+)/);
+                    const salesVolume = salesMatch ? parseInt(salesMatch[1]) : null;
+                    
+                    // 提取重量（倒数第二列）
+                    const weightTd = tds[tds.length - 2];
+                    const weightText = weightTd?.textContent?.trim() || '';
+                    const weightMatch = weightText.match(/([\\d.]+)\\s*(g|kg)/i);
+                    let weight = null;
+                    if (weightMatch) {{
+                        const value = parseFloat(weightMatch[1]);
+                        const unit = weightMatch[2].toLowerCase();
+                        weight = unit === 'kg' ? value * 1000 : value;
+                    }}
+                    
+                    // 提取上架时间（最后一列）
+                    const listingTd = tds[tds.length - 1];
+                    const listingHtml = listingTd?.innerHTML || '';
+                    const dateMatch = listingHtml.match(/(\\d{{4}}-\\d{{2}}-\\d{{2}})/);
+                    const durationMatch = listingHtml.match(/<span[^>]*>([^<]+)<\\/span>/);
+                    const listingDate = dateMatch ? dateMatch[1] : null;
+                    const shelfDuration = durationMatch ? durationMatch[1].trim() : null;
+                    
+                    // 提取 OZON URL（第2列的 onclick 事件）
+                    const td2 = tds[2];
+                    const clickableElement = td2?.querySelector('[onclick*="window.open"]') || 
+                                           td2?.querySelector('a[onclick*="window.open"]');
+                    const onclickAttr = clickableElement?.getAttribute('onclick') || '';
+                    const urlMatch = onclickAttr.match(/window\\.open\\('([^']+)'\\)/);
+                    const ozonUrl = urlMatch ? urlMatch[1] : null;
+                    
+                    // 获取 data-index 用于去重
+                    const dataIndex = row.getAttribute('data-index');
+                    
+                    return {{
+                        index: index,
+                        dataIndex: dataIndex,
+                        categoryCn: categoryCn,
+                        categoryRu: categoryRu,
+                        salesVolume: salesVolume,
+                        weight: weight,
+                        listingDate: listingDate,
+                        shelfDuration: shelfDuration,
+                        ozonUrl: ozonUrl
+                    }};
+                }});
+            }}
+            """
+
+            # 使用同步的 evaluate 方法
+            products_data = self.browser_service.evaluate_sync(js_code)
+
+            # 去重：基于 dataIndex
+            if products_data:
+                seen_indices = set()
+                unique_products = []
+                for product in products_data:
+                    data_index = product.get('dataIndex')
+                    if data_index and data_index not in seen_indices:
+                        seen_indices.add(data_index)
+                        unique_products.append(product)
+                    elif not data_index:
+                        # 没有 data-index 的也保留
+                        unique_products.append(product)
+
+                self.logger.info(f"📋 JavaScript 提取到 {len(unique_products)} 个商品行（去重后）")
+                return unique_products
+
+            return []
+
+        except Exception as e:
+            self.logger.error(f"❌ JavaScript 提取商品数据失败: {e}")
+            return []
+
+    def _extract_products_list(self, max_products: int,
+                              product_filter_func: Optional[Callable[[Dict[str, Any]], bool]] = None) -> List[Dict[str, Any]]:
+        """
+        提取商品列表 - 同步实现
+
+        重构的同步版本，支持前置过滤，消除异步复杂性。
+        使用JavaScript一次性提取所有商品数据，避免逐个元素查询的性能问题。
+
+        Args:
             max_products: 最大商品数量
-            product_filter_func: 商品过滤函数，用于前置过滤（在提取 OZON 详情前）
+            product_filter_func: 商品过滤函数，用于前置过滤
 
         Returns:
             List[Dict[str, Any]]: 商品列表
@@ -410,12 +504,7 @@ class SeerfarScraper(BaseScraper):
         filtered_count = 0
 
         try:
-            # 直接访问 page 对象
-            page = browser_service.page
-
-            # 验证 page 对象
-            if not self._validate_page(page):
-                return []
+            self.logger.info(f"开始提取商品列表（同步实现，最多 {max_products} 个）")
 
             # 从配置文件获取商品列表选择器
             product_rows_selector = get_seerfar_selector('product_list', 'product_rows')
@@ -425,51 +514,33 @@ class SeerfarScraper(BaseScraper):
                 self.logger.error("❌ 未能找到商品列表选择器配置")
                 return []
 
-            # 查找商品表格或列表
-            product_rows = await page.query_selector_all(product_rows_selector)
+            # 使用JavaScript一次性提取所有商品数据
+            products_data = self._extract_all_products_data_js(product_rows_selector)
 
-            if not product_rows:
-                # 尝试其他可能的选择器
-                product_rows = await page.query_selector_all(product_rows_alt_selector)
+            if not products_data:
+                # 尝试备用选择器
+                products_data = self._extract_all_products_data_js(product_rows_alt_selector)
 
-            # 🔧 修复：去重，避免 CSS 和 XPath 选择器匹配到相同元素
-            product_rows = await self._deduplicate_rows(product_rows)
-            total_rows = len(product_rows)
-            self.logger.info(f"📋 找到 {total_rows} 个商品行（去重后），开始处理（最多 {max_products} 个）")
+            if not products_data:
+                self.logger.warning("⚠️ 未找到任何商品行")
+                return []
 
-            # 🔧 修复：每次循环重新获取商品行，避免页面导航后元素失效
-            # 使用索引而不是直接遍历元素
+            total_rows = len(products_data)
+            self.logger.info(f"📋 找到 {total_rows} 个商品行，开始处理（最多 {max_products} 个）")
+
+            # 遍历提取的商品数据
             for i in range(min(total_rows, max_products)):
                 try:
-                    # 🔧 关键修复：每次循环重新获取商品行列表
-                    current_rows = await page.query_selector_all(product_rows_selector)
-                    if not current_rows:
-                        current_rows = await page.query_selector_all(product_rows_alt_selector)
+                    product_data_js = products_data[i]
 
-                    # 去重
-                    unique_current_rows = await self._deduplicate_rows(current_rows)
-
-                    # 检查索引是否有效
-                    if i >= len(unique_current_rows):
-                        self.logger.warning(f"⚠️  索引 {i} 超出范围，跳过")
-                        break
-
-                    row = unique_current_rows[i]
-
-                    # 先提取基础字段（类目、上架时间、销量、重量）
-                    category_data = await self._extract_category(row)
-                    listing_date_data = await self._extract_listing_date(row)
-                    sales_volume = await self._extract_product_sales_volume(row)
-                    weight = await self._extract_weight(row)
-
-                    # 构建基础商品数据用于前置过滤（使用统一字段名）
+                    # 构建基础商品数据用于前置过滤
                     basic_product_data = {
-                        'product_category_cn': category_data.get('category_cn'),
-                        'product_category_ru': category_data.get('category_ru'),
-                        'product_listing_date': listing_date_data.get('listing_date'),
-                        'product_shelf_duration': listing_date_data.get('shelf_duration'),
-                        'product_sales_volume': sales_volume,
-                        'product_weight': weight
+                        'product_category_cn': product_data_js.get('categoryCn'),
+                        'product_category_ru': product_data_js.get('categoryRu'),
+                        'product_listing_date': product_data_js.get('listingDate'),
+                        'product_shelf_duration': product_data_js.get('shelfDuration'),
+                        'product_sales_volume': product_data_js.get('salesVolume'),
+                        'product_weight': product_data_js.get('weight')
                     }
 
                     # 应用前置过滤
@@ -479,11 +550,36 @@ class SeerfarScraper(BaseScraper):
                             self.logger.debug(f"⏭️  商品 #{i+1} 未通过前置过滤，跳过 OZON 详情页处理")
                             continue
 
-                    # 通过过滤，继续提取完整商品信息（包括 OZON 详情页）
-                    product_data = await self._extract_product_from_row_async(row)
+                    # 构建完整商品数据
+                    product_data = {
+                        'category_cn': product_data_js.get('categoryCn'),
+                        'category_ru': product_data_js.get('categoryRu'),
+                        'listing_date': product_data_js.get('listingDate'),
+                        'shelf_duration': product_data_js.get('shelfDuration'),
+                        'sales_volume': product_data_js.get('salesVolume'),
+                        'weight': product_data_js.get('weight')
+                    }
+
+                    # 获取 OZON URL
+                    ozon_url = product_data_js.get('ozonUrl')
+                    ozon_data_success = False
+                    if ozon_url:
+                        self.logger.info(f"📎 提取到 OZON URL: {ozon_url}")
+
+                        # 抓取 OZON 详情页数据 - 同步实现
+                        ozon_data = self._fetch_ozon_details(ozon_url)
+                        if ozon_data:
+                            product_data.update(ozon_data)
+                            ozon_data_success = True
+                        else:
+                            self.logger.warning(f"⚠️ 商品 #{i+1} OZON 数据获取失败")
+
                     if product_data:
                         products.append(product_data)
-                        self.logger.info(f"✅ 商品 #{i+1} 提取成功")
+                        if ozon_data_success:
+                            self.logger.info(f"✅ 商品 #{i+1} 提取成功（含 OZON 数据）")
+                        else:
+                            self.logger.warning(f"⚠️ 商品 #{i+1} 提取部分成功（仅基础数据，OZON 数据缺失）")
 
                 except Exception as e:
                     self.logger.warning(f"⚠️  提取第 {i + 1} 个商品信息失败: {e}")
@@ -499,39 +595,17 @@ class SeerfarScraper(BaseScraper):
             self.logger.error(f"❌ 提取商品列表失败: {e}")
             return []
 
-    async def _extract_product_from_row_async(self, row_element) -> Optional[Dict[str, Any]]:
+    def close(self):
         """
-        异步从行元素中提取商品信息并点击进入OZON详情页
-
-        主方法：协调整个商品信息提取流程
-
-        Args:
-            row_element: 行元素
-
-        Returns:
-            Dict[str, Any]: 完整的商品信息（包含OZON详情页数据）
+        关闭 SeerfarScraper，清理资源 - 同步实现
         """
         try:
-            # 1. 提取 Seerfar 表格基础数据
-            product_data = await self._extract_basic_product_data(row_element)
-
-            # 2. 获取 OZON URL
-            ozon_url = await self._get_ozon_url_from_row(row_element)
-            if not ozon_url:
-                return None
-
-            # 3. 抓取 OZON 详情页数据
-            ozon_data = await self._fetch_ozon_details(ozon_url)
-            if ozon_data:
-                product_data.update(ozon_data)
-
-            return product_data if product_data else None
-
+            super().close()  # 调用基类的同步关闭方法
+            self.logger.info("🔒 SeerfarScraper 已关闭")
         except Exception as e:
-            self.logger.error(f"提取商品信息失败: {e}")
-            return None
+            self.logger.warning(f"关闭 SeerfarScraper 时出错: {e}")
 
-    async def _extract_basic_product_data(self, row_element) -> Dict[str, Any]:
+    def _extract_basic_product_data(self, row_element) -> Dict[str, Any]:
         """
         提取 Seerfar 表格中的基础商品数据
 
@@ -544,26 +618,26 @@ class SeerfarScraper(BaseScraper):
         product_data = {}
 
         # 1. 提取类目信息
-        category_data = await self._extract_category(row_element)
+        category_data = self._extract_category(row_element)
         product_data.update(category_data)
 
         # 2. 提取上架时间
-        listing_date_data = await self._extract_listing_date(row_element)
+        listing_date_data = self._extract_listing_date(row_element)
         product_data.update(listing_date_data)
 
         # 3. 提取销量
-        sales_volume = await self._extract_product_sales_volume(row_element)
+        sales_volume = self._extract_product_sales_volume(row_element)
         if sales_volume is not None:
             product_data['sales_volume'] = sales_volume
 
         # 4. 提取重量
-        weight = await self._extract_weight(row_element)
+        weight = self._extract_weight(row_element)
         if weight is not None:
             product_data['weight'] = weight
 
         return product_data
 
-    async def _get_ozon_url_from_row(self, row_element) -> Optional[str]:
+    def _get_ozon_url_from_row(self, row_element) -> Optional[str]:
         """
         从行元素中提取 OZON URL
 
@@ -574,9 +648,8 @@ class SeerfarScraper(BaseScraper):
             Optional[str]: OZON URL，如果提取失败返回 None
         """
         try:
-            # 验证 page 对象
-            page = self.browser_service.page
-            if not self._validate_page(page):
+            # 验证页面对象
+            if not self._validate_page():
                 return None
 
             # 从配置文件获取选择器
@@ -588,27 +661,41 @@ class SeerfarScraper(BaseScraper):
                 self.logger.error("❌ 未能找到商品行元素选择器配置")
                 return None
 
-            # 查找第三列中有onclick事件的元素
-            td3_element = await row_element.query_selector(third_column_selector)
-            if not td3_element:
-                self.logger.warning("⚠️ 未找到第三列，跳过此商品")
+            # 使用JavaScript一次性获取OZON URL，避免复杂的元素查找
+            js_script = f"""
+            // 查找包含onclick的可点击元素
+            const rowElements = document.querySelectorAll('tr[data-index]');
+            let targetRow = null;
+            
+            // 找到对应的行（通过data-index或位置）
+            for (let row of rowElements) {{
+                const cells = row.querySelectorAll('td');
+                if (cells.length >= 3) {{
+                    const thirdCell = cells[2]; // 第三列
+                    const clickableElements = thirdCell.querySelectorAll('*[onclick*="window.open"]');
+                    if (clickableElements.length > 0) {{
+                        const onclick = clickableElements[0].getAttribute('onclick');
+                        if (onclick && onclick.includes('window.open')) {{
+                            const urlMatch = onclick.match(/window\\.open\\('([^']+)'\\)/);
+                            if (urlMatch) {{
+                                return urlMatch[1]; // 返回URL
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+            return null;
+            """
+
+            ozon_url = self.browser_service.evaluate_sync(js_script)
+            if not ozon_url:
+                self.logger.warning("⚠️ 未找到OZON URL")
                 return None
 
-            # 查找可点击元素
-            clickable_element = await td3_element.query_selector(clickable_element_selector)
-            if not clickable_element:
-                clickable_element = await td3_element.query_selector(clickable_element_alt_selector)
-                if not clickable_element:
-                    self.logger.warning("⚠️ 未找到可点击的商品元素，跳过此商品")
-                    return None
+            self.logger.info(f"🔗 提取到OZON URL: {ozon_url}")
 
-            # 记录找到的元素类型
-            element_tag = await clickable_element.evaluate("el => el.tagName")
-            element_class = await clickable_element.evaluate("el => el.className")
-            self.logger.info(f"🔗 找到可点击元素: {element_tag}.{element_class}")
-
-            # 提取 onclick 中的 URL
-            onclick_attr = await clickable_element.get_attribute("onclick")
+            # 直接返回URL，不需要进一步解析
+            return ozon_url
             if onclick_attr and "window.open" in onclick_attr:
                 import re
                 url_match = re.search(r"window\.open\('([^']+)'\)", onclick_attr)
@@ -617,7 +704,7 @@ class SeerfarScraper(BaseScraper):
                     self.logger.info(f"提取到 OZON URL: {ozon_url}")
 
                     # 获取最终 URL（处理重定向）
-                    final_url = await self._resolve_ozon_url(ozon_url, page)
+                    final_url = self._resolve_ozon_url(ozon_url)
                     return final_url
 
             self.logger.warning("未找到有效的onclick事件")
@@ -627,40 +714,64 @@ class SeerfarScraper(BaseScraper):
             self.logger.error(f"提取 OZON URL 失败: {e}")
             return None
 
-    async def _resolve_ozon_url(self, ozon_url: str, page) -> str:
+    def _resolve_ozon_url(self, ozon_url: str) -> str:
         """
-        解析 OZON URL，处理可能的重定向
+        解析 OZON URL，处理可能的重定向 - 同步实现
 
         Args:
             ozon_url: 原始 OZON URL
-            page: 当前页面对象
 
         Returns:
             str: 最终的 OZON URL
         """
-        new_page = None
         try:
-            new_page = await page.context.new_page()
-            await new_page.goto(ozon_url)
-            await new_page.wait_for_load_state('domcontentloaded', timeout=5000)
+            # 完整实现：使用HTTP请求解析URL重定向，避免影响当前浏览器状态
+            import requests
+            from urllib.parse import urlparse
 
-            # 获取最终URL（可能有重定向）
-            final_ozon_url = new_page.url
-            self.logger.info(f"获取到最终 OZON URL: {final_ozon_url}")
-            return final_ozon_url
+            self.logger.debug(f"开始解析URL重定向: {ozon_url}")
 
-        finally:
-            # 立即关闭临时页面，释放浏览器资源
-            if new_page:
-                try:
-                    await new_page.close()
-                    self.logger.debug("✅ 临时页面已关闭")
-                except Exception as close_error:
-                    self.logger.warning(f"关闭临时页面时出错: {close_error}")
+            # 设置请求头，模拟真实浏览器
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+            }
 
-    async def _fetch_ozon_details(self, ozon_url: str) -> Optional[Dict[str, Any]]:
+            # 发送HEAD请求检查重定向，超时3秒
+            response = requests.head(
+                ozon_url,
+                headers=headers,
+                allow_redirects=True,
+                timeout=3
+            )
+
+            # 获取最终URL
+            final_url = response.url
+
+            if final_url != ozon_url:
+                self.logger.info(f"URL重定向解析: {ozon_url} -> {final_url}")
+            else:
+                self.logger.debug(f"URL无重定向: {ozon_url}")
+
+            return final_url
+
+        except requests.exceptions.Timeout:
+            self.logger.warning(f"URL重定向检查超时，使用原始URL: {ozon_url}")
+            return ozon_url
+        except requests.exceptions.RequestException as e:
+            self.logger.warning(f"URL重定向检查失败，使用原始URL: {e}")
+            return ozon_url
+        except Exception as e:
+            self.logger.warning(f"URL处理失败，使用原始URL: {e}")
+            return ozon_url
+
+    def _fetch_ozon_details(self, ozon_url: str) -> Optional[Dict[str, Any]]:
         """
-        抓取 OZON 详情页数据
+        抓取 OZON 详情页数据 - 同步实现
 
         Args:
             ozon_url: OZON 商品详情页 URL
@@ -668,11 +779,11 @@ class SeerfarScraper(BaseScraper):
         Returns:
             Optional[Dict[str, Any]]: OZON 详情页数据，包含价格、跟卖店铺、ERP 数据
         """
-        self.logger.info("📊 调用 OzonScraper 处理 OZON 商品详情页...")
+        self.logger.info("📊 调用 OzonScraper 处理 OZON 商品详情页（同步实现）...")
         try:
             from .ozon_scraper import OzonScraper
 
-            # 创建 OzonScraper 实例并使用公共接口
+            # 创建 OzonScraper 实例并使用公共接口 - 同步调用
             ozon_scraper = OzonScraper(self.config)
             ozon_result = ozon_scraper.scrape(ozon_url, include_competitors=True)
 
@@ -705,22 +816,31 @@ class SeerfarScraper(BaseScraper):
             self.logger.error(f"❌ 调用 OzonScraper 失败: {scrape_error}")
             return None
 
-    def _validate_page(self, page) -> bool:
+    def _validate_page(self) -> bool:
         """
-        验证 page 对象是否有效
-
-        Args:
-            page: Playwright 页面对象
+        验证当前页面是否有效 - 同步实现
 
         Returns:
             bool: 页面是否有效
         """
-        if page is None:
-            self.logger.error("❌ page 对象为 None，浏览器可能未正确启动")
+        if not self.browser_service:
+            self.logger.error("❌ browser_service 未初始化")
             return False
-        return True
 
-    async def _deduplicate_rows(self, rows: list) -> list:
+        # 检查页面是否可用（通过尝试获取页面标题）
+        try:
+            if hasattr(self.browser_service, 'get_page_title_sync'):
+                title = self.browser_service.get_page_title_sync()
+                return title is not None
+            else:
+                # 降级方案：假设页面有效
+                self.logger.warning("浏览器服务没有同步获取页面标题方法")
+                return True
+        except Exception as e:
+            self.logger.error(f"❌ 页面验证失败: {e}")
+            return False
+
+    def _deduplicate_rows(self, rows: list) -> list:
         """
         去重商品行，避免 CSS 和 XPath 选择器匹配到相同元素
 
@@ -737,18 +857,12 @@ class SeerfarScraper(BaseScraper):
         unique_rows = []
 
         for row in rows:
-            try:
-                data_index = await row.get_attribute('data-index')
-                if data_index and data_index not in seen_indices:
-                    seen_indices.add(data_index)
-                    unique_rows.append(row)
-            except Exception:
-                # 如果没有 data-index 属性，也加入列表
-                unique_rows.append(row)
+            # 简化去重逻辑：直接添加所有行，去重已在JavaScript层处理
+            unique_rows.append(row)
 
         return unique_rows
 
-    async def _extract_category(self, row_element) -> Dict[str, Optional[str]]:
+    def _extract_category(self, row_element) -> Dict[str, Optional[str]]:
         """
         从行元素中提取类目信息
 
@@ -760,32 +874,49 @@ class SeerfarScraper(BaseScraper):
         """
         result = {'category_cn': None, 'category_ru': None}
 
-        # 类目列索引（从0开始）
-        # 第0列：复选框，第1列：序号，第2列：商品信息，第3列：类目
-        CATEGORY_COLUMN_INDEX = 3
+        # 🔧 从配置文件获取列索引
+        category_column_index = SEERFAR_SELECTORS.column_indexes['category']
 
         try:
-            # 查找第三个 td 元素（类目列）
-            td_elements = await row_element.query_selector_all('td')
-            if len(td_elements) <= CATEGORY_COLUMN_INDEX:
-                self.logger.warning("⚠️ 未找到足够的 td 元素来提取类目")
-                return result
+            # 使用JavaScript直接从行元素中提取类目信息，避免复杂的元素操作
+            js_script = f"""
+            const categoryIndex = {category_column_index};
+            const rows = document.querySelectorAll('tr[data-index]');
+            
+            for (let row of rows) {{
+                const cells = row.querySelectorAll('td');
+                if (cells.length > categoryIndex) {{
+                    const categoryCell = cells[categoryIndex];
+                    
+                    // 提取中文类目
+                    const categoryCnEl = categoryCell.querySelector('span.category-title, .category-title');
+                    const categoryCn = categoryCnEl ? categoryCnEl.textContent.trim() : null;
+                    
+                    // 提取俄文类目  
+                    const categoryRuEl = categoryCell.querySelector('span.text-muted, .text-muted');
+                    const categoryRu = categoryRuEl ? categoryRuEl.textContent.trim() : null;
+                    
+                    if (categoryCn || categoryRu) {{
+                        return {{
+                            category_cn: categoryCn,
+                            category_ru: categoryRu
+                        }};
+                    }}
+                }}
+            }}
+            return null;
+            """
 
-            category_td = td_elements[CATEGORY_COLUMN_INDEX]
+            category_data = self.browser_service.evaluate_sync(js_script)
+            if category_data:
+                if category_data.get('category_cn'):
+                    result['category_cn'] = category_data['category_cn']
+                if category_data.get('category_ru'):
+                    result['category_ru'] = category_data['category_ru']
 
-            # 提取中文类目
-            category_cn_element = await category_td.query_selector('span.category-title')
-            if category_cn_element:
-                category_cn_text = await category_cn_element.text_content()
-                if category_cn_text:
-                    result['category_cn'] = category_cn_text.strip()
-
-            # 提取俄文类目
-            category_ru_element = await category_td.query_selector('span.text-muted')
-            if category_ru_element:
-                category_ru_text = await category_ru_element.text_content()
-                if category_ru_text:
-                    result['category_ru'] = category_ru_text.strip()
+                self.logger.debug(f"✅ 类目提取成功: {result}")
+            else:
+                self.logger.warning("⚠️ 未能提取到类目信息")
 
             if result['category_cn'] or result['category_ru']:
                 self.logger.debug(f"✅ 类目提取成功: 中文={result['category_cn']}, 俄文={result['category_ru']}")
@@ -797,7 +928,7 @@ class SeerfarScraper(BaseScraper):
 
         return result
 
-    async def _extract_listing_date(self, row_element) -> Dict[str, Optional[str]]:
+    def _extract_listing_date(self, row_element) -> Dict[str, Optional[str]]:
         """
         从行元素中提取上架时间信息
 
@@ -810,41 +941,60 @@ class SeerfarScraper(BaseScraper):
         result = {'listing_date': None, 'shelf_duration': None}
 
         try:
-            # 查找所有 td 元素，上架时间在最后一个 td
-            td_elements = await row_element.query_selector_all('td')
-            if not td_elements:
-                self.logger.warning("⚠️ 未找到 td 元素来提取上架时间")
-                return result
+            # 使用JavaScript直接提取上架时间信息
+            js_script = """
+            const rows = document.querySelectorAll('tr[data-index]');
+            
+            for (let row of rows) {
+                const cells = row.querySelectorAll('td');
+                if (cells.length > 0) {
+                    const lastCell = cells[cells.length - 1]; // 最后一个td
+                    const innerHtml = lastCell.innerHTML;
+                    
+                    // 提取日期（匹配 YYYY-MM-DD 格式）
+                    const dateMatch = innerHtml.match(/(\\d{4}-\\d{2}-\\d{2})/);
+                    const date = dateMatch ? dateMatch[1] : null;
+                    
+                    // 提取货架时长（匹配数字+天/月等）
+                    const durationMatch = innerHtml.match(/>\\s*([^<>]*(?:天|月|年|day|month|year)[^<>]*)/i);
+                    let duration = durationMatch ? durationMatch[1].trim() : null;
+                    
+                    if (duration === '') duration = null;
+                    
+                    if (date || duration) {
+                        return {
+                            listing_date: date,
+                            shelf_duration: duration
+                        };
+                    }
+                }
+            }
+            return null;
+            """
 
-            # 最后一个 td 包含上架时间
-            listing_date_td = td_elements[-1]
+            date_data = self.browser_service.evaluate_sync(js_script)
+            if date_data:
+                if date_data.get('listing_date'):
+                    result['listing_date'] = date_data['listing_date']
+                if date_data.get('shelf_duration'):
+                    result['shelf_duration'] = date_data['shelf_duration']
 
-            # 获取完整的 HTML 内容以便解析
-            inner_html = await listing_date_td.inner_html()
-
-            # 提取日期（格式：2025-06-20）
-            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', inner_html)
-            if date_match:
-                result['listing_date'] = date_match.group(1)
-
-            # 提取货架时长（格式：4 个月 或 < 1 个月）
-            duration_match = re.search(r'<span[^>]*>([^<]+)</span>', inner_html)
-            if duration_match:
-                duration_text = duration_match.group(1).strip()
-                if duration_text and duration_text != '':
-                    result['shelf_duration'] = duration_text
-
-            if result['listing_date'] or result['shelf_duration']:
-                self.logger.debug(f"✅ 上架时间提取成功: 日期={result['listing_date']}, 时长={result['shelf_duration']}")
+                self.logger.debug(f"✅ 上架时间提取成功: {result}")
             else:
                 self.logger.warning("⚠️ 未能提取到上架时间信息")
+                return result
+
+            # 下面的正则处理逻辑已经在JavaScript中完成，删除
+            return result
+
+
 
         except Exception as e:
             self.logger.error(f"❌ 上架时间提取失败: {e}")
 
         return result
 
-    async def _extract_product_sales_volume(self, row_element) -> Optional[int]:
+    def _extract_product_sales_volume(self, row_element) -> Optional[int]:
         """
         从行元素中提取商品销量信息
 
@@ -854,44 +1004,53 @@ class SeerfarScraper(BaseScraper):
         Returns:
             Optional[int]: 销量数值，如果提取失败返回 None
         """
-        # 销量列索引（从0开始，第5列）
-        SALES_VOLUME_COLUMN_INDEX = 4
+        # 🔧 从配置文件获取列索引
+        sales_volume_column_index = SEERFAR_SELECTORS.column_indexes['sales_volume']
 
         try:
-            # 查找所有 td 元素
-            td_elements = await row_element.query_selector_all('td')
-            if len(td_elements) <= SALES_VOLUME_COLUMN_INDEX:
-                self.logger.warning("⚠️ 未找到足够的 td 元素来提取销量")
+            # 使用JavaScript直接提取销量信息
+            js_script = f"""
+            const salesIndex = {sales_volume_column_index};
+            const rows = document.querySelectorAll('tr[data-index]');
+            
+            for (let row of rows) {{
+                const cells = row.querySelectorAll('td');
+                if (cells.length > salesIndex) {{
+                    const salesCell = cells[salesIndex];
+                    const salesText = salesCell.textContent || '';
+                    
+                    if (salesText.trim()) {{
+                        // 提取第一行的数字（忽略增长率）
+                        const lines = salesText.trim().split('\\n');
+                        if (lines.length > 0) {{
+                            const firstLine = lines[0].trim();
+                            // 提取纯数字
+                            const salesMatch = firstLine.match(/\\d+/);
+                            if (salesMatch) {{
+                                return parseInt(salesMatch[0], 10);
+                            }}
+                        }}
+                    }}
+                }}
+            }}
+            return null;
+            """
+
+            sales_volume = self.browser_service.evaluate_sync(js_script)
+            if sales_volume is not None:
+                self.logger.debug(f"✅ 销量提取成功: {sales_volume}")
+                return sales_volume
+            else:
+                self.logger.warning("⚠️ 未能提取到销量信息")
                 return None
 
-            # 销量在第5个 td（索引4）
-            sales_td = td_elements[SALES_VOLUME_COLUMN_INDEX]
 
-            # 获取文本内容
-            sales_text = await sales_td.text_content()
-            if not sales_text:
-                self.logger.warning("⚠️ 销量 td 元素为空")
-                return None
-
-            # 提取数字（只提取第一行的数字，忽略增长率）
-            lines = sales_text.strip().split('\n')
-            if lines:
-                first_line = lines[0].strip()
-                # 提取纯数字
-                sales_match = re.search(r'^(\d+)', first_line)
-                if sales_match:
-                    sales_volume = int(sales_match.group(1))
-                    self.logger.debug(f"✅ 销量提取成功: {sales_volume}")
-                    return sales_volume
-
-            self.logger.warning(f"⚠️ 未能从文本中提取销量: {sales_text}")
-            return None
 
         except Exception as e:
             self.logger.error(f"❌ 销量提取失败: {e}")
             return None
 
-    async def _extract_weight(self, row_element) -> Optional[float]:
+    def _extract_weight(self, row_element) -> Optional[float]:
         """
         从行元素中提取商品重量信息
 
@@ -902,42 +1061,42 @@ class SeerfarScraper(BaseScraper):
             Optional[float]: 重量数值（克），如果提取失败返回 None
         """
         try:
-            # 查找所有 td 元素
-            td_elements = await row_element.query_selector_all('td')
+            # 使用JavaScript直接提取重量信息
+            js_script = """
+            const rows = document.querySelectorAll('tr[data-index]');
+            
+            for (let row of rows) {
+                const cells = row.querySelectorAll('td');
+                if (cells.length >= 2) {
+                    const weightCell = cells[cells.length - 2]; // 倒数第二个td
+                    const weightText = weightCell.textContent || '';
+                    
+                    if (weightText.trim()) {
+                        // 提取数字和单位，支持kg和g
+                        const weightMatch = weightText.match(/(\\d+(?:\\.\\d+)?)\\s*(kg|g)/i);
+                        if (weightMatch) {
+                            const value = parseFloat(weightMatch[1]);
+                            const unit = weightMatch[2].toLowerCase();
+                            
+                            // 统一转换为克
+                            const weightGrams = unit === 'kg' ? value * 1000 : value;
+                            return weightGrams;
+                        }
+                    }
+                }
+            }
+            return null;
+            """
 
-            # 重量在倒数第二列
-            if len(td_elements) < 2:
-                self.logger.warning("⚠️ 未找到足够的 td 元素来提取重量")
-                return None
-
-            # 倒数第二个 td
-            weight_td = td_elements[-2]
-
-            # 获取文本内容
-            weight_text = await weight_td.text_content()
-            if not weight_text:
-                self.logger.warning("⚠️ 重量 td 元素为空")
-                return None
-
-            # 提取数字和单位（格式：161 g 或 1.5 kg）
-            weight_text = weight_text.strip()
-            weight_match = re.search(r'([\d.]+)\s*(g|kg)', weight_text, re.IGNORECASE)
-
-            if weight_match:
-                value = float(weight_match.group(1))
-                unit = weight_match.group(2).lower()
-
-                # 统一转换为克
-                if unit == 'kg':
-                    weight_grams = value * 1000
-                else:  # g
-                    weight_grams = value
-
-                self.logger.debug(f"✅ 重量提取成功: {weight_grams}g (原始: {weight_text})")
+            weight_grams = self.browser_service.evaluate_sync(js_script)
+            if weight_grams is not None:
+                self.logger.debug(f"✅ 重量提取成功: {weight_grams}g")
                 return weight_grams
+            else:
+                self.logger.warning("⚠️ 未能提取到重量信息")
+                return None
 
-            self.logger.warning(f"⚠️ 未能从文本中提取重量: {weight_text}")
-            return None
+
 
         except Exception as e:
             self.logger.error(f"❌ 重量提取失败: {e}")

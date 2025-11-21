@@ -61,14 +61,14 @@ class OzonScraper(BaseScraper):
 
         try:
             # 使用浏览器服务抓取数据
-            async def extract_price_data(browser_service):
-                """异步提取价格数据"""
+            def extract_price_data(browser_service):
+                """同步提取价格数据"""
                 try:
                     # 🔧 性能优化：减少不必要的等待时间
-                    await asyncio.sleep(0.5)
+                    time.sleep(0.5)
 
-                    # 获取页面内容
-                    page_content = await browser_service.get_page_content()
+                    # 获取页面内容 - 使用同步方法
+                    page_content = browser_service.evaluate_sync("() => document.documentElement.outerHTML")
                     if not page_content:
                         self.logger.error("未能获取页面内容")
                         return {}
@@ -127,15 +127,15 @@ class OzonScraper(BaseScraper):
         start_time = time.time()
 
         try:
-            async def extract_competitor_data(browser_service):
-                """异步提取跟卖店铺数据"""
+            def extract_competitor_data(browser_service):
+                """同步提取跟卖店铺数据"""
                 try:
                     # 🔧 性能优化：减少不必要的等待时间
-                    await asyncio.sleep(0.5)
+                    time.sleep(0.5)
 
                     # 🔧 修复：使用CompetitorScraper的严格跟卖检测方法
                     page = browser_service.browser_driver.page
-                    popup_result = await self.competitor_scraper.open_competitor_popup(page)
+                    popup_result = self.competitor_scraper.open_competitor_popup(page)
 
                     # 🎯 根据严格检测结果决定后续处理
                     if not popup_result['success']:
@@ -152,13 +152,13 @@ class OzonScraper(BaseScraper):
 
                     # 🔧 修复：获取检测到的总跟卖数量（而不是实际提取的数量）
                     page = browser_service.get_page()
-                    detected_total_count = await self.competitor_scraper._get_competitor_count(page)
+                    detected_total_count = self.competitor_scraper._get_competitor_count(page)
 
-                    # 获取页面内容
-                    page_content = await browser_service.get_page_content()
+                    # 获取页面内容 - 使用同步方法
+                    page_content = browser_service.evaluate_sync("() => document.documentElement.outerHTML")
 
                     # 解析跟卖店铺信息 - 修复：使用CompetitorScraper
-                    competitors = await self.competitor_scraper.extract_competitors_from_content(page_content,
+                    competitors = self.competitor_scraper.extract_competitors_from_content(page_content,
                                                                                                  max_competitors)
 
                     # 🔧 修复：返回检测到的总数量，而不是实际提取的数量

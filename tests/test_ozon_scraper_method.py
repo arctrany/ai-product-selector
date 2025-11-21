@@ -2,12 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-OZON Scraper scrape() 方法单独测试
+OZON Scraper scrape() 方法单独测试 - 同步版本
 
 测试 OzonScraper.scrape() 方法的功能，使用JSON配置的测试用例
 """
 
-import asyncio
 import json
 import os
 import sys
@@ -233,24 +232,24 @@ class OzonScraperMethodTester:
         
         return True
 
-    async def test_single_case(self, test_case: Dict[str, Any]) -> bool:
-        """测试单个用例"""
+    def test_single_case(self, test_case: Dict[str, Any]) -> bool:
+        """测试单个用例 - 同步版本"""
         test_id = test_case['id']
         test_name = test_case['name']
         url = test_case['url']
         expected = test_case['expected']
         options = test_case.get('test_options', {})
-        
+
         print(f"\n" + "="*80)
         print(f"🧪 {test_name} ({test_id})")
         print("="*80)
         print(f"📍 测试URL: {url}")
         print(f"📋 测试选项: {options}")
-        
+
         try:
             start_time = time.time()
-            
-            # 调用 scrape 方法
+
+            # 调用同步 scrape 方法
             include_competitors = options.get('include_competitors', False)
             result = self.scraper.scrape(url, include_competitors=include_competitors)
             
@@ -282,18 +281,18 @@ class OzonScraperMethodTester:
             traceback.print_exc()
             return False
 
-    async def run_all_tests(self) -> bool:
-        """运行所有测试用例"""
+    def run_all_tests(self) -> bool:
+        """运行所有测试用例 - 同步版本"""
         print("🚀 开始 OzonScraper.scrape() 方法测试")
         print(f"📋 共 {len(self.test_cases)} 个测试用例")
-        
+
         if not self._setup_scraper():
             return False
-        
+
         results = []
-        
+
         for test_case in self.test_cases:
-            success = await self.test_single_case(test_case)
+            success = self.test_single_case(test_case)
             results.append((test_case['name'], success))
         
         # 输出测试结果总结
@@ -343,54 +342,54 @@ async def main():
 
 
 if __name__ == "__main__":
-    # 运行测试
-    exit_code = asyncio.run(main())
+    # 运行同步测试
+    exit_code = main()
     sys.exit(exit_code)
 
 
-class TestOzonScraperMethod(unittest.IsolatedAsyncioTestCase):
-    """OzonScraper.scrape() 方法单元测试"""
-    
+class TestOzonScraperMethod(unittest.TestCase):
+    """OzonScraper.scrape() 方法单元测试 - 同步版本"""
+
     def setUp(self):
         """测试初始化"""
         self.tester = OzonScraperMethodTester()
-    
+
     def tearDown(self):
         """测试清理"""
         self.tester.close()
-    
-    async def test_scenario_1_no_competitors(self):
-        """测试场景1：无跟卖店铺"""
+
+    def test_scenario_1_no_competitors(self):
+        """测试场景1：无跟卖店铺 - 同步版本"""
         test_case = next((tc for tc in self.tester.test_cases if tc['id'] == 'scenario_1_no_competitors'), None)
         self.assertIsNotNone(test_case, "找不到测试用例 scenario_1_no_competitors")
-        
+
         self.assertTrue(self.tester._setup_scraper(), "OzonScraper 初始化失败")
-        success = await self.tester.test_single_case(test_case)
+        success = self.tester.test_single_case(test_case)
         self.assertTrue(success, f"测试用例 {test_case['name']} 失败")
-    
-    async def test_scenario_2_with_competitors(self):
-        """测试场景2：有跟卖店铺"""
+
+    def test_scenario_2_with_competitors(self):
+        """测试场景2：有跟卖店铺 - 同步版本"""
         test_case = next((tc for tc in self.tester.test_cases if tc['id'] == 'scenario_2_with_competitors'), None)
         self.assertIsNotNone(test_case, "找不到测试用例 scenario_2_with_competitors")
-        
+
         self.assertTrue(self.tester._setup_scraper(), "OzonScraper 初始化失败")
-        success = await self.tester.test_single_case(test_case)
+        success = self.tester.test_single_case(test_case)
         self.assertTrue(success, f"测试用例 {test_case['name']} 失败")
-    
-    async def test_scenario_3_many_competitors(self):
-        """测试场景3：跟卖店铺超过10个"""
+
+    def test_scenario_3_many_competitors(self):
+        """测试场景3：跟卖店铺超过10个 - 同步版本"""
         test_case = next((tc for tc in self.tester.test_cases if tc['id'] == 'scenario_3_many_competitors'), None)
         self.assertIsNotNone(test_case, "找不到测试用例 scenario_3_many_competitors")
-        
+
         self.assertTrue(self.tester._setup_scraper(), "OzonScraper 初始化失败")
-        success = await self.tester.test_single_case(test_case)
+        success = self.tester.test_single_case(test_case)
         self.assertTrue(success, f"测试用例 {test_case['name']} 失败")
-    
-    async def test_scenario_4_product_1176594312(self):
-        """测试场景4：商品ID 1176594312"""
+
+    def test_scenario_4_product_1176594312(self):
+        """测试场景4：商品ID 1176594312 - 同步版本"""
         test_case = next((tc for tc in self.tester.test_cases if tc['id'] == 'scenario_4_product_1176594312'), None)
         self.assertIsNotNone(test_case, "找不到测试用例 scenario_4_product_1176594312")
-        
+
         self.assertTrue(self.tester._setup_scraper(), "OzonScraper 初始化失败")
-        success = await self.tester.test_single_case(test_case)
+        success = self.tester.test_single_case(test_case)
         self.assertTrue(success, f"测试用例 {test_case['name']} 失败")
