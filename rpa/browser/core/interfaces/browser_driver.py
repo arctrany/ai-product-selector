@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from playwright.async_api import Browser, BrowserContext, Page
+from playwright.sync_api import Browser, BrowserContext, Page
 
 
 class IBrowserDriver(ABC):
@@ -25,9 +25,9 @@ class IBrowserDriver(ABC):
     # ========================================
 
     @abstractmethod
-    async def initialize(self) -> bool:
+    def initialize(self) -> bool:
         """
-        异步初始化浏览器驱动
+        同步初始化浏览器驱动
         
         Returns:
             bool: 初始化是否成功
@@ -35,9 +35,9 @@ class IBrowserDriver(ABC):
         pass
 
     @abstractmethod
-    async def shutdown(self) -> bool:
+    def shutdown(self) -> bool:
         """
-        异步关闭浏览器驱动
+        同步关闭浏览器驱动
         
         Returns:
             bool: 关闭是否成功
@@ -59,7 +59,7 @@ class IBrowserDriver(ABC):
     # ========================================
 
     @abstractmethod
-    async def open_page(self, url: str, wait_until: str = 'networkidle') -> bool:
+    def open_page(self, url: str, wait_until: str = 'networkidle') -> bool:
         """
         打开指定URL的页面
         
@@ -83,9 +83,9 @@ class IBrowserDriver(ABC):
         pass
 
     @abstractmethod
-    async def get_page_title_async(self) -> Optional[str]:
+    def get_page_title_sync(self) -> Optional[str]:
         """
-        异步获取当前页面标题
+        同步获取当前页面标题
         
         Returns:
             Optional[str]: 页面标题，失败时返回 None
@@ -97,9 +97,9 @@ class IBrowserDriver(ABC):
     # ========================================
 
     @abstractmethod
-    async def screenshot_async(self, file_path: Union[str, Path]) -> Optional[Path]:
+    def screenshot_sync(self, file_path: Union[str, Path]) -> Optional[Path]:
         """
-        异步截取当前页面的截图
+        同步截取当前页面的截图
         
         Args:
             file_path: 截图保存路径
@@ -110,9 +110,9 @@ class IBrowserDriver(ABC):
         pass
 
     @abstractmethod
-    async def execute_script(self, script: str) -> Any:
+    def execute_script(self, script: str) -> Any:
         """
-        异步执行JavaScript脚本
+        同步执行JavaScript脚本
         
         Args:
             script: JavaScript代码
@@ -127,7 +127,7 @@ class IBrowserDriver(ABC):
     # ========================================
 
     @abstractmethod
-    async def wait_for_element(self, selector: str, timeout: int = 30000) -> bool:
+    def wait_for_element(self, selector: str, timeout: int = 30000) -> bool:
         """
         等待元素出现
         
@@ -141,7 +141,7 @@ class IBrowserDriver(ABC):
         pass
 
     @abstractmethod
-    async def click_element(self, selector: str) -> bool:
+    def click_element(self, selector: str) -> bool:
         """
         点击指定元素
         
@@ -154,7 +154,7 @@ class IBrowserDriver(ABC):
         pass
 
     @abstractmethod
-    async def fill_input(self, selector: str, text: str) -> bool:
+    def fill_input(self, selector: str, text: str) -> bool:
         """
         填充输入框
         
@@ -168,9 +168,9 @@ class IBrowserDriver(ABC):
         pass
 
     @abstractmethod
-    async def get_element_text(self, selector: str) -> Optional[str]:
+    def get_element_text(self, selector: str) -> Optional[str]:
         """
-        异步获取元素文本内容
+        同步获取元素文本内容
         
         Args:
             selector: 元素选择器
@@ -219,7 +219,7 @@ class IBrowserDriver(ABC):
     # ========================================
 
     @abstractmethod
-    async def verify_login_state(self, domain: str) -> Dict[str, Any]:
+    def verify_login_state(self, domain: str) -> Dict[str, Any]:
         """
         验证指定域名的登录状态
 
@@ -232,7 +232,7 @@ class IBrowserDriver(ABC):
         pass
 
     @abstractmethod
-    async def save_storage_state(self, file_path: str) -> bool:
+    def save_storage_state(self, file_path: str) -> bool:
         """
         保存浏览器存储状态到文件
 
@@ -245,7 +245,7 @@ class IBrowserDriver(ABC):
         pass
 
     @abstractmethod
-    async def load_storage_state(self, file_path: str) -> bool:
+    def load_storage_state(self, file_path: str) -> bool:
         """
         从文件加载浏览器存储状态
 
@@ -289,11 +289,11 @@ class IBrowserDriver(ABC):
     # ========================================
 
     @abstractmethod
-    async def __aenter__(self):
-        """异步上下文管理器入口"""
+    def __enter__(self):
+        """同步上下文管理器入口"""
         pass
 
     @abstractmethod
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """异步上下文管理器出口"""
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """同步上下文管理器出口"""
         pass

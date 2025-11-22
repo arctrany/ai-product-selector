@@ -60,8 +60,8 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
 
     # ==================== 生命周期管理 ====================
 
-    async def initialize(self) -> bool:
-        """初始化浏览器驱动"""
+    def initialize(self) -> bool:
+        """同步初始化浏览器驱动"""
         if self._initialized:
             return True
         
@@ -193,7 +193,7 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
                 self.playwright = None
             return False
 
-    async def shutdown(self) -> bool:
+    def shutdown(self) -> bool:
         """关闭浏览器驱动 - 使用专用事件循环进行清理"""
         if not self._initialized:
             return True
@@ -213,7 +213,13 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
                 future.result(timeout=10)
             else:
                 # 如果事件循环不可用，尝试直接清理
-                await self._async_shutdown()
+                try:
+                    if self.browser:
+                        self.browser.close()
+                    if self.playwright:
+                        self.playwright.stop()
+                except Exception as e:
+                    self._logger.warning(f"Error during direct cleanup: {e}")
 
             self._logger.info("Playwright browser driver shutdown successfully")
 
@@ -287,7 +293,7 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
 
     # ==================== 页面操作 ====================
 
-    async def open_page(self, url: str, wait_until: str = 'domcontentloaded', timeout: int = 10000) -> bool:
+    def open_page(self, url: str, wait_until: str = 'domcontentloaded', timeout: int = 10000) -> bool:
         """
         打开页面
 
@@ -309,7 +315,16 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
 
 
 
-            await self.page.goto(url, wait_until=wait_until, timeout=timeout)
+            # 使用事件循环同步执行页面导航
+            if self._event_loop and self._event_loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self.page.goto(url, wait_until=wait_until, timeout=timeout),
+                    self._event_loop
+                )
+                future.result(timeout=timeout/1000 + 5)
+            else:
+                self._logger.error("Event loop is not running")
+                return False
 
             elapsed = time.time() - start_time
 
@@ -332,6 +347,10 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             timeout: 超时时间（毫秒），默认10秒（快速发现问题）
         """
         try:
+            if not self._initialized or not self.page:
+                self._logger.error("Browser driver not initialized")
+                return False
+
             if not self._event_loop or not self._event_loop.is_running():
                 self._logger.error("Event loop is not running. Browser may not be initialized properly.")
                 return False
@@ -340,22 +359,26 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             start_time = time.time()
 
 
-            # 使用专用事件循环执行异步操作
+            # 🔧 关键修复：直接调用 page.goto() 协程，而不是同步的 open_page() 方法
             future = asyncio.run_coroutine_threadsafe(
-                self.open_page(url, wait_until, timeout),
+                self.page.goto(url, wait_until=wait_until, timeout=timeout),
                 self._event_loop
             )
 
-            # 缩短超时缓冲时间为2秒
-            result = future.result(timeout=timeout/1000 + 2)
+            # 等待导航完成
+            future.result(timeout=timeout/1000 + 5)
 
             elapsed = time.time() - start_time
+            self._logger.info(f"✅ Page navigation successful after {elapsed:.2f}s: {url}")
+            return True
 
-            return result
-
+        except TimeoutError:
+            elapsed = time.time() - start_time if 'start_time' in locals() else 0
+            self._logger.error(f"⏱️ Timeout opening page after {elapsed:.2f}s (timeout: {timeout}ms): {url}")
+            return False
         except Exception as e:
             elapsed = time.time() - start_time if 'start_time' in locals() else 0
-
+            self._logger.error(f"❌ Failed to open page after {elapsed:.2f}s: {url} - Error: {str(e)}")
             return False
 
     async def get_page_title_async(self) -> Optional[str]:
@@ -386,13 +409,22 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             self._logger.error(f"Failed to take screenshot: {e}")
             return None
 
-    async def execute_script(self, script: str) -> Any:
+    def execute_script(self, script: str) -> Any:
         """执行 JavaScript 脚本"""
         if not self.page:
             return None
         
         try:
-            return await self.page.evaluate(script)
+            # 使用事件循环同步执行JavaScript
+            if self._event_loop and self._event_loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self.page.evaluate(script),
+                    self._event_loop
+                )
+                return future.result(timeout=10)
+            else:
+                self._logger.error("Event loop is not running")
+                return None
         except Exception as e:
             self._logger.error(f"Failed to execute script: {e}")
             return None
@@ -424,56 +456,92 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
 
     # ==================== 元素交互方法 ====================
 
-    async def wait_for_element(self, selector: str, timeout: int = 30000) -> bool:
+    def wait_for_element(self, selector: str, timeout: int = 30000) -> bool:
         """等待元素出现"""
         if not self.page:
             return False
 
         try:
-            await self.page.wait_for_selector(selector, timeout=timeout)
-            return True
+            # 使用事件循环同步等待元素
+            if self._event_loop and self._event_loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self.page.wait_for_selector(selector, timeout=timeout),
+                    self._event_loop
+                )
+                future.result(timeout=timeout/1000 + 5)
+                return True
+            else:
+                self._logger.error("Event loop is not running")
+                return False
         except Exception as e:
             self._logger.error(f"Failed to wait for element {selector}: {e}")
             return False
 
-    async def click_element(self, selector: str) -> bool:
+    def click_element(self, selector: str) -> bool:
         """点击指定元素"""
         if not self.page:
             return False
 
         try:
-            await self.page.click(selector)
-            return True
+            # 使用事件循环同步点击元素
+            if self._event_loop and self._event_loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self.page.click(selector),
+                    self._event_loop
+                )
+                future.result(timeout=10)
+                return True
+            else:
+                self._logger.error("Event loop is not running")
+                return False
         except Exception as e:
             self._logger.error(f"Failed to click element {selector}: {e}")
             return False
 
-    async def fill_input(self, selector: str, text: str) -> bool:
+    def fill_input(self, selector: str, text: str) -> bool:
         """填充输入框"""
         if not self.page:
             return False
 
         try:
-            await self.page.fill(selector, text)
-            return True
+            # 使用事件循环同步填充输入框
+            if self._event_loop and self._event_loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self.page.fill(selector, text),
+                    self._event_loop
+                )
+                future.result(timeout=10)
+                return True
+            else:
+                self._logger.error("Event loop is not running")
+                return False
         except Exception as e:
             self._logger.error(f"Failed to fill input {selector}: {e}")
             return False
 
-    async def get_element_text(self, selector: str) -> Optional[str]:
+    def get_element_text(self, selector: str) -> Optional[str]:
         """获取元素文本内容"""
         if not self.page:
             return None
 
         try:
-            return await self.page.text_content(selector)
+            # 使用事件循环同步获取元素文本
+            if self._event_loop and self._event_loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self.page.text_content(selector),
+                    self._event_loop
+                )
+                return future.result(timeout=10)
+            else:
+                self._logger.error("Event loop is not running")
+                return None
         except Exception as e:
             self._logger.error(f"Failed to get element text {selector}: {e}")
             return None
 
     # ==================== 会话管理方法 ====================
 
-    async def verify_login_state(self, domain: str) -> Dict[str, Any]:
+    def verify_login_state(self, domain: str) -> Dict[str, Any]:
         """验证指定域名的登录状态"""
         result = {
             'success': False,
@@ -487,7 +555,17 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
                 result['message'] = 'Browser context not available'
                 return result
 
-            cookies = await self.context.cookies(domain)
+            # 使用事件循环同步获取cookies
+            if self._event_loop and self._event_loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self.context.cookies(domain),
+                    self._event_loop
+                )
+                cookies = future.result(timeout=10)
+            else:
+                self._logger.error("Event loop is not running")
+                result['message'] = 'Event loop not available'
+                return result
             result['cookie_count'] = len(cookies)
             result['cookies'] = [{'name': c['name'], 'domain': c['domain']} for c in cookies]
 
@@ -506,14 +584,23 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             self._logger.error(f"Failed to verify login state for {domain}: {e}")
             return result
 
-    async def save_storage_state(self, file_path: str) -> bool:
+    def save_storage_state(self, file_path: str) -> bool:
         """保存浏览器存储状态到文件"""
         try:
             if not self.context:
                 self._logger.error("Browser context not available")
                 return False
 
-            await self.context.storage_state(path=file_path)
+            # 使用事件循环同步保存存储状态
+            if self._event_loop and self._event_loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self.context.storage_state(path=file_path),
+                    self._event_loop
+                )
+                future.result(timeout=10)
+            else:
+                self._logger.error("Event loop is not running")
+                return False
             self._logger.info(f"Storage state saved to: {file_path}")
             return True
 
@@ -521,7 +608,7 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             self._logger.error(f"Failed to save storage state: {e}")
             return False
 
-    async def load_storage_state(self, file_path: str) -> bool:
+    def load_storage_state(self, file_path: str) -> bool:
         """从文件加载浏览器存储状态"""
         try:
             if not os.path.exists(file_path):
@@ -533,18 +620,45 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
                 return False
 
             # 创建新上下文并加载存储状态
-            new_context = await self.browser.new_context(storage_state=file_path)
+            if self._event_loop and self._event_loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self.browser.new_context(storage_state=file_path),
+                    self._event_loop
+                )
+                new_context = future.result(timeout=10)
+            else:
+                self._logger.error("Event loop is not running")
+                return False
 
             # 关闭旧上下文
             if self.context:
-                await self.context.close()
+                if self._event_loop and self._event_loop.is_running():
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.context.close(),
+                        self._event_loop
+                    )
+                    future.result(timeout=10)
 
             self.context = new_context
 
             # 重新创建页面
             if self.page:
-                await self.page.close()
-            self.page = await self.context.new_page()
+                if self._event_loop and self._event_loop.is_running():
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.page.close(),
+                        self._event_loop
+                    )
+                    future.result(timeout=10)
+
+            if self._event_loop and self._event_loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self.context.new_page(),
+                    self._event_loop
+                )
+                self.page = future.result(timeout=10)
+            else:
+                self._logger.error("Event loop is not running")
+                return False
 
             self._logger.info(f"Storage state loaded from: {file_path}")
             return True
@@ -909,7 +1023,7 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
     # ==================== 同步包装方法 ====================
     # 🔧 所有同步方法都使用专用事件循环，确保线程安全和事件循环一致性
 
-    def screenshot(self, file_path: Union[str, Path], timeout: int = 30000) -> Optional[Path]:
+    def screenshot_sync(self, file_path: Union[str, Path], timeout: int = 30000) -> Optional[Path]:
         """
         同步截图方法
 
@@ -938,7 +1052,7 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             self._logger.error(f"Failed to take screenshot: {e}")
             return None
 
-    def get_page_title(self, timeout: int = 10000) -> Optional[str]:
+    def get_page_title_sync(self, timeout: int = 10000) -> Optional[str]:
         """
         同步获取页面标题
 
@@ -1386,6 +1500,38 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             return None
 
     # ==================== 上下文管理器 ====================
+
+    def __enter__(self):
+        """同步上下文管理器入口"""
+        self.initialize()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """同步上下文管理器出口"""
+        self.shutdown()
+
+    # ==================== 向后兼容接口实现 ====================
+
+    def get_page_title(self) -> Optional[str]:
+        """
+        同步获取页面标题方法（向后兼容）
+
+        Returns:
+            Optional[str]: 页面标题
+        """
+        return self.get_page_title_sync()
+
+    def screenshot(self, file_path: Union[str, Path]) -> Optional[Path]:
+        """
+        同步截图方法（向后兼容）
+
+        Args:
+            file_path: 截图保存路径
+
+        Returns:
+            Optional[Path]: 截图文件路径
+        """
+        return self.screenshot_sync(file_path)
 
     async def __aenter__(self):
         """异步上下文管理器入口"""

@@ -11,11 +11,10 @@ BaseScraper 单元测试
 4. Mock 策略和依赖注入测试
 """
 
-import asyncio
 import logging
 import pytest
 import time
-from unittest.mock import MagicMock, AsyncMock, patch, call
+from unittest.mock import MagicMock, patch, call
 from pathlib import Path
 import sys
 
@@ -37,11 +36,10 @@ class TestBaseScraper:
         # 创建 Mock browser_service - 使用 MagicMock 因为现在是同步方法
         self.mock_browser_service = MagicMock()
         self.mock_browser_service.navigate_to_sync = MagicMock()
-        self.mock_browser_service.get_page_content = AsyncMock()
-        self.mock_browser_service.close = AsyncMock()
-        
+        self.mock_browser_service.close_sync = MagicMock()
+
         # 创建 Mock extractor 函数
-        self.mock_extractor = AsyncMock()
+        self.mock_extractor = MagicMock()
         
     def teardown_method(self):
         """每个测试方法执行后的清理"""
@@ -72,7 +70,7 @@ class TestBaseScraper:
         assert result.execution_time > 0
 
         # 验证调用序列
-        self.mock_browser_service.navigate_to_sync.assert_called_once_with(test_url, "load")
+        self.mock_browser_service.navigate_to_sync.assert_called_once_with(test_url, "domcontentloaded")
         self.mock_extractor.assert_called_once_with(self.mock_browser_service)
 
     def test_scrape_page_data_no_browser_service(self):
@@ -94,20 +92,20 @@ class TestBaseScraper:
         """测试 scrape_page_data 页面导航失败"""
         # Arrange
         test_url = "https://example.com/test"
-        
+
         self.scraper.browser_service = self.mock_browser_service
         self.mock_browser_service.navigate_to_sync.return_value = False
-        
+
         # Act
         result = self.scraper.scrape_page_data(test_url, self.mock_extractor)
-        
+
         # Assert
         assert isinstance(result, ScrapingResult)
         assert result.success is False
         assert result.data == {}
         assert result.error_message == "页面导航失败"
         assert result.execution_time is not None
-        
+
         # 验证 extractor 没有被调用
         self.mock_extractor.assert_not_called()
 
@@ -116,14 +114,14 @@ class TestBaseScraper:
         # Arrange
         test_url = "https://example.com/test"
         test_exception = Exception("数据提取失败")
-        
+
         self.scraper.browser_service = self.mock_browser_service
         self.mock_browser_service.navigate_to_sync.return_value = True
         self.mock_extractor.side_effect = test_exception
-        
+
         # Act
         result = self.scraper.scrape_page_data(test_url, self.mock_extractor)
-        
+
         # Assert
         assert isinstance(result, ScrapingResult)
         assert result.success is False
@@ -136,18 +134,18 @@ class TestBaseScraper:
         # Arrange
         test_url = "https://example.com/test"
         test_exception = Exception("网络连接失败")
-        
+
         self.scraper.browser_service = self.mock_browser_service
         self.mock_browser_service.navigate_to_sync.side_effect = test_exception
-        
+
         # Act
         result = self.scraper.scrape_page_data(test_url, self.mock_extractor)
-        
+
         # Assert
         assert isinstance(result, ScrapingResult)
         assert result.success is False
         assert result.data == {}
-        assert str(test_exception) in result.error_message
+        assert "页面导航失败" in result.error_message
         assert result.execution_time is not None
 
     def test_scrape_page_data_empty_data(self):
@@ -155,14 +153,14 @@ class TestBaseScraper:
         # Arrange
         test_url = "https://example.com/test"
         test_data = {}
-        
+
         self.scraper.browser_service = self.mock_browser_service
         self.mock_browser_service.navigate_to_sync.return_value = True
         self.mock_extractor.return_value = test_data
-        
+
         # Act
         result = self.scraper.scrape_page_data(test_url, self.mock_extractor)
-        
+
         # Assert
         assert isinstance(result, ScrapingResult)
         assert result.success is True
@@ -179,10 +177,10 @@ class TestBaseScraper:
         self.scraper.browser_service = self.mock_browser_service
         self.mock_browser_service.navigate_to_sync.return_value = True
         self.mock_extractor.return_value = test_data
-        
+
         # Act
         result = self.scraper.scrape_page_data(test_url, self.mock_extractor)
-        
+
         # Assert
         assert result.success is True
         mock_sleep.assert_called_once_with(1)
@@ -193,17 +191,17 @@ class TestBaseScraper:
         """测试 close 方法关闭 browser_service"""
         # Arrange
         self.scraper.browser_service = self.mock_browser_service
-        
+
         # Act
         self.scraper.close()
-        
+
         # Assert
-        self.mock_browser_service.close.assert_called_once()
+        self.mock_browser_service.close_sync.assert_called_once()
 
     def test_close_without_browser_service(self):
         """测试 close 方法处理没有 browser_service 的情况"""
         # Arrange - 不设置 browser_service
-        
+
         # Act & Assert - 不应该抛出异常
         self.scraper.close()
 
@@ -211,14 +209,14 @@ class TestBaseScraper:
         """测试 close 方法处理 browser_service.close() 异常"""
         # Arrange
         self.scraper.browser_service = self.mock_browser_service
-        self.mock_browser_service.close.side_effect = Exception("测试用异常：关闭失败")
+        self.mock_browser_service.close_sync.side_effect = Exception("测试用异常：关闭失败")
 
         # Act & Assert - 不应该抛出异常，异常应该被捕获
         with caplog.at_level(logging.WARNING):
             self.scraper.close()
 
         # 验证仍然调用了 close
-        self.mock_browser_service.close.assert_called_once()
+        self.mock_browser_service.close_sync.assert_called_once()
 
         # 验证日志中记录了警告信息
         assert "关闭浏览器服务时出错" in caplog.text
@@ -227,12 +225,12 @@ class TestBaseScraper:
         """测试 __del__ 方法调用 close"""
         # Arrange
         self.scraper.browser_service = self.mock_browser_service
-        
+
         # Act
         self.scraper.__del__()
-        
+
         # Assert
-        self.mock_browser_service.close.assert_called_once()
+        self.mock_browser_service.close_sync.assert_called_once()
 
     def test_del_handles_exception(self, caplog):
         """测试 __del__ 方法处理异常"""
@@ -250,7 +248,7 @@ class TestBaseScraper:
         """测试 __enter__ 方法"""
         # Act
         result = self.scraper.__enter__()
-        
+
         # Assert
         assert result is self.scraper
 
@@ -258,35 +256,35 @@ class TestBaseScraper:
         """测试 __exit__ 方法调用 close"""
         # Arrange
         self.scraper.browser_service = self.mock_browser_service
-        
+
         # Act
         self.scraper.__exit__(None, None, None)
-        
+
         # Assert
-        self.mock_browser_service.close.assert_called_once()
+        self.mock_browser_service.close_sync.assert_called_once()
 
     def test_context_manager_exit_with_exception(self):
         """测试 __exit__ 方法在异常情况下仍调用 close"""
         # Arrange
         self.scraper.browser_service = self.mock_browser_service
-        
+
         # Act
         self.scraper.__exit__(Exception, Exception("测试异常"), None)
-        
+
         # Assert
-        self.mock_browser_service.close.assert_called_once()
+        self.mock_browser_service.close_sync.assert_called_once()
 
     def test_context_manager_full_flow(self):
         """测试完整的上下文管理器流程"""
         # Arrange
         self.scraper.browser_service = self.mock_browser_service
-        
+
         # Act
         with self.scraper as scraper:
             assert scraper is self.scraper
-        
+
         # Assert - close 应该被调用
-        self.mock_browser_service.close.assert_called_once()
+        self.mock_browser_service.close_sync.assert_called_once()
 
     # ==================== 日志和初始化测试 ====================
 
@@ -294,7 +292,7 @@ class TestBaseScraper:
         """测试初始化时创建正确的 logger"""
         # Act
         scraper = BaseScraper()
-        
+
         # Assert
         assert scraper.logger is not None
         assert isinstance(scraper.logger, logging.Logger)
@@ -327,15 +325,15 @@ class TestBaseScraper:
         self.scraper.browser_service = self.mock_browser_service
         self.mock_browser_service.navigate_to_sync.return_value = True
         self.mock_extractor.return_value = test_data
-        
+
         # Act
         result = self.scraper.scrape_page_data("https://example.com", self.mock_extractor)
         self.scraper.close()
-        
+
         # Assert
         assert result.success is True
         assert result.data == test_data
-        self.mock_browser_service.close.assert_called_once()
+        self.mock_browser_service.close_sync.assert_called_once()
 
     def test_execution_time_measurement(self):
         """测试执行时间测量的准确性"""
@@ -344,8 +342,8 @@ class TestBaseScraper:
         self.mock_browser_service.navigate_to_sync.return_value = True
 
         # 模拟耗时操作
-        async def slow_extractor(browser_service):
-            await asyncio.sleep(0.1)  # 100ms 延迟
+        def slow_extractor(browser_service):
+            time.sleep(0.1)  # 100ms 延迟
             return {"slow": "data"}
 
         # Act
@@ -379,7 +377,7 @@ class TestBaseScraper:
         # Assert
         assert result.success is True
         assert self.mock_browser_service.navigate_to_sync.call_count == expected_calls
-        self.mock_browser_service.navigate_to_sync.assert_called_with(url, "load")
+        self.mock_browser_service.navigate_to_sync.assert_called_with(url, "domcontentloaded")
 
     @pytest.mark.parametrize("exception_type,exception_message", [
         (ValueError, "值错误"),
@@ -393,46 +391,17 @@ class TestBaseScraper:
         self.scraper.browser_service = self.mock_browser_service
         self.mock_browser_service.navigate_to_sync.return_value = True
         self.mock_extractor.side_effect = exception_type(exception_message)
-        
+
         # Act
         result = self.scraper.scrape_page_data("https://example.com", self.mock_extractor)
-        
+
         # Assert
         assert result.success is False
         assert exception_message in result.error_message
         assert result.data == {}
 
 
-    # ==================== 新方法测试 ====================
-
-    def test_run_async_without_running_loop(self):
-        """测试 run_async 在没有运行事件循环时的行为"""
-        # Arrange
-        async def async_func():
-            return "test_result"
-
-        # Act
-        result = self.scraper.run_async(async_func())
-
-        # Assert
-        assert result == "test_result"
-
-    def test_run_async_with_running_loop(self):
-        """测试 run_async 在已有事件循环时的行为"""
-        # Arrange
-        async def async_func():
-            return "test_result_in_loop"
-
-        async def test_wrapper():
-            # 在异步上下文中测试
-            result = self.scraper.run_async(async_func())
-            return result
-
-        # Act
-        result = asyncio.run(test_wrapper())
-
-        # Assert
-        assert result == "test_result_in_loop"
+    # ==================== 同步方法测试 ====================
 
     def test_navigate_to_success(self):
         """测试 navigate_to 方法成功导航"""
@@ -446,7 +415,7 @@ class TestBaseScraper:
 
         # Assert
         assert result is True
-        self.mock_browser_service.navigate_to_sync.assert_called_once_with(test_url, "load")
+        self.mock_browser_service.navigate_to_sync.assert_called_once_with(test_url, "domcontentloaded")
 
     def test_navigate_to_with_custom_wait_until(self):
         """测试 navigate_to 方法使用自定义 wait_until"""

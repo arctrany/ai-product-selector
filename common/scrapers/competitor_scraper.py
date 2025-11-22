@@ -76,7 +76,7 @@ class CompetitorScraper:
 
         return best_elements, best_selector
 
-    def open_competitor_popup(self, page) -> Dict[str, Any]:
+    async def open_competitor_popup(self, page) -> Dict[str, Any]:
         """
         检测并打开跟卖浮层
 
@@ -202,7 +202,7 @@ class CompetitorScraper:
                 return False
 
             # 🎯 第二步：基于数量阈值智能决策
-            threshold = self.selectors_config.COMPETITOR_COUNT_THRESHOLD
+            threshold = self.selectors_config.competitor_count_threshold
             self.logger.info(f"🔍 检测到跟卖数量: {competitor_count}, 阈值: {threshold}")
 
             if competitor_count <= threshold:
@@ -216,7 +216,7 @@ class CompetitorScraper:
             time.sleep(0.5)
 
             # 使用配置的展开按钮选择器
-            expand_selectors = self.selectors_config.EXPAND_SELECTORS
+            expand_selectors = self.selectors_config.expand_selectors
 
             # 🔧 查找展开按钮
             expand_button_found = False
@@ -256,13 +256,14 @@ class CompetitorScraper:
 
                             try:
                                 current_element.scroll_into_view_if_needed()
-                                time.sleep(0.1)
+                                time.sleep(self.timing_config.timeout.short_wait_s)
 
-                                current_element.click(timeout=2000)
+                                click_timeout = self.timing_config.timeout.get_timeout_ms('element_wait')
+                                current_element.click(timeout=click_timeout)
                                 expanded_count += 1
                                 self.logger.info(f"✅ 成功点击展开按钮 (第{expanded_count}次)")
 
-                                time.sleep(1.0)
+                                time.sleep(self.timing_config.timeout.medium_wait_s)
 
                             except Exception as click_error:
                                 self.logger.warning(f"⚠️ 点击展开按钮失败: {click_error}")
@@ -271,7 +272,7 @@ class CompetitorScraper:
                                     page.evaluate(f'document.querySelector("{used_selector}").click()')
                                     expanded_count += 1
                                     self.logger.info(f"✅ 通过JavaScript成功点击展开按钮 (第{expanded_count}次)")
-                                    time.sleep(2.0)
+                                    time.sleep(self.timing_config.timeout.long_wait_s)
                                 except Exception as js_error:
                                     self.logger.error(f"❌ JavaScript点击也失败: {js_error}")
                                     break
@@ -327,8 +328,9 @@ class CompetitorScraper:
                     competitor_data = self._extract_competitor_from_element(element, i + 1)
                     if competitor_data:
                         competitors.append(competitor_data)
+                        currency_symbol = self.currency_config.get_default_symbol()
                         self.logger.info(
-                            f"✅ 提取店铺{i + 1}: {competitor_data.get('store_name', 'N/A')} - {competitor_data.get('price', 'N/A')}₽")
+                            f"✅ 提取店铺{i + 1}: {competitor_data.get('store_name', 'N/A')} - {competitor_data.get('price', 'N/A')}{currency_symbol}")
                 except Exception as e:
                     self.logger.warning(f"提取第{i + 1}个店铺失败: {e}")
                     continue
@@ -342,7 +344,7 @@ class CompetitorScraper:
 
     def _find_container_in_soup(self, soup: BeautifulSoup):
         """在BeautifulSoup中查找跟卖店铺容器"""
-        for selector in self.selectors_config.COMPETITOR_CONTAINER_SELECTORS:
+        for selector in self.selectors_config.competitor_container_selectors:
             try:
                 container = soup.select_one(selector)
                 if container:
@@ -356,7 +358,7 @@ class CompetitorScraper:
         best_elements = []
         best_selector = None
 
-        for selector in self.selectors_config.COMPETITOR_ELEMENT_SELECTORS:
+        for selector in self.selectors_config.competitor_element_selectors:
             try:
                 elements = container.select(selector)
                 if elements and len(elements) > len(best_elements):
@@ -377,7 +379,7 @@ class CompetitorScraper:
             competitor_data = {'ranking': ranking}
 
             # 🔧 修复：使用配置的店铺名称选择器，包含回退逻辑
-            name_selectors = self.selectors_config.STORE_NAME_SELECTORS
+            name_selectors = self.selectors_config.store_name_selectors
             store_name = None
 
             for selector in name_selectors:
@@ -409,7 +411,7 @@ class CompetitorScraper:
                     pass
 
             # 🔧 修复：使用配置的价格选择器，包含回退逻辑
-            price_selectors = self.selectors_config.STORE_PRICE_SELECTORS
+            price_selectors = self.selectors_config.store_price_selectors
             price = None
 
             for selector in price_selectors:
@@ -441,7 +443,7 @@ class CompetitorScraper:
 
             # 🔧 修复：使用配置的链接选择器
             link_element = None
-            link_selectors = self.selectors_config.STORE_LINK_SELECTORS
+            link_selectors = self.selectors_config.store_link_selectors
 
             for selector in link_selectors:
                 try:
@@ -493,7 +495,7 @@ class CompetitorScraper:
 
     def _find_store_link_in_element(self, element):
         """在元素中查找店铺链接"""
-        for selector in self.selectors_config.STORE_LINK_SELECTORS:
+        for selector in self.selectors_config.store_link_selectors:
             try:
                 link = element.select_one(selector)
                 if link and link.get('href'):
@@ -505,7 +507,7 @@ class CompetitorScraper:
     def _extract_price_from_element(self, element) -> Optional[float]:
         """从元素中提取价格"""
         # 首先尝试具体选择器
-        for selector in self.selectors_config.STORE_PRICE_SELECTORS:
+        for selector in self.selectors_config.store_price_selectors:
             try:
                 price_element = element.select_one(selector)
                 if price_element:
@@ -523,6 +525,19 @@ class CompetitorScraper:
                 price = clean_price_string(str(price_text).strip(), self.selectors_config)
                 if price and price > 0:
                     return price
+        except:
+            pass
+
+        # 🔧 增加更多备用方案：查找所有可能包含价格的元素
+        try:
+            # 查找所有div和span元素，检查是否包含价格符号
+            all_elements = element.find_all(['div', 'span'])
+            for el in all_elements:
+                text = el.get_text(strip=True)
+                if text and self.currency_config.is_currency_symbol(text):
+                    price = clean_price_string(text, self.selectors_config)
+                    if price and price > 0:
+                        return price
         except:
             pass
 
@@ -555,11 +570,11 @@ class CompetitorScraper:
         """点击跟卖列表中的指定排名店铺，跳转到商品详情页面"""
         try:
             self.logger.info(f"🔍 点击第{ranking}个跟卖店铺...")
-            time.sleep(0.5)
+            time.sleep(self.timing_config.timeout.short_wait_s)
 
             # 构建点击选择器
             click_selectors = []
-            for template in self.selectors_config.COMPETITOR_CLICK_SELECTORS:
+            for template in self.selectors_config.competitor_click_selectors:
                 try:
                     selector = template.format(ranking)
                     click_selectors.append(selector)
@@ -582,7 +597,7 @@ class CompetitorScraper:
                         # 获取店铺信息用于日志（如果可能）
                         try:
                             # 使用配置的店铺链接选择器
-                            for link_selector in self.selectors_config.STORE_LINK_SELECTORS:
+                            for link_selector in self.selectors_config.store_link_selectors:
                                 store_link = element.query_selector(link_selector)
                                 if store_link:
                                     store_name = store_link.text_content()
@@ -594,7 +609,7 @@ class CompetitorScraper:
 
                         element.click()
                         self.logger.info(f"✅ 点击第{ranking}个店铺 (选择器: {selector})")
-                        time.sleep(2.0)
+                        time.sleep(self.timing_config.timeout.long_wait_s)
 
                         # 验证跳转
                         current_url = page.url
@@ -626,7 +641,7 @@ class CompetitorScraper:
                     container = page.query_selector(container_selector)
                     if container:
                         elements, _ = self._find_elements_by_selectors(
-                            container, self.selectors_config.COMPETITOR_ELEMENT_SELECTORS
+                            container, self.selectors_config.competitor_element_selectors
                         )
                         if elements and len(elements) > max_count:
                             max_count = len(elements)
@@ -702,7 +717,7 @@ class CompetitorScraper:
             count_element = None
             used_selector = None
 
-            for selector in self.selectors_config.COMPETITOR_COUNT_SELECTORS:
+            for selector in self.selectors_config.competitor_count_selectors:
                 try:
                     element = page.query_selector(selector)
                     if element and element.is_visible():
@@ -730,7 +745,7 @@ class CompetitorScraper:
             # 🎯 使用配置的正则表达式模式解析数量
             import re
 
-            for pattern in self.selectors_config.COMPETITOR_COUNT_PATTERNS:
+            for pattern in self.selectors_config.competitor_count_patterns:
                 try:
                     match = re.search(pattern, count_text, re.IGNORECASE)
                     if match:

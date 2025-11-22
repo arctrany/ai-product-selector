@@ -7,11 +7,15 @@
     ["[data-widget='webPrice'] .tsHeadline600Large", "black"]
   ],
   "IMAGE_SELECTORS": [
+    "[data-widget='webGallery'] img",
+    "[class*='gallery'] img",
+    "[data-widget='webProductMainImage'] img",
+    "img[class*='main-image']",
+    "img[src*='multimedia']",
+    "img[src*='ozone.ru']",
     "#layoutPage > div:nth-child(1) > div:nth-child(3) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div > div > div > div:nth-child(1) > div > div > div:nth-child(1) > div:nth-child(1) > div > div > div:nth-child(2) > div > div > div > img",
     "[class*='pdp_y3']",
-    "[class*='b95_3_3-a']",
-    "img[src*='multimedia']",
-    "img[src*='ozone.ru']"
+    "[class*='b95_3_3-a']"
   ],
   "COMPETITOR_KEYWORDS": [
     "у других продавцов",

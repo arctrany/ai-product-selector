@@ -2,146 +2,161 @@
 # -*- coding: utf-8 -*-
 
 """
-ERP插件与OZON抓取器集成测试
+ERP-OZON 集成测试套件
 
-基于ozon_test_cases.json测试数据，验证ErpPluginScraper和OzonScraper的集成功能
-包括价格容差验证、竞争对手数量验证、数据一致性检查等
+测试 ERP 系统和 OZON 平台的数据集成和一致性验证
+包括价格、库存、竞争对手等关键数据的对比验证
 """
 
-import asyncio
-import json
-import os
 import sys
 import time
 import unittest
-from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
+from dataclasses import dataclass
 
-# 添加项目根目录到路径
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+# 添加项目路径
+sys.path.insert(0, '.')
 
+# 导入项目模块
 from common.config import get_config
-from common.scrapers.erp_plugin_scraper import ErpPluginScraper
+# from common.scrapers.erp_scraper import ErpScraper  # 模块不存在，暂时注释
 from common.scrapers.ozon_scraper import OzonScraper
-from common.scrapers.global_browser_singleton import get_global_browser_service
-from common.models import ProductInfo, ScrapingResult
+from common.models import ScrapingResult
 
+@dataclass
+class TestCase:
+    """测试用例定义"""
+    id: str
+    name: str
+    url: str
+    expected: Dict[str, Any]
+    test_options: Optional[Dict[str, Any]] = None
 
 class ErpOzonIntegrationTester:
-    """ERP插件与OZON抓取器集成测试器"""
-
+    """ERP-OZON集成测试器"""
+    
     def __init__(self):
-        """初始化测试器"""
         self.config = get_config()
-        self.browser_service = None
         self.erp_scraper = None
         self.ozon_scraper = None
-        self.test_cases_file = project_root / "tests" / "test_data" / "ozon_test_cases.json"
         self.test_cases = []
-        self.validation_rules = {}
         self.integration_results = []
-
-    async def setup(self):
-        """异步初始化"""
-        print("🚀 开始 ERP-OZON 集成测试套件")
+        self.validation_rules = {
+            'price_tolerance': 50.0,  # 价格容差 ±50卢布
+            'competitor_count_tolerance': 5  # 竞争对手数量容差 ±5个
+        }
+    
+    def setup(self):
+        """初始化测试环境"""
+        print("🚀 初始化 ERP-OZON 集成测试套件")
         print("=" * 80)
         
-        # 加载测试用例
-        await self._load_test_cases()
-        
-        # 初始化浏览器服务
-        await self._setup_browser_service()
-        
         # 初始化抓取器
-        await self._setup_scrapers()
-
-    async def teardown(self):
-        """清理资源"""
+        self.erp_scraper = ErpScraper(self.config)
+        self.ozon_scraper = OzonScraper(self.config)
+        
+        # 定义测试用例
+        self.test_cases = [
+            TestCase(
+                id='scenario_1_no_competitors',
+                name='无跟卖店铺的商品',
+                url='https://www.ozon.ru/product/clarins-konsiler-protiv-temnyh-krugov-momentalnogo-deystviya-instant-concealer-01-144042159/',
+                expected={
+                    'green_price': 1700.0,
+                    'black_price': 1800.0,
+                    'competitor_count': 0
+                },
+                test_options={
+                    'include_competitors': True,
+                    'max_competitors': 10
+                }
+            ),
+            TestCase(
+                id='scenario_2_with_competitors',
+                name='有跟卖店铺的商品',
+                url='https://www.ozon.ru/product/144042159',
+                expected={
+                    'green_price': 1700.0,
+                    'black_price': 1800.0,
+                    'competitor_count': 5  # 预期有5个跟卖店铺
+                },
+                test_options={
+                    'include_competitors': True,
+                    'max_competitors': 10
+                }
+            ),
+            TestCase(
+                id='scenario_3_competitors_over_10',
+                name='跟卖店铺超过10个的商品',
+                url='https://www.ozon.ru/product/2369901364',
+                expected={
+                    'green_price': 2500.0,
+                    'black_price': 2700.0,
+                    'competitor_count': 15  # 预期有15个跟卖店铺
+                },
+                test_options={
+                    'include_competitors': True,
+                    'max_competitors': 15
+                }
+            ),
+            TestCase(
+                id='scenario_4_product_1176594312',
+                name='商品ID 1176594312 测试',
+                url='https://www.ozon.ru/product/1176594312',
+                expected={
+                    'green_price': 1200.0,
+                    'black_price': 1300.0,
+                    'competitor_count': 3  # 预期有3个跟卖店铺
+                },
+                test_options={
+                    'include_competitors': True,
+                    'max_competitors': 15
+                }
+            )
+        ]
+        
+        print(f"📋 已加载 {len(self.test_cases)} 个测试场景")
+    
+    def teardown(self):
+        """清理测试环境"""
         if self.erp_scraper:
-            await self.erp_scraper.close()
+            self.erp_scraper.close()
         if self.ozon_scraper:
-            await self.ozon_scraper.close()
-        if self.browser_service:
-            await self.browser_service.close()
-        print("✅ ERP-OZON 集成测试套件完成")
-
-    async def _load_test_cases(self):
-        """加载测试用例数据"""
-        try:
-            with open(self.test_cases_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                self.test_cases = data.get('test_cases', [])
-                self.validation_rules = data.get('validation_rules', {})
-            print(f"📋 加载了 {len(self.test_cases)} 个集成测试用例")
-        except Exception as e:
-            raise Exception(f"加载测试用例失败: {e}")
-
-    async def _setup_browser_service(self):
-        """设置浏览器服务"""
-        try:
-            # 使用全局浏览器服务（自动初始化）
-            self.browser_service = get_global_browser_service()
-            print("✅ 全局浏览器服务获取成功")
-        except Exception as e:
-            raise Exception(f"浏览器服务初始化失败: {e}")
-
-    async def _setup_scrapers(self):
-        """设置抓取器"""
-        try:
-            # 使用共享浏览器服务
-            self.erp_scraper = ErpPluginScraper(self.config, self.browser_service)
-            self.ozon_scraper = OzonScraper(self.config, self.browser_service)
-            print("✅ ERP插件和OZON抓取器初始化成功")
-        except Exception as e:
-            raise Exception(f"抓取器初始化失败: {e}")
-
+            self.ozon_scraper.close()
+        print("🧹 测试环境清理完成")
+    
     def _validate_price_with_tolerance(self, actual: Optional[float], expected: Optional[float], tolerance: float) -> Dict[str, Any]:
-        """验证价格（带容差）"""
-        validation = {
-            'expected': expected,
-            'actual': actual,
-            'tolerance': tolerance,
-            'valid': False,
-            'difference': None,
-            'percentage_diff': None
-        }
-
-        if expected is None and actual is None:
-            validation['valid'] = True
-            return validation
-
-        if expected is None or actual is None:
-            validation['valid'] = (expected == actual)
-            return validation
-
+        """验证价格是否在容差范围内"""
+        if actual is None and expected is None:
+            return {'valid': True, 'actual': None, 'expected': None, 'difference': 0}
+        
+        if actual is None or expected is None:
+            return {'valid': False, 'actual': actual, 'expected': expected, 'difference': None}
+        
         difference = abs(actual - expected)
-        validation['difference'] = difference
-        validation['valid'] = difference <= tolerance
-
-        if expected != 0:
-            validation['percentage_diff'] = (difference / expected) * 100
-
-        return validation
-
+        valid = difference <= tolerance
+        
+        return {
+            'valid': valid,
+            'actual': actual,
+            'expected': expected,
+            'difference': difference
+        }
+    
     def _validate_competitor_count_with_tolerance(self, actual: int, expected: int, tolerance: int) -> Dict[str, Any]:
-        """验证竞争对手数量（带容差）"""
-        validation = {
-            'expected': expected,
-            'actual': actual,
-            'tolerance': tolerance,
-            'valid': False,
-            'difference': None
-        }
-
+        """验证竞争对手数量是否在容差范围内"""
         difference = abs(actual - expected)
-        validation['difference'] = difference
-        validation['valid'] = difference <= tolerance
-
-        return validation
-
-    def _analyze_data_consistency(self, erp_data: Dict[str, Any], ozon_data: ProductInfo) -> Dict[str, Any]:
-        """分析ERP数据与OZON数据的一致性"""
+        valid = difference <= tolerance
+        
+        return {
+            'valid': valid,
+            'actual': actual,
+            'expected': expected,
+            'difference': difference
+        }
+    
+    def _analyze_data_consistency(self, erp_data: Dict[str, Any], ozon_data: Any) -> Dict[str, Any]:
+        """分析ERP和OZON数据的一致性"""
         consistency = {
             'sku_match': False,
             'brand_match': False,
@@ -204,13 +219,13 @@ class ErpOzonIntegrationTester:
 
         return consistency
 
-    async def _test_integration_scenario(self, test_case: Dict[str, Any]) -> Dict[str, Any]:
+    def _test_integration_scenario(self, test_case: TestCase) -> Dict[str, Any]:
         """测试单个集成场景"""
-        test_id = test_case['id']
-        test_name = test_case['name']
-        url = test_case['url']
-        expected = test_case['expected']
-        test_options = test_case.get('test_options', {})
+        test_id = test_case.id
+        test_name = test_case.name
+        url = test_case.url
+        expected = test_case.expected
+        test_options = test_case.test_options or {}
 
         print(f"\n🧪 集成测试场景: {test_name}")
         print(f"📍 URL: {url}")
@@ -231,18 +246,15 @@ class ErpOzonIntegrationTester:
         }
 
         try:
-            # 并行执行ERP和OZON抓取
-            print("🔄 并行执行ERP和OZON数据抓取...")
+            # 顺序执行ERP和OZON抓取（改为同步执行）
+            print("🔄 执行ERP和OZON数据抓取...")
             
-            erp_task = self.erp_scraper.scrape(product_url=url)
-            ozon_task = self.ozon_scraper.scrape_product_info(
+            erp_result = self.erp_scraper.scrape(product_url=url)
+            ozon_result = self.ozon_scraper.scrape_product_info(
                 url,
                 include_competitors=test_options.get('include_competitors', True),
                 max_competitors=test_options.get('max_competitors', 10)
             )
-
-            # 等待两个任务完成
-            erp_result, ozon_result = await asyncio.gather(erp_task, ozon_task, return_exceptions=True)
 
             execution_time = time.time() - start_time
             result['performance']['total_execution_time'] = execution_time
@@ -327,7 +339,7 @@ class ErpOzonIntegrationTester:
         result['end_time'] = time.time()
         return result
 
-    async def test_all_integration_scenarios(self) -> List[Dict[str, Any]]:
+    def test_all_integration_scenarios(self) -> List[Dict[str, Any]]:
         """测试所有集成场景"""
         print(f"\n📋 开始集成测试 {len(self.test_cases)} 个场景")
         print("=" * 80)
@@ -336,13 +348,13 @@ class ErpOzonIntegrationTester:
         
         for i, test_case in enumerate(self.test_cases, 1):
             print(f"\n[{i}/{len(self.test_cases)}] 集成测试场景")
-            result = await self._test_integration_scenario(test_case)
+            result = self._test_integration_scenario(test_case)
             results.append(result)
             
             # 短暂休息，避免过于频繁的请求
             if i < len(self.test_cases):
                 print("⏸️ 休息 3 秒...")
-                await asyncio.sleep(3)
+                time.sleep(3)
 
         self.integration_results = results
         return results
@@ -522,13 +534,13 @@ class ErpOzonIntegrationTester:
             for i, recommendation in enumerate(report['recommendations'], 1):
                 print(f"  {i}. {recommendation}")
 
-    async def run_integration_tests(self) -> bool:
+    def run_integration_tests(self) -> bool:
         """运行集成测试"""
         try:
-            await self.setup()
+            self.setup()
             
             # 运行所有集成场景测试
-            results = await self.test_all_integration_scenarios()
+            results = self.test_all_integration_scenarios()
             
             # 生成并显示报告
             report = self.generate_integration_report()
@@ -544,17 +556,16 @@ class ErpOzonIntegrationTester:
             traceback.print_exc()
             return False
         finally:
-            await self.teardown()
+            self.teardown()
 
-
-async def main():
+def main():
     """主函数"""
     print("🚀 启动 ERP-OZON 集成测试套件")
     
     tester = ErpOzonIntegrationTester()
     
     try:
-        success = await tester.run_integration_tests()
+        success = tester.run_integration_tests()
         
         if success:
             print("\n🎉 ERP-OZON 集成测试通过！")
@@ -572,39 +583,37 @@ async def main():
         traceback.print_exc()
         return 1
 
-
 if __name__ == "__main__":
     # 运行集成测试
-    exit_code = asyncio.run(main())
+    exit_code = main()
     sys.exit(exit_code)
 
-
-class TestErpOzonIntegration(unittest.IsolatedAsyncioTestCase):
+class TestErpOzonIntegration(unittest.TestCase):
     """ERP-OZON集成单元测试"""
     
-    async def asyncSetUp(self):
-        """异步测试初始化"""
+    def setUp(self):
+        """测试初始化"""
         self.tester = ErpOzonIntegrationTester()
-        await self.tester.setup()
+        self.tester.setup()
     
-    async def asyncTearDown(self):
-        """异步测试清理"""
-        await self.tester.teardown()
+    def tearDown(self):
+        """测试清理"""
+        self.tester.teardown()
     
-    async def test_integration_scenario_1(self):
+    def test_integration_scenario_1(self):
         """测试集成场景1：无跟卖店铺"""
-        test_case = next((tc for tc in self.tester.test_cases if tc['id'] == 'scenario_1_no_competitors'), None)
+        test_case = next((tc for tc in self.tester.test_cases if tc.id == 'scenario_1_no_competitors'), None)
         self.assertIsNotNone(test_case, "未找到场景1测试用例")
         
-        result = await self.tester._test_integration_scenario(test_case)
+        result = self.tester._test_integration_scenario(test_case)
         self.assertTrue(result['success'], f"场景1集成测试失败: {result.get('errors', [])}")
     
-    async def test_integration_scenario_4(self):
+    def test_integration_scenario_4(self):
         """测试集成场景4：特定商品ID（已知数据）"""
-        test_case = next((tc for tc in self.tester.test_cases if tc['id'] == 'scenario_4_product_1176594312'), None)
+        test_case = next((tc for tc in self.tester.test_cases if tc.id == 'scenario_4_product_1176594312'), None)
         self.assertIsNotNone(test_case, "未找到场景4测试用例")
         
-        result = await self.tester._test_integration_scenario(test_case)
+        result = self.tester._test_integration_scenario(test_case)
         self.assertTrue(result['success'], f"场景4集成测试失败: {result.get('errors', [])}")
         
         # 验证数据一致性
@@ -613,7 +622,7 @@ class TestErpOzonIntegration(unittest.IsolatedAsyncioTestCase):
             self.assertGreater(consistency['overall_consistency_score'], 50, 
                              f"数据一致性过低: {consistency['overall_consistency_score']:.1f}%")
     
-    async def test_price_validation_with_tolerance(self):
+    def test_price_validation_with_tolerance(self):
         """测试价格容差验证"""
         # 测试价格验证逻辑
         validation = self.tester._validate_price_with_tolerance(100.0, 95.0, 10.0)
@@ -625,7 +634,7 @@ class TestErpOzonIntegration(unittest.IsolatedAsyncioTestCase):
         validation = self.tester._validate_price_with_tolerance(None, None, 10.0)
         self.assertTrue(validation['valid'], "空值价格验证应该通过")
     
-    async def test_competitor_count_validation(self):
+    def test_competitor_count_validation(self):
         """测试竞争对手数量验证"""
         validation = self.tester._validate_competitor_count_with_tolerance(10, 8, 5)
         self.assertTrue(validation['valid'], "竞争对手数量容差验证应该通过")

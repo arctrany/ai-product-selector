@@ -286,7 +286,9 @@ class BaseScraper:
         def _navigate():
             if not self.browser_service:
                 raise RuntimeError("browser_service 未初始化")
-            return self.browser_service.navigate_to_sync(url, wait_until)
+            result = self.browser_service.navigate_to_sync(url, wait_until)
+            self.logger.info(f"🔍 navigate_to_sync返回值: {result}")
+            return result
 
         try:
             return self.retry_operation(
@@ -320,7 +322,7 @@ class BaseScraper:
         def _wait():
             if not self.browser_service:
                 raise RuntimeError("browser_service 未初始化")
-            return self.browser_service.wait_for_element_sync(selector, int(timeout * 1000))
+            return self.browser_service.wait_for_selector_sync(selector, 'visible', int(timeout * 1000))
 
         try:
             return self.execute_with_timeout(
@@ -372,6 +374,29 @@ class BaseScraper:
             self.logger.debug(f"等待 {seconds} 秒")
             time.sleep(seconds)
 
+    def get_page_content(self) -> Optional[str]:
+        """
+        获取页面内容 - 使用同步方法
+
+        Returns:
+            Optional[str]: 页面内容，失败返回None
+        """
+        try:
+            if not self.browser_service:
+                self.logger.error("browser_service 未初始化")
+                return None
+
+            # 使用同步方法获取页面内容
+            if hasattr(self.browser_service, 'evaluate_sync'):
+                return self.browser_service.evaluate_sync("() => document.documentElement.outerHTML")
+            else:
+                self.logger.error("浏览器服务不支持获取页面内容的方法")
+                return None
+
+        except Exception as e:
+            self.logger.error(f"获取页面内容失败: {e}")
+            return None
+
     # ========== 高级方法：完整的抓取流程 ==========
 
     def scrape_page_data(self, url: str, extractor_func: Callable, 
@@ -419,22 +444,34 @@ class BaseScraper:
             )
             
             if not success:
+                self.logger.error("❌ 页面导航失败，提前返回")
                 return ScrapingResult(
                     success=False,
                     data={},
-                    error_message="页面导航失败", 
+                    error_message="页面导航失败",
                     execution_time=time.time() - start_time
                 )
 
+            self.logger.info("✅ 页面导航成功，继续执行后续步骤")
+
             # 2. 等待页面稳定
+            self.logger.info("📋 步骤 2: 等待页面稳定")
             self.wait(1.0)  # 给页面1秒稳定时间
+            self.logger.info("✅ 页面稳定等待完成")
 
             # 3. 同步提取数据
+            self.logger.info("📋 步骤 3: 开始数据提取")
+            self.logger.debug(f"🔍 准备调用数据提取函数: {extractor_func}")
+            self.logger.debug(f"🕒 数据提取超时设置: {ext_timeout}秒")
+
             data = self.execute_with_timeout(
                 lambda: extractor_func(self.browser_service),
                 ext_timeout,
                 "数据提取"
             )
+
+            self.logger.info(f"✅ 数据提取execute_with_timeout完成")
+            self.logger.debug(f"📊 数据提取结果: {data}")
 
             # 4. 返回成功结果
             execution_time = time.time() - start_time
@@ -461,23 +498,81 @@ class BaseScraper:
         """
         关闭抓取器，清理资源 - 同步版本
         
-        完全移除异步调用，使用同步方法关闭浏览器服务
+        🔧 关键修复：检查是否使用全局浏览器单例，避免过早关闭共享浏览器
+        🔧 同步改造修复：完全移除异步调用，使用同步方法关闭浏览器服务
+        🔧 属性安全修复：防止 'BaseScraper' object has no attribute 'browser_service' 错误
         """
         try:
-            if self.browser_service:
-                # 使用同步方法关闭浏览器服务
-                if hasattr(self.browser_service, 'close_sync'):
-                    self.browser_service.close_sync()
-                elif hasattr(self.browser_service, 'shutdown_sync'):
-                    self.browser_service.shutdown_sync()
+            # 🔧 关键修复：使用 hasattr 检查属性是否存在，避免 AttributeError
+            if hasattr(self, 'browser_service') and self.browser_service:
+
+                # 🔧 关键修复：检查是否使用全局浏览器单例
+                is_global_singleton = self._is_using_global_browser_singleton()
+
+                if is_global_singleton:
+                    # 使用全局单例时，不关闭浏览器服务，只清理本地引用
+                    self.logger.info("🔄 使用全局浏览器单例，跳过浏览器关闭，仅清理本地引用")
+                    self.browser_service = None  # 清理本地引用
                 else:
-                    # 降级方案：如果没有同步关闭方法，记录警告
-                    self.logger.warning("浏览器服务没有同步关闭方法，资源可能未完全清理")
-                
-                self.logger.info("🔒 浏览器服务已同步关闭")
-                
+                    # 使用私有浏览器服务时，正常关闭
+                    self.logger.info("🔒 使用私有浏览器服务，正常关闭")
+                    if hasattr(self.browser_service, 'close_sync'):
+                        self.browser_service.close_sync()
+                        self.logger.info("🔒 浏览器服务已通过 close_sync() 关闭")
+                    elif hasattr(self.browser_service, 'shutdown_sync'):
+                        self.browser_service.shutdown_sync()
+                        self.logger.info("🔒 浏览器服务已通过 shutdown_sync() 关闭")
+                    else:
+                        # 降级方案：如果没有同步关闭方法，记录警告
+                        self.logger.warning("浏览器服务没有同步关闭方法，资源可能未完全清理")
+
+            elif not hasattr(self, 'browser_service'):
+                # 🔧 诊断信息：记录属性不存在的情况，便于调试
+                self.logger.debug("browser_service 属性不存在，可能是子类未正确初始化")
+            else:
+                # browser_service 为 None 或其他 falsy 值
+                self.logger.debug("browser_service 为空，无需关闭")
+
         except Exception as e:
             self.logger.warning(f"关闭浏览器服务时出错: {e}")
+
+    def _is_using_global_browser_singleton(self) -> bool:
+        """
+        检查当前是否使用全局浏览器单例
+
+        🔧 设计说明：
+        - 通过检查 browser_service 是否来自全局单例来判断
+        - 如果是全局单例，scraper 销毁时不应关闭浏览器
+        - 如果是私有实例，scraper 销毁时应该关闭浏览器
+
+        Returns:
+            bool: 是否使用全局浏览器单例
+        """
+        try:
+            # 检查是否可以导入全局单例模块
+            from .global_browser_singleton import get_global_browser_service
+
+            # 获取全局单例实例
+            global_instance = get_global_browser_service()
+
+            # 比较实例是否相同
+            is_same_instance = self.browser_service is global_instance
+
+            if is_same_instance:
+                self.logger.debug("🔍 检测到使用全局浏览器单例")
+            else:
+                self.logger.debug("🔍 检测到使用私有浏览器实例")
+
+            return is_same_instance
+
+        except ImportError:
+            # 如果无法导入全局单例模块，说明没有使用全局单例
+            self.logger.debug("🔍 无全局单例模块，使用私有浏览器实例")
+            return False
+        except Exception as e:
+            # 其他异常，为安全起见假设不是全局单例
+            self.logger.debug(f"🔍 检查全局单例时出错，假设使用私有实例: {e}")
+            return False
     
     def configure_timeouts(self, **timeouts):
         """

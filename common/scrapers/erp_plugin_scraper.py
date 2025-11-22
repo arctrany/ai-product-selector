@@ -211,7 +211,7 @@ class ErpPluginScraper(BaseScraper):
         """
         try:
             # 查找包含标签文本的元素
-            label_elements = container.find_all(text=re.compile(f'{re.escape(label_text)}：?\\s*'))
+            label_elements = container.find_all(string=re.compile(f'{re.escape(label_text)}：?\\s*'))
             
             for label_element in label_elements:
                 # 获取父元素

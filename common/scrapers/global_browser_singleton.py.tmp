@@ -184,20 +184,3 @@ def set_browser_service_closed():
         if _browser_service_initialized:
             _browser_service_initialized = False
             logger.debug("🔧 浏览器服务已关闭，更新浏览器服务初始化状态为 False")
-
-def set_browser_service_initialized():
-    """
-    通知全局单例模块浏览器服务已初始化完成
-
-    🔧 设计说明：
-    - 当浏览器服务初始化成功时调用此函数
-    - 更新 _browser_service_initialized 状态为 True
-    - 保持 _global_browser_service 实例不变
-    """
-    global _browser_service_initialized
-
-    logger = logging.getLogger(__name__)
-
-    with _global_lock:
-        _browser_service_initialized = True
-        logger.debug("🔧 浏览器服务已初始化完成，更新浏览器服务初始化状态为 True")

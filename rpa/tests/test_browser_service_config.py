@@ -108,8 +108,7 @@ class TestBrowserServiceConfigSupport:
         assert service._config_initialization_task is not None
         assert not service._initialized
     
-    @pytest.mark.asyncio
-    async def test_config_dict_initialization(self):
+    def test_config_dict_initialization(self):
         """测试配置字典初始化过程"""
         service = BrowserService(config=self.config_dict_chrome, debug_mode=True)
         
@@ -117,43 +116,41 @@ class TestBrowserServiceConfigSupport:
             mock_driver = MagicMock()
             mock_driver_class.return_value = mock_driver
             
-            result = await service.initialize()
-            
+            result = service.initialize()
+
             assert result is True
             assert service._initialized is True
             assert service.browser_config is not None
             assert service.browser_config.browser_type == BrowserType.CHROME
             assert service.browser_config.headless is True
             assert service._config_source_type == "Dict"
-    
-    @pytest.mark.asyncio
-    async def test_browser_config_initialization(self):
+
+    def test_browser_config_initialization(self):
         """测试BrowserConfig对象初始化过程"""
         service = BrowserService(config=self.browser_config, debug_mode=True)
-        
+
         with patch('src_new.rpa.browser.implementations.playwright_browser_driver.PlaywrightBrowserDriver') as mock_driver_class:
             mock_driver = MagicMock()
             mock_driver_class.return_value = mock_driver
-            
-            result = await service.initialize()
-            
+
+            result = service.initialize()
+
             assert result is True
             assert service._initialized is True
             assert service.browser_config is not None
             assert service._config_source_type == "BrowserConfig"
-    
-    @pytest.mark.asyncio
-    async def test_config_manager_initialization(self):
+
+    def test_config_manager_initialization(self):
         """测试ConfigManager初始化过程"""
         config_manager = ConfigManager()
         service = BrowserService(config=config_manager, debug_mode=True)
-        
+
         with patch('src_new.rpa.browser.implementations.playwright_browser_driver.PlaywrightBrowserDriver') as mock_driver_class:
             mock_driver = MagicMock()
             mock_driver_class.return_value = mock_driver
-            
-            result = await service.initialize()
-            
+
+            result = service.initialize()
+
             assert result is True
             assert service._initialized is True
             assert service.browser_config is not None
@@ -161,7 +158,7 @@ class TestBrowserServiceConfigSupport:
 
 class TestBrowserServiceConfigValidation:
     """测试BrowserService的配置验证"""
-    
+
     def setup_method(self):
         """每个测试方法前的设置"""
         self.valid_config = {
@@ -169,45 +166,43 @@ class TestBrowserServiceConfigValidation:
             'headless': True,
             'viewport': {'width': 1920, 'height': 1080}
         }
-        
+
         self.invalid_config_type = {
             'browser_type': 'invalid_browser',
             'headless': True
         }
-        
+
         self.invalid_config_structure = {
             'browser_type': 'chrome',
             'headless': 'not_a_boolean',
             'viewport': 'invalid_viewport'
         }
-    
-    @pytest.mark.asyncio
-    async def test_validate_valid_config(self):
+
+    def test_validate_valid_config(self):
         """测试验证有效配置"""
         service = BrowserService(config=self.valid_config)
-        
+
         with patch('src_new.rpa.browser.implementations.playwright_browser_driver.PlaywrightBrowserDriver') as mock_driver_class:
             mock_driver = MagicMock()
             mock_driver_class.return_value = mock_driver
-            
-            await service.initialize()
-            
-            validation_result = await service.validate_current_config()
-            
+
+            service.initialize()
+
+            validation_result = service.validate_current_config()
+
             assert 'valid' in validation_result
             assert 'errors' in validation_result
             assert 'warnings' in validation_result
-    
-    @pytest.mark.asyncio
-    async def test_validate_config_not_initialized(self):
+
+    def test_validate_config_not_initialized(self):
         """测试验证未初始化的配置"""
         service = BrowserService()
-        
-        validation_result = await service.validate_current_config()
-        
+
+        validation_result = service.validate_current_config()
+
         assert validation_result['valid'] is False
         assert '配置未初始化' in validation_result['errors']
-    
+
     def test_invalid_config_type_rejection(self):
         """测试拒绝无效配置类型"""
         invalid_configs = [
@@ -216,7 +211,7 @@ class TestBrowserServiceConfigValidation:
             ["list", "config"],
             None
         ]
-        
+
         for invalid_config in invalid_configs:
             service = BrowserService(config=invalid_config)
             # 应该能创建服务，但初始化时会失败
@@ -224,7 +219,7 @@ class TestBrowserServiceConfigValidation:
 
 class TestBrowserServiceConfigUpdate:
     """测试BrowserService的配置更新"""
-    
+
     def setup_method(self):
         """每个测试方法前的设置"""
         self.initial_config = {
@@ -232,48 +227,45 @@ class TestBrowserServiceConfigUpdate:
             'headless': True,
             'viewport': {'width': 1920, 'height': 1080}
         }
-    
-    @pytest.mark.asyncio
-    async def test_update_config_after_initialization(self):
+
+    def test_update_config_after_initialization(self):
         """测试初始化后更新配置"""
         service = BrowserService(config=self.initial_config, debug_mode=True)
-        
+
         with patch('src_new.rpa.browser.implementations.playwright_browser_driver.PlaywrightBrowserDriver') as mock_driver_class:
             mock_driver = MagicMock()
             mock_driver_class.return_value = mock_driver
-            
-            await service.initialize()
-            
+
+            service.initialize()
+
             # 更新配置
-            result = await service.update_config('headless', False)
-            
+            result = service.update_config('headless', False)
+
             assert result is True
             assert service.browser_config.headless is False
-    
-    @pytest.mark.asyncio
-    async def test_update_config_before_initialization(self):
+
+    def test_update_config_before_initialization(self):
         """测试初始化前更新配置"""
         service = BrowserService()
-        
+
         # 即使未初始化也应该能更新配置
-        result = await service.update_config('headless', True)
-        
+        result = service.update_config('headless', True)
+
         # 这取决于具体实现，可能返回True或False
         assert isinstance(result, bool)
-    
-    @pytest.mark.asyncio
-    async def test_get_config_info(self):
+
+    def test_get_config_info(self):
         """测试获取配置信息"""
         service = BrowserService(config=self.initial_config, debug_mode=True)
-        
+
         with patch('src_new.rpa.browser.implementations.playwright_browser_driver.PlaywrightBrowserDriver') as mock_driver_class:
             mock_driver = MagicMock()
             mock_driver_class.return_value = mock_driver
-            
-            await service.initialize()
-            
-            config_info = await service.get_config_info()
-            
+
+            service.initialize()
+
+            config_info = service.get_config_info()
+
             assert 'unified_config_manager' in config_info
             assert 'browser_service' in config_info
             assert config_info['browser_service']['service_initialized'] is True
@@ -282,7 +274,7 @@ class TestBrowserServiceConfigUpdate:
 
 class TestBrowserServiceConfigFixer:
     """测试BrowserService的配置修复功能"""
-    
+
     def setup_method(self):
         """每个测试方法前的设置"""
         self.config_with_string_values = {
@@ -293,69 +285,66 @@ class TestBrowserServiceConfigFixer:
             'default_timeout': '30000',  # 字符串数字
             'invalid_field': 'should_be_ignored'  # 无效字段
         }
-    
-    @pytest.mark.asyncio
-    async def test_config_auto_fix_string_boolean(self):
+
+    def test_config_auto_fix_string_boolean(self):
         """测试自动修复字符串布尔值"""
         service = BrowserService(config=self.config_with_string_values, debug_mode=True)
-        
+
         with patch('src_new.rpa.browser.implementations.playwright_browser_driver.PlaywrightBrowserDriver') as mock_driver_class:
             mock_driver = MagicMock()
             mock_driver_class.return_value = mock_driver
-            
-            result = await service.initialize()
-            
+
+            result = service.initialize()
+
             assert result is True
             assert service.browser_config.headless is True  # 自动修复为布尔值
-    
-    @pytest.mark.asyncio
-    async def test_config_auto_merge_viewport(self):
+
+    def test_config_auto_merge_viewport(self):
         """测试自动合并视口配置"""
         service = BrowserService(config=self.config_with_string_values, debug_mode=True)
-        
+
         with patch('src_new.rpa.browser.implementations.playwright_browser_driver.PlaywrightBrowserDriver') as mock_driver_class:
             mock_driver = MagicMock()
             mock_driver_class.return_value = mock_driver
-            
-            result = await service.initialize()
-            
+
+            result = service.initialize()
+
             assert result is True
             assert service.browser_config.viewport.width == 1366  # 自动合并视口配置
             assert service.browser_config.viewport.height == 768
 
 class TestBrowserServiceFactoryWithConfig:
     """测试BrowserService工厂函数的配置支持"""
-    
+
     def test_create_with_config_dict(self):
         """测试使用配置字典创建服务"""
         config_dict = {'browser_type': 'edge', 'headless': False}
         service = create_browser_service(config=config_dict, debug_mode=True)
-        
+
         assert isinstance(service, BrowserService)
         assert service._config_initialization_task is not None
         assert service.debug_mode is True
-    
+
     def test_create_with_browser_config(self):
         """测试使用BrowserConfig对象创建服务"""
         browser_config = create_default_config()
         service = create_browser_service(config=browser_config)
-        
+
         assert isinstance(service, BrowserService)
         assert service._config_initialization_task is not None
-    
+
     def test_create_with_config_manager(self):
         """测试使用ConfigManager创建服务"""
         config_manager = ConfigManager()
         service = create_browser_service(config=config_manager)
-        
+
         assert isinstance(service, BrowserService)
         assert service._config_initialization_task is not None
 
 class TestBrowserServiceConfigErrorHandling:
     """测试BrowserService配置错误处理"""
-    
-    @pytest.mark.asyncio
-    async def test_initialize_with_invalid_config_type(self):
+
+    def test_initialize_with_invalid_config_type(self):
         """测试使用无效配置类型初始化"""
         invalid_configs = [
             ["invalid", "config", "list"],
@@ -363,17 +352,16 @@ class TestBrowserServiceConfigErrorHandling:
             123,
             None
         ]
-        
+
         for invalid_config in invalid_configs:
             service = BrowserService(config=invalid_config)
-            
-            result = await service.initialize()
-            
+
+            result = service.initialize()
+
             assert result is False
             assert not service._initialized
-    
-    @pytest.mark.asyncio
-    async def test_config_validation_with_errors(self):
+
+    def test_config_validation_with_errors(self):
         """测试配置验证包含错误的情况"""
         # 创建一个会导致验证错误的配置
         problematic_config = {
@@ -381,61 +369,59 @@ class TestBrowserServiceConfigErrorHandling:
             'headless': True,
             'viewport': {'width': -100, 'height': -100}  # 无效的视口尺寸
         }
-        
+
         service = BrowserService(config=problematic_config)
-        
+
         with patch('src_new.rpa.browser.implementations.playwright_browser_driver.PlaywrightBrowserDriver') as mock_driver_class:
             mock_driver = MagicMock()
             mock_driver_class.return_value = mock_driver
-            
+
             # 即使配置有问题，初始化也可能成功（取决于具体实现）
-            result = await service.initialize()
-            
+            result = service.initialize()
+
             # 验证配置应该能检测到问题
-            validation_result = await service.validate_current_config()
-            
+            validation_result = service.validate_current_config()
+
             assert 'valid' in validation_result
             assert 'errors' in validation_result
             assert 'warnings' in validation_result
-    
-    @pytest.mark.asyncio
-    async def test_update_config_with_invalid_values(self):
+
+    def test_update_config_with_invalid_values(self):
         """测试使用无效值更新配置"""
         service = BrowserService(config={'browser_type': 'chrome'}, debug_mode=True)
-        
+
         with patch('src_new.rpa.browser.implementations.playwright_browser_driver.PlaywrightBrowserDriver') as mock_driver_class:
             mock_driver = MagicMock()
             mock_driver_class.return_value = mock_driver
-            
-            await service.initialize()
-            
+
+            service.initialize()
+
             # 尝试使用无效值更新配置
-            result = await service.update_config('browser_type', 'invalid_browser')
-            
+            result = service.update_config('browser_type', 'invalid_browser')
+
             # 应该拒绝无效的更新
             assert isinstance(result, bool)
 
 class TestBrowserServiceConfigCompatibility:
     """测试BrowserService配置兼容性"""
-    
-    @pytest.mark.asyncio
-    async def test_legacy_config_manager_compatibility(self):
+
+    def test_legacy_config_manager_compatibility(self):
         """测试与旧版ConfigManager的兼容性"""
         # 创建一个模拟的旧版ConfigManager
         mock_config_manager = MagicMock(spec=ConfigManager)
-        mock_config_manager.get_config = AsyncMock(return_value={
+        mock_config_manager.get_config = MagicMock(return_value={
             'browser_type': 'edge',
             'headless': False,
             'profile_name': 'Default'
         })
-        
+
         service = BrowserService(config=mock_config_manager, debug_mode=True)
-        
+
         with patch('src_new.rpa.browser.implementations.playwright_browser_driver.PlaywrightBrowserDriver') as mock_driver_class:
             mock_driver = MagicMock()
             mock_driver_class.return_value = mock_driver
-            
-            result = await service.initialize()
+
+            result = service.initialize()
             
             assert result is True
             assert service._initialized is True

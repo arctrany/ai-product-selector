@@ -142,19 +142,24 @@ class OzonSelectorsConfig:
             ("#layoutPage > div.b6 > div.container.c > div.pdp_sa1.pdp_as5.pdp_as7 > div.pdp_mb9 > div > div > div.pdp_sa1.pdp_as8.pdp_as5.pdp_sa5 > div.pdp_i6b.pdp_bi9 > div > div.pdp_bi7 > div > div > div.pdp_f2b > div.pdp_fb6.pdp_bg > div > div.pdp_bf9 > span.pdp_b7f.tsHeadline500Medium", "black"),
             
             # 🔄 降级选择器（当主选择器获取不到时使用）
-            ("#layoutPage > div.b6 > div.container.c > div.pdp_sa1.pdp_as5.pdp_as7 > div.pdp_mb9 > div > div > div.pdp_sa1.pdp_as8.pdp_as5.pdp_sa5 > div.pdp_i6b.pdp_bi9 > div.pdp_b8i.pdp_i8b > div.pdp_bi7 > div > div > div.pdp_f2b > div > div > div.pdp_bf9 > span.pdp_b7f.tsHeadline600Large", "black"),
-            ("[data-widget='webPrice'] .tsHeadline500Medium", "green"),
-            ("[data-widget='webPrice'] .tsHeadline600Large", "black"),
+            ("#layoutPage > div.b6 > div.container.c > div.pdp_sa1.pdp_as5.pdp_as7 > div.pdp_mb9 > div > div > div.pdp_sa1.pdp_as8.pdp_as5.pdp_sa5 > div.pdp_i6b.pdp_bi9 > div.pdp_b8i.pdp_i8b > div.pdp_bi7 > div > div > div.pdp_f2b > div > div > div.pdp_bf9 > span.pdp_b7f.tsHeadline600Large", "green"),
+            # 🔧 修复：交换选择器标签以匹配实际页面含义
+            ("[data-widget='webPrice'] .tsHeadline500Medium", "black"),  # 实际为原价（更高）
+            ("[data-widget='webPrice'] .tsHeadline600Large", "green"),   # 实际为促销价（更低）
         ]
     
     def _get_default_image_selectors(self) -> List[str]:
         """获取默认商品图片选择器配置"""
         return [
+            "[data-widget='webGallery'] img",
+            "[class*='gallery'] img",
+            "[data-widget='webProductMainImage'] img",
+            "img[class*='main-image']",
+            "img[src*='multimedia']",
+            "img[src*='ozone.ru']",
             "#layoutPage > div:nth-child(1) > div:nth-child(3) > div:nth-child(3) > div:nth-child(1) > div:nth-child(1) > div:nth-child(1) > div > div > div > div:nth-child(1) > div > div > div:nth-child(1) > div:nth-child(1) > div > div > div:nth-child(2) > div > div > div > img",
             "[class*='pdp_y3']",
-            "[class*='b95_3_3-a']",
-            "img[src*='multimedia']",
-            "img[src*='ozone.ru']"
+            "[class*='b95_3_3-a']"
         ]
     
     def _get_default_competitor_keywords(self) -> List[str]:
@@ -169,7 +174,7 @@ class OzonSelectorsConfig:
     
     def _get_default_competitor_price_selector(self) -> str:
         """获取默认跟卖价格选择器配置"""
-        return "span.q6b3_0_2-a1"
+        return "div.pdp_b1k"
     
     def _get_default_competitor_area_selectors(self) -> List[str]:
         """获取默认跟卖区域选择器配置"""

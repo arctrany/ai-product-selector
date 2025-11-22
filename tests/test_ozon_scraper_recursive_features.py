@@ -16,7 +16,7 @@ import sys
 import unittest
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
-from unittest.mock import Mock, MagicMock, patch, AsyncMock
+from unittest.mock import Mock, MagicMock, patch
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent
@@ -26,8 +26,7 @@ from common.config import get_config
 from common.scrapers.ozon_scraper import OzonScraper
 from common.models import ScrapingResult
 
-
-class TestOzonScraperRecursiveFeatures(unittest.IsolatedAsyncioTestCase):
+class TestOzonScraperRecursiveFeatures(unittest.TestCase):
     """OZON Scraper 递归功能测试类"""
 
     def setUp(self):
@@ -458,7 +457,6 @@ class TestOzonScraperRecursiveFeatures(unittest.IsolatedAsyncioTestCase):
             
             self.assertTrue(result.success)
             self.assertNotIn('first_competitor_details', result.data)
-
 
 if __name__ == '__main__':
     unittest.main()

@@ -361,7 +361,7 @@ class OzonScraper(BaseScraper):
             page_text = soup.get_text()
 
             # 检测跟卖关键词
-            for keyword in self.selectors_config.COMPETITOR_KEYWORDS:
+            for keyword in self.selectors_config.competitor_keywords:
                 if keyword.lower() in page_text.lower():
                     self.logger.info(f"🔍 检测到跟卖关键词: {keyword}")
                     price_data.update({
@@ -373,7 +373,8 @@ class OzonScraper(BaseScraper):
                     competitor_price = self._extract_competitor_price_value(soup)
                     if competitor_price:
                         price_data['competitor_price'] = competitor_price
-                        self.logger.info(f"💰 跟卖价格: {competitor_price}₽")
+                        currency_symbol = self.currency_config.get_default_symbol()
+                        self.logger.info(f"💰 跟卖价格: {competitor_price}{currency_symbol}")
                     break
 
             return price_data
@@ -389,7 +390,7 @@ class OzonScraper(BaseScraper):
         black_price = None
 
         # 🔧 修复：严格按照选择器类型提取价格，避免混淆
-        for selector, price_type in self.selectors_config.PRICE_SELECTORS:
+        for selector, price_type, priority in self.selectors_config.price_selectors:
             try:
                 elements = soup.select(selector)
                 self.logger.debug(f"🔍 使用选择器 '{selector}' (类型: {price_type}) 找到 {len(elements)} 个元素")
@@ -404,11 +405,13 @@ class OzonScraper(BaseScraper):
                     # 🔧 修复：严格按照价格类型分配，避免重复赋值
                     if price_type == "green" and green_price is None:
                         green_price = price
-                        self.logger.info(f"✅ 绿标价格: {green_price}₽")
+                        currency_symbol = self.currency_config.get_default_symbol()
+                        self.logger.info(f"✅ 绿标价格: {green_price}{currency_symbol}")
                         break  # 找到绿标价格后立即跳出内层循环
                     elif price_type == "black" and black_price is None:
                         black_price = price
-                        self.logger.info(f"✅ 黑标价格: {black_price}₽")
+                        currency_symbol = self.currency_config.get_default_symbol()
+                        self.logger.info(f"✅ 黑标价格: {black_price}{currency_symbol}")
                         break  # 找到黑标价格后立即跳出内层循环
 
             except Exception as e:
@@ -487,7 +490,7 @@ class OzonScraper(BaseScraper):
         """提取具体的跟卖价格数值 - 使用配置的精确选择器"""
         try:
             # 🎯 使用配置的精确跟卖价格选择器
-            competitor_price_selector = self.selectors_config.COMPETITOR_PRICE_SELECTOR
+            competitor_price_selector = self.selectors_config.competitor_price_selector
 
             self.logger.debug(f"🔍 使用精确跟卖价格选择器: {competitor_price_selector}")
 
@@ -500,7 +503,7 @@ class OzonScraper(BaseScraper):
 
                 # 🔧 修复：只处理包含价格符号的元素，过滤掉配送时间等非价格信息
                 # 使用配置化的货币符号检查
-                has_currency = any(symbol.lower() in text.lower() for symbol in self.selectors_config.CURRENCY_SYMBOLS)
+                has_currency = self.currency_config.is_currency_symbol(text)
                 if not has_currency:
                     self.logger.debug(f"⚠️ 跳过非价格元素: '{text}'")
                     continue
@@ -525,7 +528,7 @@ class OzonScraper(BaseScraper):
 
     def _extract_product_image_core(self, soup) -> Optional[str]:
         """
-        核心图片提取逻辑 - 统一实现避免重复
+        核心图片提取逻辑 - 统一实现避免重复，包含占位符过滤
 
         Args:
             soup: BeautifulSoup对象
@@ -534,21 +537,113 @@ class OzonScraper(BaseScraper):
             str: 商品图片URL，如果提取失败返回None
         """
         try:
-            for selector in self.selectors_config.IMAGE_SELECTORS:
-                img_element = soup.select_one(selector)
-                if img_element:
+            # 已知的占位符图片模式
+            placeholder_patterns = [
+                'doodle_ozon_rus.png',
+                'doodle_ozone_rus.png',
+                'placeholder.png',
+                'no-image.png',
+                'default.png',
+                'loading.png'
+            ]
+
+            for selector in self.selectors_config.image_selectors:
+                img_elements = soup.select(selector)
+                self.logger.debug(f"🔍 选择器 '{selector}' 找到 {len(img_elements)} 个图片元素")
+
+                for img_element in img_elements:
                     src = img_element.get('src')
-                    if src:
-                        high_res_url = self._convert_to_high_res_image(src)
+                    if not src:
+                        continue
+
+                    # 转换为高清版本
+                    high_res_url = self._convert_to_high_res_image(src)
+
+                    # 验证图片URL是否为占位符
+                    if self._is_placeholder_image(high_res_url, placeholder_patterns):
+                        self.logger.warning(f"⚠️ 跳过占位符图片: {high_res_url}")
+                        continue
+
+                    # 验证图片URL是否为有效的商品图片
+                    if self._is_valid_product_image(high_res_url):
                         self.logger.info(f"✅ 成功提取商品图片: {high_res_url}")
                         return high_res_url
+                    else:
+                        self.logger.debug(f"🔍 跳过无效图片: {high_res_url}")
 
-            self.logger.warning("⚠️ 未找到商品图片")
+            self.logger.warning("⚠️ 未找到有效的商品图片")
             return None
 
         except Exception as e:
             self._handle_extraction_error(e, "提取商品图片")
             return None
+
+    def _is_placeholder_image(self, image_url: str, placeholder_patterns: list) -> bool:
+        """
+        检查图片URL是否为占位符图片
+
+        Args:
+            image_url: 图片URL
+            placeholder_patterns: 占位符图片模式列表
+
+        Returns:
+            bool: True表示是占位符图片，False表示不是
+        """
+        if not image_url:
+            return True
+
+        # 检查URL中是否包含占位符模式
+        for pattern in placeholder_patterns:
+            if pattern in image_url:
+                return True
+
+        # 检查是否包含其他已知的占位符特征
+        placeholder_keywords = ['doodle', 'placeholder', 'default', 'no-image', 'loading']
+        url_lower = image_url.lower()
+
+        for keyword in placeholder_keywords:
+            if keyword in url_lower:
+                return True
+
+        return False
+
+    def _is_valid_product_image(self, image_url: str) -> bool:
+        """
+        验证图片URL是否为有效的商品图片
+
+        Args:
+            image_url: 图片URL
+
+        Returns:
+            bool: True表示是有效商品图片，False表示无效
+        """
+        if not image_url:
+            return False
+
+        # 检查是否包含有效的商品图片特征
+        valid_patterns = [
+            'multimedia',        # OZON的商品图片通常包含multimedia
+            's3/multimedia',     # 完整的S3路径
+            'wc1000',           # 高清图片标识
+            'wc750',            # 中等分辨率图片
+            'wc500',            # 标准分辨率图片
+        ]
+
+        url_lower = image_url.lower()
+
+        # 必须包含至少一个有效模式
+        has_valid_pattern = any(pattern in url_lower for pattern in valid_patterns)
+
+        # 必须是图片文件
+        is_image_file = any(ext in url_lower for ext in ['.jpg', '.jpeg', '.png', '.webp'])
+
+        # 必须来自OZON/OZONE域名
+        is_ozon_domain = any(domain in url_lower for domain in ['ozon.ru', 'ozone.ru', 'ir.ozone.ru'])
+
+        # 不能包含明显的占位符特征
+        has_placeholder_features = any(keyword in url_lower for keyword in ['doodle', 'placeholder', 'default', 'error'])
+
+        return has_valid_pattern and is_image_file and is_ozon_domain and not has_placeholder_features
 
     def _convert_to_high_res_image(self, image_url: str) -> str:
         """
@@ -605,14 +700,26 @@ class OzonScraper(BaseScraper):
             
         Returns:
             Optional[str]: 商品ID，提取失败返回None
+
+        Raises:
+            Exception: 当URL为None时抛出异常
         """
+        # 特殊处理None输入
+        if url is None:
+            raise Exception("URL不能为None")
+
         try:
             import re
             
-            # 匹配 /product/xxx-数字/ 或 /product/数字/ 格式
+            # 首先验证是否为OZON域名
+            if not url or not re.search(r'https?://[^/]*ozon\.ru/', url):
+                self.logger.debug(f"URL不是OZON域名: {url}")
+                return None
+
+            # 匹配 /product/xxx-数字/ 或 /product/数字/ 格式 (兼容有无末尾斜杠)
             patterns = [
-                r'/product/[^/]+-(\d+)/',    # xxx-1234567
-                r'/product/(\d+)/',           # 1234567
+                r'/product/[^/]+-(\d+)',     # xxx-1234567 (兼容有无斜杠)
+                r'/product/(\d+)',            # 1234567 (兼容有无斜杠)
             ]
             
             for pattern in patterns:
@@ -649,10 +756,11 @@ class OzonScraper(BaseScraper):
             first_card = None
             
             for selector in card_selectors:
-                cards = page.locator(selector)
-                count = cards.count()
+                # 使用同步方法替代异步的 Locator.count()
+                elements = self.browser_service.query_selector_all_sync(selector)
+                count = len(elements) if elements else 0
                 if count > 0:
-                    first_card = cards.first
+                    first_card = page.locator(selector).first
                     self.logger.info(f"✅ 找到第一个跟卖卡片: {selector}")
                     break
             
@@ -680,10 +788,11 @@ class OzonScraper(BaseScraper):
             used_selector = None
             
             for selector in safe_click_selectors:
-                element = first_card.locator(selector)
-                count = element.count()
+                # 使用同步方法替代异步的 Locator.count()
+                elements = self.browser_service.query_selector_all_sync(selector)
+                count = len(elements) if elements else 0
                 if count > 0:
-                    clickable_element = element.first
+                    clickable_element = first_card.locator(selector).first
                     used_selector = selector
                     self.logger.info(f"✅ 找到安全点击区域: {selector}")
                     break
@@ -704,7 +813,7 @@ class OzonScraper(BaseScraper):
             self.logger.info(f"✅ 已点击跟卖卡片的 {used_selector} 区域")
             
             # 7. 等待页面跳转
-            time.sleep(3)
+            time.sleep(2)
             
             # 8. 获取跳转后的URL
             new_url = page.url

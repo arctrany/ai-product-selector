@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from rpa.browser.utils.browser_detector import BrowserDetector, detect_active_profile
 
 
-async def test_profile_detection():
+def test_profile_detection():
     """测试 Profile 检测"""
     print("=" * 80)
     print("1. 测试 Profile 检测")
@@ -51,7 +51,7 @@ async def test_profile_detection():
     return active_profile, user_data_dir
 
 
-async def test_browser_config():
+def test_browser_config():
     """测试浏览器配置生成"""
     print("=" * 80)
     print("2. 测试浏览器配置生成（跳过，直接测试启动）")
@@ -60,7 +60,7 @@ async def test_browser_config():
     return None
 
 
-async def test_browser_launch():
+def test_browser_launch():
     """测试浏览器实际启动"""
     print("=" * 80)
     print("3. 测试浏览器实际启动")
@@ -69,7 +69,7 @@ async def test_browser_launch():
     from rpa.browser.implementations.playwright_browser_driver import PlaywrightBrowserDriver
     
     # 获取配置
-    active_profile, user_data_dir = await test_profile_detection()
+    active_profile, user_data_dir = test_profile_detection()
     
     if not active_profile or not user_data_dir:
         print("❌ 无法获取 Profile 信息，跳过启动测试")
@@ -89,21 +89,22 @@ async def test_browser_launch():
     try:
         # 初始化
         print("🚀 正在启动浏览器...")
-        success = await driver.initialize()
-        
+        success = driver.initialize()
+
         if success:
             print("✅ 浏览器启动成功")
-            
+
             # 导航到测试页面
             print("🔗 导航到 seerfar.cn...")
-            await driver.navigate("https://seerfar.cn")
-            
+            driver.navigate("https://seerfar.cn")
+
             # 等待几秒让页面加载
-            await asyncio.sleep(3)
-            
+            import time
+            time.sleep(3)
+
             # 检查登录态
             print("🔍 检查登录态...")
-            login_state = await driver.verify_login_state("seerfar.cn")
+            login_state = driver.verify_login_state("seerfar.cn")
             print(f"  - 登录状态: {login_state['logged_in']}")
             print(f"  - Cookies 数量: {login_state.get('cookie_count', 0)}")
             
@@ -122,11 +123,11 @@ async def test_browser_launch():
     
     finally:
         # 清理
-        await driver.close()
+        driver.close()
         print("🧹 浏览器已关闭")
 
 
-async def main():
+def main():
     """主函数"""
     print("\n" + "=" * 80)
     print("浏览器启动调试测试")
@@ -134,13 +135,13 @@ async def main():
     
     try:
         # 1. 测试 Profile 检测
-        await test_profile_detection()
-        
+        test_profile_detection()
+
         # 2. 测试配置生成
-        await test_browser_config()
-        
+        test_browser_config()
+
         # 3. 测试实际启动
-        await test_browser_launch()
+        test_browser_launch()
         
     except Exception as e:
         print(f"\n❌ 测试失败: {e}")
@@ -149,4 +150,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

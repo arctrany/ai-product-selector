@@ -96,7 +96,7 @@ class SimplifiedBrowserService:
             self.browser_driver = SimplifiedPlaywrightBrowserDriver(browser_config)
 
             try:
-                success = await self.browser_driver.initialize()
+                success = self.browser_driver.initialize()
 
                 if not success:
                     error_msg = "❌ 浏览器启动失败"
@@ -112,6 +112,13 @@ class SimplifiedBrowserService:
                 raise
 
             self._initialized = True
+            # 🔧 通知全局单例模块浏览器服务已初始化完成
+            try:
+                from common.scrapers.global_browser_singleton import set_browser_service_initialized
+                set_browser_service_initialized()
+            except ImportError:
+                # 如果不使用全局单例，忽略
+                pass
             self.logger.info("✅ 浏览器服务初始化完成")
             return True
 
@@ -252,8 +259,10 @@ class SimplifiedBrowserService:
 
             if success:
                 self.logger.info("✅ 页面导航成功")
-
-            return success
+                return True
+            else:
+                self.logger.error("❌ 页面导航失败")
+                return False
 
         except Exception as e:
             self.logger.error(f"❌ 页面导航失败: {e}")
@@ -273,6 +282,108 @@ class SimplifiedBrowserService:
 
         except Exception as e:
             self.logger.error(f"❌ 关闭浏览器服务失败: {e}")
+            return False
+
+    def close_sync(self) -> bool:
+        """
+        同步关闭浏览器服务
+
+        🔧 同步改造：解决测试中"浏览器服务没有同步关闭方法"的问题
+        提供与异步版本功能完全一致的同步关闭方法
+        """
+        try:
+            # 关闭浏览器驱动 - 使用同步方法
+            if self.browser_driver:
+                if hasattr(self.browser_driver, 'shutdown_sync'):
+                    # 如果有同步关闭方法，使用同步方法
+                    try:
+                        success = self.browser_driver.shutdown_sync()
+                        # 检查返回值是否为协程
+                        if hasattr(success, '__await__'):
+                            self.logger.warning("⚠️ shutdown_sync返回了协程，使用异步处理")
+                            try:
+                                loop = asyncio.get_running_loop()
+                                future = asyncio.run_coroutine_threadsafe(success, loop)
+                                success = future.result(timeout=10)
+                            except RuntimeError:
+                                # 只有在 success 确实是协程时才使用 asyncio.run()
+                                if hasattr(success, '__await__'):
+                                    success = asyncio.run(success)
+                                else:
+                                    # 如果不是协程，直接使用返回值
+                                    pass
+
+                        if not success:
+                            self.logger.warning("⚠️ 浏览器驱动同步关闭失败，尝试异步关闭")
+                            # 如果同步关闭失败，尝试异步关闭
+                            try:
+                                loop = asyncio.get_running_loop()
+                                future = asyncio.run_coroutine_threadsafe(
+                                    self.browser_driver.shutdown(), loop
+                                )
+                                future.result(timeout=10)  # 10秒超时
+                            except RuntimeError:
+                                # 不在事件循环中，直接调用同步方法
+                                self.browser_driver.shutdown()
+                            except Exception as e:
+                                self.logger.error(f"❌ 异步关闭浏览器驱动也失败: {e}")
+                                return False
+                    except Exception as e:
+                        self.logger.error(f"❌ 调用shutdown_sync时发生错误: {e}")
+                        # 降级到异步关闭
+                        try:
+                            loop = asyncio.get_running_loop()
+                            future = asyncio.run_coroutine_threadsafe(
+                                self.browser_driver.shutdown(), loop
+                            )
+                            future.result(timeout=10)
+                        except RuntimeError:
+                            # 不在事件循环中，直接调用同步方法
+                            self.browser_driver.shutdown()
+                else:
+                    # 没有同步关闭方法，使用异步方法
+                    try:
+                        loop = asyncio.get_running_loop()
+                        future = asyncio.run_coroutine_threadsafe(
+                            self.browser_driver.shutdown(), loop
+                        )
+                        future.result(timeout=10)  # 10秒超时
+                    except RuntimeError:
+                        # 不在事件循环中，直接调用同步方法
+                        self.browser_driver.shutdown()
+
+            # 清理状态
+            self._initialized = False
+            self._browser_started = False
+
+            # 🔧 通知全局单例模块浏览器服务已关闭
+            try:
+                from common.scrapers.global_browser_singleton import set_browser_service_closed
+                set_browser_service_closed()
+            except ImportError:
+                # 如果不使用全局单例，忽略
+                pass
+
+            self.logger.info("✅ 浏览器服务已同步关闭")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"❌ 同步关闭浏览器服务失败: {e}")
+            # 即使关闭失败，也要清理状态，避免资源泄露
+            try:
+                self._initialized = False
+                self._browser_started = False
+                self.browser_driver = None
+
+                # 🔧 通知全局单例模块浏览器服务已关闭（即使关闭失败也要通知）
+                try:
+                    from common.scrapers.global_browser_singleton import set_browser_service_closed
+                    set_browser_service_closed()
+                except ImportError:
+                    # 如果不使用全局单例，忽略
+                    pass
+            except:
+                pass
             return False
 
 
@@ -372,6 +483,8 @@ class SimplifiedBrowserService:
             self.logger.error("Browser driver not initialized")
             return None
         return self.browser_driver.get_page_url()
+
+
 
     def get_event_loop(self):
         """

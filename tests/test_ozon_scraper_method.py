@@ -322,12 +322,12 @@ class OzonScraperMethodTester:
             self.scraper.close()
 
 
-async def main():
-    """主函数"""
+def main():
+    """主函数 - 同步版本"""
     tester = OzonScraperMethodTester()
-    
+
     try:
-        success = await tester.run_all_tests()
+        success = tester.run_all_tests()
         return 0 if success else 1
     except KeyboardInterrupt:
         print("\n⚠️ 测试被用户中断")

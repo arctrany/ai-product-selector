@@ -7,16 +7,13 @@
 3. 浏览器是否能正常启动
 """
 
-import asyncio
 import pytest
 from rpa.browser.implementations.playwright_browser_driver import SimplifiedPlaywrightBrowserDriver
-
 
 class TestBrowserCDPLaunch:
     """测试浏览器 CDP 启动功能"""
     
-    @pytest.mark.asyncio
-    async def test_launch_with_cdp_port_default(self):
+    def test_launch_with_cdp_port_default(self):
         """测试场景：使用默认 CDP 端口启动浏览器"""
         config = {
             'browser_type': 'edge',
@@ -28,7 +25,7 @@ class TestBrowserCDPLaunch:
         
         try:
             # 初始化浏览器
-            success = await driver.initialize()
+            success = driver.initialize()
             assert success, "浏览器初始化失败"
             
             # 验证浏览器已启动
@@ -41,10 +38,9 @@ class TestBrowserCDPLaunch:
             
         finally:
             # 清理
-            await driver.shutdown()
+            driver.shutdown()
     
-    @pytest.mark.asyncio
-    async def test_launch_with_custom_cdp_port(self):
+    def test_launch_with_custom_cdp_port(self):
         """测试场景：使用自定义 CDP 端口启动浏览器"""
         config = {
             'browser_type': 'edge',
@@ -55,7 +51,7 @@ class TestBrowserCDPLaunch:
         driver = SimplifiedPlaywrightBrowserDriver(config)
         
         try:
-            success = await driver.initialize()
+            success = driver.initialize()
             assert success, "浏览器初始化失败"
             
             # 验证启动参数包含自定义端口
@@ -66,10 +62,9 @@ class TestBrowserCDPLaunch:
             print("✅ 测试通过：自定义 CDP 端口配置正确")
             
         finally:
-            await driver.shutdown()
+            driver.shutdown()
     
-    @pytest.mark.asyncio
-    async def test_launch_with_custom_profile(self):
+    def test_launch_with_custom_profile(self):
         """测试场景：使用自定义 Profile 启动浏览器"""
         import os
         import tempfile
@@ -87,7 +82,7 @@ class TestBrowserCDPLaunch:
             driver = SimplifiedPlaywrightBrowserDriver(config)
             
             try:
-                success = await driver.initialize()
+                success = driver.initialize()
                 assert success, "浏览器初始化失败"
                 
                 # 验证 Profile 参数没有被覆盖
@@ -95,7 +90,7 @@ class TestBrowserCDPLaunch:
                 print("✅ 测试通过：自定义 Profile 配置正确")
                 
             finally:
-                await driver.shutdown()
+                driver.shutdown()
     
     def test_cdp_port_in_launch_args(self):
         """测试场景：验证 CDP 端口参数在启动参数中"""
@@ -136,17 +131,14 @@ class TestBrowserCDPLaunch:
             assert '--profile-directory=CustomProfile' in launch_args
             print("✅ 测试通过：自定义 Profile 不会被覆盖")
 
-
 if __name__ == '__main__':
-    # 运行同步测试
+    # 运行所有测试
     test = TestBrowserCDPLaunch()
     test.test_cdp_port_in_launch_args()
     test.test_profile_not_overridden()
-    
-    # 运行异步测试
-    print("\n运行异步测试...")
-    asyncio.run(test.test_launch_with_cdp_port_default())
-    asyncio.run(test.test_launch_with_custom_cdp_port())
-    asyncio.run(test.test_launch_with_custom_profile())
+    test.test_launch_with_cdp_port_default()
+    test.test_launch_with_custom_cdp_port()
+    test.test_launch_with_custom_profile()
     
     print("\n✅ 所有测试通过！")
+</content>
