@@ -23,7 +23,7 @@
   - 捕获点击失败异常
   - 捕获跳转超时异常
   - 捕获递归抓取失败异常i
-  - 确保失败不影响主流程
+/  - 确保失败不影响主流程
 
 ## 3. Product ID 提取实现
 - [x] 3.1 在 `scrape_product_prices()` 或 `scrape()` 中从 URL 提取 `product_id`

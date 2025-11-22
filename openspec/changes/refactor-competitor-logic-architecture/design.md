@@ -148,6 +148,167 @@ class ScrapingResult:
 - 配置注入：通过配置文件控制依赖关系
 - 工厂模式：统一创建和管理对象生命周期
 
+### 决策6: 配置层完全统一管理
+**决策**: 完善 `BaseSelectorConfig` 基类，确保所有 Selectors 统一继承和管理
+
+**理由**:
+- 当前 OzonSelectors 和其他 Selectors 配置管理分散，缺乏统一的继承体系
+- 统一配置管理便于维护和扩展，降低配置错误风险
+- 建立完整的配置继承体系，支持配置复用和覆盖机制
+
+**技术实现**:
+```python
+from abc import ABC, abstractmethod
+from typing import Optional, List, Dict, Any
+
+# 完善基类设计
+class BaseSelectorConfig(ABC):
+    @abstractmethod
+    def get_selector(self, category: str, key: str) -> Optional[str]:
+        """获取选择器"""
+        pass
+    
+    @abstractmethod  
+    def validate_config(self) -> List[str]:
+        """验证配置有效性"""
+        pass
+    
+    @abstractmethod
+    def get_selectors(self, category: str) -> Optional[Dict[str, str]]:
+        """批量获取选择器"""
+        pass
+
+# 确保继承关系
+class OzonSelectorsConfig(BaseSelectorConfig):
+    def get_selector(self, category: str, key: str) -> Optional[str]:
+        # 实现具体的选择器获取逻辑
+        return self._selector_map.get(category, {}).get(key)
+    
+    def validate_config(self) -> List[str]:
+        # 实现配置验证逻辑
+        errors = []
+        if not hasattr(self, '_selector_map'):
+            errors.append("Missing selector configuration")
+        return errors
+    
+    def get_selectors(self, category: str) -> Optional[Dict[str, str]]:
+        return self._selector_map.get(category)
+
+class SeerfarSelectorsConfig(BaseSelectorConfig):
+    def get_selector(self, category: str, key: str) -> Optional[str]:
+        # 实现具体的选择器获取逻辑
+        return self._selector_map.get(category, {}).get(key)
+    
+    def validate_config(self) -> List[str]:
+        # 实现配置验证逻辑
+        errors = []
+        if not hasattr(self, '_selector_map'):
+            errors.append("Missing selector configuration")
+        return errors
+    
+    def get_selectors(self, category: str) -> Optional[Dict[str, str]]:
+        return self._selector_map.get(category)
+```
+
+**配置管理策略**:
+- 建立配置优先级管理（环境变量 > 配置文件 > 默认值）
+- 统一配置验证和错误处理机制
+- 支持配置热更新和动态加载
+
+### 决策7: 业务层目录重组
+**决策**: 将 `filter_manager.py` 从 `common/scrapers/` 移动到项目根目录下的 `business/`
+
+**理由**:
+- `filter_manager.py` 包含店铺和商品过滤的业务逻辑，不属于数据抓取层
+- 明确业务逻辑和数据抓取的职责边界，符合分层架构原则
+- 提高代码组织的逻辑性和可维护性
+
+**目录结构重组**:
+```
+# 项目根目录结构重组
+business/                  # 新增业务层目录（项目根目录下）
+├── __init__.py
+├── filter_manager.py      # 从 common/scrapers/ 移动过来
+├── profit_evaluator.py
+└── store_evaluator.py
+
+common/
+├── scrapers/              # 纯数据抓取层
+│   ├── seerfar_scraper.py
+│   ├── ozon_scraper.py
+│   └── competitor_scraper.py
+└── services/              # 服务层
+    └── competitor_detection_service.py
+```
+
+**迁移策略**:
+- 更新所有导入引用: `from common.scrapers.filter_manager` -> `from business.filter_manager`
+- 验证功能完整性，确保移动后所有调用正常
+- 更新相关文档和测试用例
+
+### 决策8: 工具类统一管理策略
+**决策**: 建立统一的工具类管理策略，避免 ScrapingUtils 与现有 utils/ 工具类重复和冲突
+
+**理由**:
+- 现有 `utils/` 目录包含 `image_similarity.py`, `result_factory.py`, `url_converter.py`
+- 计划的 `ScrapingUtils` 与现有工具可能造成管理混乱和依赖冲突
+- 需要建立清晰的工具类组织结构，避免重复功能和维护困难
+
+**统一策略设计**:
+```
+utils/                     # 通用工具类（项目全局）
+├── image_similarity.py    # 图像相似度工具
+├── result_factory.py      # 结果工厂工具
+└── url_converter.py       # URL转换工具
+
+common/utils/              # Scraper专用工具类
+├── wait_utils.py          # 时序控制工具
+├── scraping_utils.py      # 数据抓取工具
+└── selector_utils.py      # 选择器工具
+```
+
+**避免冲突的原则**:
+- 按功能域划分：通用工具 vs Scraper专用工具
+- 明确命名规范：避免功能重复和名称冲突
+- 建立依赖关系图：防止循环依赖
+
+### 决策9: 架构铁律文档化
+**决策**: 将所有架构原则和设计决策更新到 `project.md` 文档中
+
+**理由**:
+- 架构原则和设计决策缺乏正式文档化，影响团队一致性
+- 新团队成员需要了解项目的架构约束和设计理念
+- 确保架构原则得到制度化，便于长期维护和决策参考
+
+**文档化内容**:
+```markdown
+## 架构铁律
+
+### 分层架构原则
+- 协调层：统一入口，业务编排
+- 服务层：业务逻辑处理
+- 抓取层：数据抓取，页面操作
+- 工具层：通用工具，跨模块复用
+- 配置层：统一配置管理
+- 数据层：数据模型，标准格式
+
+### 职责分离原则
+- 每个组件遵循单一职责原则
+- 避免跨层直接调用，通过接口交互
+- 业务逻辑与数据抓取严格分离
+
+### 技术约束
+- 避免硬编码，使用配置化管理
+- 跨平台兼容性（Windows, Linux, macOS）
+- 能同步处理，就不要异步
+- 避免重复代码，建立统一工具类
+```
+
+**维护策略**:
+- 每次架构变更必须更新 project.md
+- 定期审查架构原则的执行情况
+- 建立架构决策的追溯机制
+
 ## Alternatives Considered
 
 ### 备选方案1: 渐进式重构 vs 大规模重构
