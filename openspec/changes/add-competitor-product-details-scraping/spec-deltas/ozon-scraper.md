@@ -1,8 +1,11 @@
-# OZON Scraper Spec Delta
+# Spec Delta: ozon-scraper
 
-## ADDED Requirements
+## 变更类型
+MODIFICATION - 添加跟卖商品详情自动抓取功能，扩展 OZON scraper 能力
 
-### Requirement: 跟卖商品详情自动抓取
+## 变更内容
+
+### 新增 Requirement: 跟卖商品详情自动抓取
 系统 SHALL 在检测到有更优价格的跟卖店铺时，自动抓取第一个跟卖店铺的商品详细信息。
 
 #### Scenario: 有更优跟卖价格时自动抓取详情
@@ -34,7 +37,7 @@
 - **AND** 系统应继续返回原商品的数据
 - **AND** 返回结果中 `first_competitor_details` 为空
 
-### Requirement: 递归深度严格控制
+### 新增 Requirement: 递归深度严格控制
 系统 SHALL 通过递归深度参数严格限制递归层数，防止无限循环。
 
 #### Scenario: 递归深度限制生效
@@ -50,7 +53,7 @@
 - **THEN** 递归调用应正确接收 `_recursion_depth=1`
 - **AND** 递归调用内部不应再次触发递归（深度检查生效）
 
-### Requirement: Product ID 字段
+### 新增 Requirement: Product ID 字段
 系统 SHALL 在抓取商品信息时提取并返回唯一的 Product ID。
 
 #### Scenario: 从 URL 提取 Product ID
@@ -66,7 +69,7 @@
 - **AND** 返回结果中 `product_id` 字段为 `None`
 - **AND** 不应影响其他字段的抓取
 
-### Requirement: 跟卖店铺点击和跳转
+### 新增 Requirement: 跟卖店铺点击和跳转
 系统 SHALL 能够自动定位、点击第一个跟卖店铺卡片的安全区域（避免店铺名称/Logo），并验证页面跳转到商品详情页成功。
 
 **重要说明**: 跟卖卡片的点击行为基于 JavaScript 事件监听器：
@@ -131,7 +134,7 @@
 - **WHEN** 系统验证页面跳转
 - **THEN** 系统应抛出 "页面未跳转" 异常
 
-### Requirement: 选择器兼容性
+### 新增 Requirement: 选择器兼容性
 系统 SHALL 支持 OZON 平台的新旧两套 CSS 选择器，提供降级策略。
 
 #### Scenario: 使用新版选择器成功定位
@@ -152,53 +155,20 @@
 - **WHEN** 系统尝试定位跟卖店铺卡片
 - **THEN** 系统应抛出 "未找到跟卖店铺卡片" 异常
 
-## MODIFIED Requirements
+## 技术实现说明
 
-### Requirement: OZON 商品信息抓取
-系统 SHALL 从 OZON 商品页面抓取完整的商品信息，包括价格、ERP 数据、跟卖店铺列表，以及（可选）跟卖商品详情。
+**新增的功能**：
+- 递归调用 `scrape()` 方法抓取跟卖商品详情
+- Product ID 提取和返回
+- 跟卖店铺卡片的安全点击和页面跳转验证
+- 新旧选择器兼容性支持
 
-**变更说明**: 
-- 新增：支持抓取跟卖商品详情（通过递归调用）
-- 新增：返回 Product ID 字段
-- 新增：返回 `first_competitor_details` 字段（当 `has_better_price=True` 时）
+**新增的返回字段**：
+- `product_id`: 商品唯一标识符
+- `first_competitor_details`: 第一个跟卖商品的详细信息（可选）
 
-#### Scenario: 完整抓取流程（包含跟卖详情）
-- **GIVEN** 用户提供有效的 OZON 商品 URL
-- **AND** `include_competitors=True`
-- **WHEN** 系统执行 `scrape(url, include_competitors=True)` 方法
-- **THEN** 系统应返回包含以下字段的数据：
-  - `product_id`: 商品唯一标识符
-  - `product_url`: 商品页面 URL
-  - `price_data`: 价格信息（黑标价、绿标价、跟卖价）
-  - `erp_data`: ERP 插件数据（采购价、物流费等）
-  - `competitors`: 跟卖店铺列表
-  - `competitor_count`: 跟卖店铺数量
-  - `has_better_price`: 是否有更优跟卖价格
-  - `first_competitor_details`: 第一个跟卖商品的详细信息（可选，仅当 `has_better_price=True` 时存在）
-    - `product_id`: 跟卖商品 ID
-    - `product_url`: 跟卖商品 URL
-    - `price_data`: 跟卖商品价格信息
-    - `erp_data`: 跟卖商品 ERP 数据
+**向后兼容性**：
+- 所有新增参数都有默认值
+- 所有新增返回字段都是可选的
+- 现有调用方式无需修改
 
-#### Scenario: 抓取流程（不包含跟卖信息）
-- **GIVEN** 用户提供有效的 OZON 商品 URL
-- **AND** `include_competitors=False`
-- **WHEN** 系统执行 `scrape(url, include_competitors=False)` 方法
-- **THEN** 系统应返回包含以下字段的数据：
-  - `product_id`: 商品唯一标识符
-  - `product_url`: 商品页面 URL
-  - `price_data`: 价格信息（黑标价、绿标价，但无跟卖价）
-  - `erp_data`: ERP 插件数据
-- **AND** 不应包含 `competitors`、`competitor_count`、`has_better_price`、`first_competitor_details` 字段
-
-## 向后兼容性
-
-所有新增的参数都有默认值，现有调用方式无需修改：
-- `_recursion_depth=0`（默认为初次调用）
-- `_fetch_competitor_details=True`（默认启用递归抓取）
-
-所有新增的返回字段都是可选的：
-- `product_id`: 提取失败时为 `None`
-- `first_competitor_details`: 仅当 `has_better_price=True` 且递归成功时存在
-
-现有测试用例应继续通过，无回归问题。
