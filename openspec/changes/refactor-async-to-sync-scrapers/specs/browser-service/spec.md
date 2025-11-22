@@ -31,12 +31,3 @@
 - **THEN** 直接调用同步方法如page.goto(), page.click()
 - **AND** 无需使用await关键字
 
-## REMOVED Requirements
-
-### Requirement: 异步上下文管理器支持
-**原因**: 同步架构不需要异步上下文管理
-**迁移**: 使用标准的Python上下文管理器(__enter__/__exit__)
-
-### Requirement: AsyncMock测试支持  
-**原因**: 同步代码使用标准Mock即可
-**迁移**: 所有AsyncMock改为Mock，移除@pytest.mark.asyncio
