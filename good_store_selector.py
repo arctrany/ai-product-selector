@@ -20,7 +20,8 @@ from common.scrapers import SeerfarScraper, OzonScraper, ErpPluginScraper
 from common.scrapers.filter_manager import FilterManager
 from common.business import ProfitEvaluator, StoreEvaluator
 from common.task_control import TaskExecutionController, TaskControlMixin
-from utils.url_converter import convert_image_url_to_product_url
+# 🔧 用户反馈：移除不必要的图片URL转换功能
+# from utils.url_converter import convert_image_url_to_product_url
 from utils.result_factory import ErrorResultFactory
 
 
@@ -410,17 +411,13 @@ class GoodStoreSelector(TaskControlMixin):
     def _scrape_product_prices(self, product: ProductInfo):
         """抓取商品价格信息"""
         try:
-            if not product.image_url:
-                return
-            
-            # 从图片URL提取商品页面URL
-            product_url = convert_image_url_to_product_url(product.image_url)
-            if not product_url:
-                self.logger.warning(f"无法从图片URL转换商品页面URL: {product.image_url}")
+            # 🔧 用户反馈：直接使用产品URL，移除不必要的图片URL转换
+            if not product.product_url:
+                self.logger.warning(f"商品{product.product_id}缺少产品URL，跳过价格抓取")
                 return
 
             # 🔧 关键修复：不使用上下文管理器，直接使用已初始化的scraper
-            result = self.ozon_scraper.scrape_product_prices(product_url)
+            result = self.ozon_scraper.scrape_product_prices(product.product_url)
 
             if result.success:
                 price_data = result.data
@@ -433,17 +430,13 @@ class GoodStoreSelector(TaskControlMixin):
     def _scrape_erp_data(self, product: ProductInfo):
         """抓取ERP插件数据"""
         try:
-            if not product.image_url:
+            # 🔧 用户反馈：直接使用产品URL，移除不必要的图片URL转换
+            if not product.product_url:
+                self.logger.warning(f"商品{product.product_id}缺少产品URL，跳过ERP数据抓取")
                 return
 
-            # 从图片URL提取商品页面URL
-            product_url = convert_image_url_to_product_url(product.image_url)
-            if not product_url:
-                self.logger.warning(f"无法从图片URL转换商品页面URL: {product.image_url}")
-                return
-            
             # 🔧 关键修复：不使用上下文管理器，直接使用已初始化的scraper
-            result = self.erp_scraper.scrape_product_attributes(product_url, product.green_price)
+            result = self.erp_scraper.scrape_product_attributes(product.product_url, product.green_price)
 
             if result.success:
                 attributes = result.data

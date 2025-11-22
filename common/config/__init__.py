@@ -8,12 +8,9 @@ OZON选择器配置模块
 - 浏览器配置等
 """
 
-from .ozon_selectors import (
+from .ozon_selectors_config import (
     get_ozon_selectors_config,
-    OzonSelectorsConfig,
-    load_ozon_selectors_from_file,
-    save_ozon_selectors_to_file,
-    update_ozon_selectors_config
+    OzonSelectorsConfig
 )
 
 # 导入好店筛选配置
@@ -32,9 +29,6 @@ __all__ = [
     # OZON选择器配置
     'get_ozon_selectors_config',
     'OzonSelectorsConfig',
-    'load_ozon_selectors_from_file',
-    'save_ozon_selectors_to_file',
-    'update_ozon_selectors_config',
     # 好店筛选配置
     'GoodStoreSelectorConfig',
     'get_config'

@@ -168,8 +168,8 @@ SEERFAR_SELECTORS = SeerfarSelectors(
     product_list={
         # 商品表格行选择器 - 精确匹配带 data-index 属性的行
         'product_rows': "tbody > tr[data-index]",
-        # 备用商品行选择器 - XPath 方式
-        'product_rows_alt': "//tbody//tr[@data-index]",
+        # 备用商品行选择器 - CSS 方式
+        'product_rows_alt': "tbody > tr[data-index]",
         # 第三列元素选择器（类目信息所在列）
         'third_column': "td:nth-child(3)",
         # 可点击元素选择器

@@ -183,13 +183,11 @@ class ErpPluginScraper(BaseScraper):
 
     def _find_erp_container(self, soup) -> Optional[Any]:
         """查找ERP插件容器"""
-        # 尝试多种选择器查找ERP区域
-        selectors = [
-            '[data-v-efec3aa9]',  # 从HTML中观察到的特征属性
-            '.erp-plugin',
-            '[class*="erp"]',
-            '[id*="erp"]'
-        ]
+        from common.config.erp_selectors_config import get_erp_selectors_config
+
+        # 使用配置化的选择器，而不是硬编码
+        erp_config = get_erp_selectors_config()
+        selectors = erp_config.erp_container_selectors
         
         for selector in selectors:
             container = soup.select_one(selector)
@@ -431,6 +429,116 @@ class ErpPluginScraper(BaseScraper):
 
     def __enter__(self):
         return self
+
+    def scrape_product_attributes(self, product_url: str, green_price: Optional[float] = None) -> ScrapingResult:
+        """
+        抓取商品属性信息
+
+        Args:
+            product_url: 商品页面URL
+            green_price: 商品绿标价格（用于佣金率计算）
+
+        Returns:
+            ScrapingResult: 抓取结果，包含商品属性信息
+        """
+        start_time = time.time()
+
+        try:
+            # 导航到商品页面
+            success = self.navigate_to(product_url)
+            if not success:
+                return ScrapingResult(
+                    success=False,
+                    data={},
+                    error_message="页面导航失败",
+                    execution_time=time.time() - start_time
+                )
+
+            # 等待页面加载
+            self.wait(1)
+
+            # 智能等待ERP插件加载完成
+            self._wait_for_erp_plugin_loaded()
+
+            # 获取页面内容
+            page_content = self.browser_service.evaluate_sync("() => document.documentElement.outerHTML")
+            if not page_content:
+                return ScrapingResult(
+                    success=False,
+                    data={},
+                    error_message="未能获取页面内容",
+                    execution_time=time.time() - start_time
+                )
+
+            # 解析ERP数据
+            erp_data = self._extract_erp_data_from_content(page_content)
+
+            # 提取需要的属性信息
+            attributes = {}
+
+            # 佣金率
+            if 'rfbs_commission_rates' in erp_data and erp_data['rfbs_commission_rates']:
+                # 使用第一个佣金率作为默认值
+                attributes['commission_rate'] = erp_data['rfbs_commission_rates'][0]
+            elif green_price:
+                # 如果没有佣金率但有绿标价格，可以根据价格计算默认佣金率
+                attributes['commission_rate'] = self._calculate_commission_rate_by_price(green_price)
+            else:
+                # 使用默认佣金率
+                attributes['commission_rate'] = 12.0  # 默认12%
+
+            # 重量
+            if 'weight' in erp_data and erp_data['weight']:
+                attributes['weight'] = float(erp_data['weight'])
+
+            # 尺寸信息
+            if 'length' in erp_data and erp_data['length']:
+                attributes['length'] = float(erp_data['length'])
+            if 'width' in erp_data and erp_data['width']:
+                attributes['width'] = float(erp_data['width'])
+            if 'height' in erp_data and erp_data['height']:
+                attributes['height'] = float(erp_data['height'])
+
+            # 上架天数
+            if 'shelf_days' in erp_data and erp_data['shelf_days']:
+                attributes['shelf_days'] = int(erp_data['shelf_days'])
+
+            return ScrapingResult(
+                success=True,
+                data=attributes,
+                execution_time=time.time() - start_time
+            )
+
+        except Exception as e:
+            self.logger.error(f"抓取商品属性失败: {e}")
+            return ScrapingResult(
+                success=False,
+                data={},
+                error_message=str(e),
+                execution_time=time.time() - start_time
+            )
+
+    def _calculate_commission_rate_by_price(self, price: float) -> float:
+        """
+        根据价格计算佣金率
+
+        Args:
+            price: 商品价格（卢布）
+
+        Returns:
+            float: 佣金率（百分比）
+        """
+        try:
+            # 根据配置中的价格阈值计算佣金率
+            if price <= self.config.price_calculation.commission_rate_low_threshold:
+                return 15.0  # 低价商品佣金率15%
+            elif price >= self.config.price_calculation.commission_rate_high_threshold:
+                return 8.0   # 高价商品佣金率8%
+            else:
+                return 12.0  # 中等价格商品佣金率12%
+        except Exception as e:
+            self.logger.warning(f"计算佣金率失败，使用默认值: {e}")
+            return 12.0
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()

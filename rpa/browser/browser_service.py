@@ -139,10 +139,14 @@ class SimplifiedBrowserService:
                 # 如果不使用全局单例，忽略
                 pass
 
-            # 🔧 关键修复：抛出异常而不是直接退出程序
-            # 这样可以让调用方决定如何处理失败情况
-            self.logger.critical(f"💀 浏览器初始化失败，抛出异常供调用方处理")
-            raise RuntimeError(f"浏览器服务初始化失败: {e}")
+            # 🔧 用户要求：浏览器启动失败时直接终结程序，避免打开空白页
+            self.logger.critical(f"💀 浏览器初始化失败，程序即将退出")
+            self.logger.critical(f"💀 失败原因: {e}")
+            self.logger.critical(f"💀 为避免打开空白页，程序将直接终止")
+
+            # 直接退出程序，避免后续可能的空白页创建
+            import sys
+            sys.exit(1)
 
     async def start_browser(self) -> bool:
         """启动浏览器"""
@@ -178,7 +182,13 @@ class SimplifiedBrowserService:
 
         except Exception as e:
             self.logger.error(f"❌ 浏览器启动失败: {e}")
-            raise
+            # 🔧 用户要求：浏览器启动失败时直接终结程序，避免打开空白页
+            self.logger.critical(f"💀 浏览器启动失败，程序即将退出")
+            self.logger.critical(f"💀 失败原因: {e}")
+            self.logger.critical(f"💀 为避免打开空白页或其他异常状态，程序将直接终止")
+
+            import sys
+            sys.exit(1)
 
     async def navigate_to(self, url: str, wait_until: str = "load") -> bool:
         """导航到指定URL"""
@@ -204,7 +214,13 @@ class SimplifiedBrowserService:
 
         except Exception as e:
             self.logger.error(f"❌ 页面导航失败: {e}")
-            raise
+            # 🔧 用户要求：导航失败可能导致空白页，直接终结程序
+            self.logger.critical(f"💀 页面导航失败，可能产生空白页")
+            self.logger.critical(f"💀 失败原因: {e}")
+            self.logger.critical(f"💀 程序将直接终止，避免空白页问题")
+
+            import sys
+            sys.exit(1)
 
     def navigate_to_sync(self, url: str, wait_until: str = "domcontentloaded") -> bool:
         """

@@ -18,7 +18,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from common.scrapers.global_browser_singleton import get_global_browser_service
-from common.config.ozon_selectors import get_ozon_selectors_config
+from common.config.ozon_selectors_config import get_ozon_selectors_config
 
 # 配置日志
 logging.basicConfig(
@@ -67,7 +67,7 @@ def test_click_first_competitor():
             "//button[contains(text(), 'Еще')]",  # XPath
 
             # 使用配置的选择器
-            selectors_config.PRECISE_COMPETITOR_SELECTOR
+            selectors_config.precise_competitor_selector
         ]
 
         button_found = False
@@ -116,11 +116,8 @@ def test_click_first_competitor():
         # 4. 查找第一个跟卖店铺并点击
         logger.info("🔍 查找第一个跟卖店铺...")
 
-        # 尝试新旧两种选择器查找店铺卡片
-        card_selectors = [
-            "div.pdp_bk3",  # 新版选择器
-            "div.pdp_kb2",  # 旧版选择器
-        ]
+        # 使用配置系统中的选择器查找店铺卡片
+        card_selectors = selectors_config.competitor_container_selectors
 
         all_cards = None
         card_count = 0
@@ -170,14 +167,8 @@ def test_click_first_competitor():
         logger.info("🔍 查找第一个跟卖店铺的链接...")
 
         # 在第一个跟卖卡片中查找任意可点击的链接
-        link_selectors = [
-            # 新版选择器
-            "a.pdp_a5e",  # 店铺名称链接
-            "a.pdp_e2a",  # Logo链接
-            # 旧版选择器
-            "a.pdp_ae5",  # 店铺名称链接
-            "a.pdp_ea2",  # Logo链接
-            # 通用选择器
+        # 使用配置系统中的选择器
+        link_selectors = selectors_config.store_link_selectors + [
             "a[href*='/seller/']",  # 任意店铺链接
             "a[href*='/product/']",  # 任意商品链接
         ]
@@ -222,7 +213,7 @@ def test_click_first_competitor():
 
         # 6. 点击链接
         logger.info("👆 点击跟卖店铺链接...")
-        browser_service.click_sync(found_link_selector)
+        browser_service.click_sync(link_selector)
 
         # 等待页面跳转
         logger.info("⏳ 等待页面跳转...")

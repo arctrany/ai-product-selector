@@ -7,7 +7,7 @@
 import logging
 from bs4 import BeautifulSoup
 from common.scrapers.competitor_scraper import CompetitorScraper
-from common.config.ozon_selectors import get_ozon_selectors_config
+from common.config.ozon_selectors_config import get_ozon_selectors_config
 
 # 设置日志
 logging.basicConfig(level=logging.DEBUG)
@@ -84,7 +84,7 @@ def test_selector_matching():
     
     # 测试容器选择器
     print(f"\n📦 测试容器选择器:")
-    for selector in config.COMPETITOR_CONTAINER_SELECTORS:
+    for selector in config.competitor_container_selectors:
         try:
             container = soup.select_one(selector)
             if container:
@@ -95,9 +95,16 @@ def test_selector_matching():
     
     # 测试店铺元素选择器
     print(f"\n🏪 测试店铺元素选择器:")
-    container = soup.select_one("div.pdp_k1b")
+    # 使用配置系统中的容器选择器
+    container = None
+    for container_selector in config.competitor_container_selectors:
+        container = soup.select_one(container_selector)
+        if container:
+            print(f"✅ 使用容器选择器: {container_selector}")
+            break
+
     if container:
-        for selector in config.COMPETITOR_ELEMENT_SELECTORS:
+        for selector in config.competitor_element_selectors:
             try:
                 elements = container.select(selector)
                 if elements:
@@ -110,9 +117,18 @@ def test_selector_matching():
     
     # 测试店铺名称选择器
     print(f"\n🏷️ 测试店铺名称选择器:")
-    shop_elements = container.select("div.pdp_kb2") if container else []
+    # 使用配置系统中的元素选择器
+    shop_elements = []
+    if container:
+        for element_selector in config.competitor_element_selectors:
+            elements = container.select(element_selector)
+            if elements:
+                shop_elements.extend(elements)
+                print(f"✅ 使用元素选择器: {element_selector} (找到{len(elements)}个)")
+                break
+
     if shop_elements:
-        for selector in config.STORE_NAME_SELECTORS:
+        for selector in config.store_name_selectors:
             found_names = []
             for element in shop_elements:
                 try:
@@ -132,7 +148,7 @@ def test_selector_matching():
     # 测试价格选择器
     print(f"\n💰 测试价格选择器:")
     if shop_elements:
-        for selector in config.STORE_PRICE_SELECTORS:
+        for selector in config.store_price_selectors:
             found_prices = []
             for element in shop_elements:
                 try:

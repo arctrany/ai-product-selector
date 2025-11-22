@@ -45,7 +45,8 @@ def convert_image_url_to_product_url(image_url: str) -> Optional[str]:
         if match:
             product_id = match.group(1)
             # 构建OZON商品页面URL
-            product_url = f"https://www.ozon.ru/product/-{product_id}/"
+            # 使用纯数字ID格式，这是更可靠的默认格式
+            product_url = f"https://www.ozon.ru/product/{product_id}/"
             logger.debug(f"转换图片URL到商品URL: {image_url} -> {product_url}")
             return product_url
         
@@ -55,7 +56,7 @@ def convert_image_url_to_product_url(image_url: str) -> Optional[str]:
             # 如果是OZON的图片，尝试构建基础URL
             filename = image_url.split('/')[-1].split('.')[0]
             if filename and filename.isdigit():
-                return f"https://www.ozon.ru/product/-{filename}/"
+                return f"https://www.ozon.ru/product/{filename}/"
         
         logger.warning(f"无法从图片URL提取商品ID: {image_url}")
         return None

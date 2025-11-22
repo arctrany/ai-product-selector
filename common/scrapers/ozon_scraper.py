@@ -15,7 +15,8 @@ from .global_browser_singleton import get_global_browser_service
 from .competitor_scraper import CompetitorScraper
 from ..models import ProductInfo, CompetitorStore, clean_price_string, ScrapingResult
 from ..config import GoodStoreSelectorConfig
-from ..config.ozon_selectors import get_ozon_selectors_config, OzonSelectorsConfig
+from ..config.ozon_selectors_config import get_ozon_selectors_config, OzonSelectorsConfig
+from ..config.currency_config import get_currency_config
 from ..business.profit_evaluator import ProfitEvaluator
 from .erp_plugin_scraper import ErpPluginScraper
 
@@ -29,6 +30,7 @@ class OzonScraper(BaseScraper):
         super().__init__()
         self.config = config or GoodStoreSelectorConfig()
         self.selectors_config = selectors_config or get_ozon_selectors_config()
+        self.currency_config = get_currency_config()
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.base_url = self.config.scraping.ozon_base_url
 
@@ -751,8 +753,8 @@ class OzonScraper(BaseScraper):
         try:
             page = self.browser_service.get_page()
             
-            # 1. 定位第一个跟卖卡片（支持新旧选择器）
-            card_selectors = ["div.pdp_bk3", "div.pdp_kb2"]
+            # 1. 定位第一个跟卖卡片（使用配置系统中的选择器）
+            card_selectors = self.selectors_config.competitor_container_selectors
             first_card = None
             
             for selector in card_selectors:
@@ -767,21 +769,9 @@ class OzonScraper(BaseScraper):
             if not first_card:
                 raise Exception("未找到跟卖店铺卡片")
             
-            # 2. 优先点击的安全区域选择器（避开店铺名称/Logo）
+            # 2. 优先点击的安全区域选择器（使用配置系统中的选择器）
             # 注意：整个卡片有JS事件监听，点击非店铺链接区域会跳转到商品页
-            safe_click_selectors = [
-                # 🥇 最高优先级：价格区域（用户已验证）
-                "div.pdp_bk0",              # 价格容器
-                "div.pdp_b1k",              # 价格文本
-                
-                # 🥈 高优先级：其他信息区域
-                "div.pdp_kb1",              # Ozon卡片价格
-                "div.pdp_b3j",              # 配送信息区域
-                "div.pdp_jb3",              # 配送文本区域
-                
-                # 🥉 中优先级：按钮区域
-                "div.pdp_j6b",              # 按钮容器
-            ]
+            safe_click_selectors = self.selectors_config.store_price_selectors
             
             # 3. 查找可点击的安全区域
             clickable_element = None

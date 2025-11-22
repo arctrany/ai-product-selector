@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from common.scrapers.global_browser_singleton import get_global_browser_service
 from common.scrapers.competitor_scraper import CompetitorScraper
-from common.config.ozon_selectors import get_ozon_selectors_config
+from common.config.ozon_selectors_config import get_ozon_selectors_config
 
 # 配置日志
 logging.basicConfig(
@@ -63,7 +63,7 @@ def debug_competitor_extraction(url: str, description: str):
 
         # 获取选择器配置
         selectors_config = get_ozon_selectors_config()
-        precise_selector = selectors_config.PRECISE_COMPETITOR_SELECTOR
+        precise_selector = selectors_config.precise_competitor_selector
 
         print(f"🎯 使用精确跟卖区域选择器: {precise_selector}")
 
@@ -115,7 +115,7 @@ def debug_competitor_extraction(url: str, description: str):
             print("🔍 搜索页面中所有可能的跟卖元素...")
 
             # 搜索包含跟卖关键词的元素
-            competitor_keywords = selectors_config.COMPETITOR_KEYWORDS
+            competitor_keywords = selectors_config.competitor_keywords
             for keyword in competitor_keywords[:3]:  # 只检查前3个关键词
                 try:
                     elements = page.query_selector_all_sync(f"text={keyword}")

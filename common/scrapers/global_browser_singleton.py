@@ -53,13 +53,20 @@ def get_global_browser_service(config: Optional[Dict[str, Any]] = None) -> 'Simp
             browser_config_dict = (config or {}).get('browser', {})
             headless = browser_config_dict.get('headless', False)
             
-            # 🔧 关键修复：添加 Profile 可用性验证和降级策略
+            # 🔧 关键修复：先清理浏览器进程，再进行 Profile 验证
             detector = BrowserDetector()
             base_user_data_dir = detector._get_edge_user_data_dir() if browser_type == 'edge' else None
 
             if not base_user_data_dir:
                 logger.error("❌ 无法获取用户数据目录")
                 raise RuntimeError("无法获取用户数据目录")
+
+            # 🔧 用户要求：先kill冲突的浏览器进程，再启动
+            logger.info("🧹 启动前先清理可能冲突的浏览器进程...")
+            if not detector.kill_browser_processes():
+                logger.warning("⚠️ 清理浏览器进程时遇到问题，但继续启动")
+            else:
+                logger.info("✅ 浏览器进程清理完成")
 
             # 检测最近使用的 Profile
             active_profile = detect_active_profile()
@@ -69,31 +76,23 @@ def get_global_browser_service(config: Optional[Dict[str, Any]] = None) -> 'Simp
             else:
                 logger.info(f"✅ 检测到最近使用的 Profile: {active_profile}")
 
-            # 🔧 验证 Profile 可用性（带自动恢复机制）
+            # 🔧 验证 Profile 可用性（进程已预先清理）
             if not detector.is_profile_available(base_user_data_dir, active_profile):
-                logger.warning(f"⚠️ Profile '{active_profile}' 不可用（可能被锁定）")
-                logger.info("🔧 尝试清理僵尸浏览器进程并重试...")
+                logger.warning(f"⚠️ Profile '{active_profile}' 仍不可用")
 
-                # 尝试清理僵尸进程
-                if detector.kill_browser_processes():
-                    # 等待 Profile 解锁
-                    profile_path = os.path.join(base_user_data_dir, active_profile)
-                    if detector.wait_for_profile_unlock(profile_path, max_wait_seconds=5):
-                        logger.info("✅ Profile 已解锁，继续启动")
-                        # 再次验证 Profile 是否真的可用
-                        if not detector.is_profile_available(base_user_data_dir, active_profile):
-                            error_msg = f"❌ Profile '{active_profile}' 解锁后仍不可用"
-                            logger.error(error_msg)
-                            raise RuntimeError(error_msg)
-                    else:
-                        error_msg = f"❌ Profile '{active_profile}' 清理后仍然被锁定"
+                # 等待 Profile 解锁（进程已清理，只需等待文件系统解锁）
+                profile_path = os.path.join(base_user_data_dir, active_profile)
+                if detector.wait_for_profile_unlock(profile_path, max_wait_seconds=5):
+                    logger.info("✅ Profile 已解锁，继续启动")
+                    # 再次验证 Profile 是否真的可用
+                    if not detector.is_profile_available(base_user_data_dir, active_profile):
+                        error_msg = f"❌ Profile '{active_profile}' 解锁后仍不可用"
                         logger.error(error_msg)
-                        logger.error("💡 请手动关闭所有 Edge 浏览器窗口后重试")
                         raise RuntimeError(error_msg)
                 else:
-                    error_msg = f"❌ 清理僵尸进程失败，Profile '{active_profile}' 不可用"
+                    error_msg = f"❌ Profile '{active_profile}' 等待解锁超时"
                     logger.error(error_msg)
-                    logger.error("💡 请手动运行：pkill -f 'Microsoft Edge'")
+                    logger.error("💡 请手动关闭所有 Edge 浏览器窗口后重试")
                     raise RuntimeError(error_msg)
 
             # Profile 可用，使用完整路径

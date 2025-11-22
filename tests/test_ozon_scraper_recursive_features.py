@@ -144,9 +144,10 @@ class TestOzonScraperRecursiveFeatures(unittest.TestCase):
         scraper.browser_service.get_page.return_value = mock_page
         
         # 设置页面locator行为 - 第一个选择器找到卡片
+        # 使用配置系统中的选择器
         mock_page.locator.side_effect = [
-            mock_card_locator,  # div.pdp_bk3
-            mock_clickable_locator,  # div.pdp_bk0
+            mock_card_locator,  # 使用配置的容器选择器
+            mock_clickable_locator,  # 使用配置的价格选择器
         ]
         
         # 设置卡片定位成功

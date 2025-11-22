@@ -54,6 +54,7 @@ class StoreInfo:
 class ProductInfo:
     """商品基础信息"""
     product_id: Optional[str] = None  # 商品ID（从URL提取）
+    product_url: Optional[str] = None  # 商品页面URL（直接存储，无需转换）
     image_url: Optional[str] = None
     brand_name: Optional[str] = None
     sku: Optional[str] = None
@@ -296,11 +297,11 @@ def clean_price_string(price_str: str, selectors_config=None) -> Optional[float]
 
     # 获取配置，如果没有提供则使用默认配置
     if selectors_config is None:
-        from .config.ozon_selectors import get_ozon_selectors_config
+        from .config.ozon_selectors_config import get_ozon_selectors_config
         selectors_config = get_ozon_selectors_config()
 
     # 处理价格前缀词，移除前缀词
-    prefix_pattern = '|'.join(re.escape(prefix) for prefix in selectors_config.PRICE_PREFIX_WORDS)
+    prefix_pattern = '|'.join(re.escape(prefix) for prefix in selectors_config.price_prefix_words)
     if prefix_pattern:
         text = re.sub(f'^({prefix_pattern})\\s+', '', price_str, flags=re.IGNORECASE)
     else:
@@ -308,10 +309,10 @@ def clean_price_string(price_str: str, selectors_config=None) -> Optional[float]
 
     # 移除货币符号和特殊空格字符
     # 构建货币符号模式
-    currency_pattern = '|'.join(re.escape(symbol) for symbol in selectors_config.CURRENCY_SYMBOLS)
+    currency_pattern = '|'.join(re.escape(symbol) for symbol in selectors_config.currency_symbols)
 
     # 构建特殊空格字符模式
-    space_chars = ''.join(selectors_config.SPECIAL_SPACE_CHARS)
+    space_chars = ''.join(selectors_config.special_space_chars)
 
     # 移除货币符号、特殊空格字符和普通空格
     if currency_pattern:

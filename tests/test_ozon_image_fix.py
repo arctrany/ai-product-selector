@@ -13,7 +13,7 @@ import logging
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from common.scrapers.ozon_scraper import OzonScraper
-from common.config.ozon_selectors import OzonSelectorsConfig
+from common.config.ozon_selectors_config import OzonSelectorsConfig
 
 def setup_logging():
     """设置日志"""
@@ -40,7 +40,7 @@ def test_image_extraction():
     # 获取更新后的图片选择器配置
     selectors_config = OzonSelectorsConfig()
     print(f"📋 图片选择器配置:")
-    for i, selector in enumerate(selectors_config.IMAGE_SELECTORS, 1):
+    for i, selector in enumerate(selectors_config.image_selectors, 1):
         print(f"  {i}. {selector}")
     print()
     

@@ -17,7 +17,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from bs4 import BeautifulSoup
 
 from ..models import CompetitorStore, clean_price_string
-from ..config.ozon_selectors import get_ozon_selectors_config, OzonSelectorsConfig
+from ..config.ozon_selectors_config import get_ozon_selectors_config, OzonSelectorsConfig
 
 
 class CompetitorScraper:
@@ -91,7 +91,7 @@ class CompetitorScraper:
 
             # 查找跟卖区域
             element, _ = self._find_element_by_selectors(
-                page, [self.selectors_config.PRECISE_COMPETITOR_SELECTOR]
+                page, [self.selectors_config.precise_competitor_selector]
             )
 
             if not element:
@@ -136,19 +136,40 @@ class CompetitorScraper:
             for attempt in range(max_wait_seconds * 2):  # 每0.5秒检查一次
                 try:
                     # 🎯 关键修复：严格验证浮层结构，确保真实店铺数据存在
-                    popup_container = page.query_selector("div.pdp_b2k")
+                    # 使用配置系统中的选择器，而不是硬编码
+                    container_selectors = self.selectors_config.competitor_container_selectors
+                    popup_container = None
+                    for selector in container_selectors:
+                        popup_container = page.query_selector(selector)
+                        if popup_container:
+                            break
+
                     if popup_container:
                         # 🔧 验证浮层内是否有真实的店铺元素
-                        store_elements = popup_container.query_selector_all("div.pdp_kb2")
+                        # 使用配置系统中的选择器，而不是硬编码
+                        element_selectors = self.selectors_config.competitor_element_selectors
+                        store_elements = []
+                        for selector in element_selectors:
+                            elements = popup_container.query_selector_all(selector)
+                            if elements and len(elements) > 0:
+                                store_elements.extend(elements)
+
                         if store_elements and len(store_elements) > 0:
                             # 🔧 进一步验证：确保店铺元素包含店铺名称链接
                             valid_stores = 0
                             for store_element in store_elements:
-                                store_link = store_element.query_selector("a.pdp_ae5")
+                                # 🔧 使用配置化的店铺链接选择器，而不是硬编码
+                                store_link = None
+                                for link_selector in self.selectors_config.store_link_selectors:
+                                    store_link = store_element.query_selector(link_selector)
+                                    if store_link:
+                                        break
+
                                 if store_link:
                                     link_text = store_link.text_content()
-                                    # 🔧 关键：排除"У других продавцов"这种标题文本
-                                    if link_text and "других продавцов" not in link_text.lower():
+                                    # 🔧 关键：排除标题文本（支持多语言）
+                                    from common.config.ozon_selectors_config import is_exclude_text
+                                    if link_text and not is_exclude_text(link_text):
                                         valid_stores += 1
 
                             if valid_stores > 0:
@@ -636,7 +657,7 @@ class CompetitorScraper:
         try:
             max_count = 0
 
-            for container_selector in self.selectors_config.COMPETITOR_CONTAINER_SELECTORS:
+            for container_selector in self.selectors_config.competitor_container_selectors:
                 try:
                     container = page.query_selector(container_selector)
                     if container:
@@ -676,7 +697,7 @@ class CompetitorScraper:
                 try:
                     # 查找浮层容器
                     container_found = False
-                    for container_selector in self.selectors_config.COMPETITOR_CONTAINER_SELECTORS:
+                    for container_selector in self.selectors_config.competitor_container_selectors:
                         container = page.query_selector(container_selector)
                         if container:
                             container_found = True
