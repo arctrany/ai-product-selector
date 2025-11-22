@@ -1,0 +1,122 @@
+"""
+RPA Browser Core Module
+
+核心模块，包含所有接口定义、数据模型、异常类型等基础组件
+"""
+
+# 导入所有核心接口
+from .interfaces.browser_driver import IBrowserDriver
+
+from .interfaces.page_analyzer import (
+    IPageAnalyzer,
+    IContentExtractor,
+    IElementMatcher,
+    IPageValidator
+)
+
+from .interfaces.paginator import (
+    IPaginator,
+    IDataExtractor,
+    IPaginationStrategy,
+    IScrollPaginator,
+    ILoadMorePaginator,
+    PaginationType,
+    PaginationDirection
+)
+
+
+
+
+
+# Config manager interfaces removed - using simplified config system
+
+# 导入所有数据模型
+from .models.browser_config import (
+    BrowserConfig,
+    ViewportConfig,
+    ProxyConfig,
+    SecurityConfig,
+    PerformanceConfig,
+    create_default_config
+)
+
+from .models.page_element import (
+    PageElement,
+    ElementAttributes,
+    ElementBounds,
+    ElementState,
+    ElementCollection,
+    ElementType
+)
+
+# 导入所有异常类型
+from .exceptions.browser_exceptions import (
+    BrowserError,
+    BrowserInitializationError,
+    BrowserConnectionError,
+    BrowserTimeoutError,
+    PageLoadError,
+    ElementNotFoundError,
+    ElementInteractionError,
+    NavigationError,
+    ResourceError,
+    ConfigurationError,
+    ValidationError,
+    ScenarioExecutionError,
+    PaginationError,
+    create_browser_error,
+    handle_browser_error
+)
+
+__all__ = [
+    # 浏览器驱动接口
+    'IBrowserDriver',
+
+    # 页面分析接口
+    'IPageAnalyzer',
+    'IContentExtractor',
+    'IElementMatcher',
+    'IPageValidator',
+
+    # 分页器接口
+    'IPaginator',
+    'IDataExtractor',
+    'IPaginationStrategy',
+    'IScrollPaginator',
+    'ILoadMorePaginator',
+    'PaginationType',
+    'PaginationDirection',
+    
+    # 配置管理接口已移除 - 使用简化配置系统
+    
+    # 数据模型
+    'BrowserConfig',
+    'ViewportConfig',
+    'ProxyConfig',
+    'SecurityConfig',
+    'PerformanceConfig',
+    'create_default_config',
+    'PageElement',
+    'ElementAttributes',
+    'ElementBounds',
+    'ElementState',
+    'ElementCollection',
+    'ElementType',
+    
+    # 异常类型
+    'BrowserError',
+    'BrowserInitializationError',
+    'BrowserConnectionError',
+    'BrowserTimeoutError',
+    'PageLoadError',
+    'ElementNotFoundError',
+    'ElementInteractionError',
+    'NavigationError',
+    'ResourceError',
+    'ConfigurationError',
+    'ValidationError',
+    'ScenarioExecutionError',
+    'PaginationError',
+    'create_browser_error',
+    'handle_browser_error'
+]

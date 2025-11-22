@@ -1,0 +1,28 @@
+# AI选品自动化系统 - 项目依赖
+# PyInstaller 打包所需的核心依赖
+
+# 浏览器自动化框架
+playwright>=1.40.0
+
+# Excel 处理
+openpyxl>=3.1.0
+
+# HTTP 请求
+requests>=2.31.0
+
+# 图像处理库
+Pillow>=10.0.0
+opencv-python>=4.8.0
+scikit-image>=0.21.0
+imagehash>=4.3.1
+numpy>=1.24.0
+
+# PyInstaller 打包工具
+pyinstaller>=6.0.0
+
+# 异步编程支持 (Python 内置，但确保兼容性)
+# asyncio - 内置模块
+
+# 可选依赖 (AI 功能，如果需要 CLIP 语义相似度)
+# torch>=2.0.0
+# transformers>=4.30.0

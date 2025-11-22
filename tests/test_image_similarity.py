@@ -13,7 +13,7 @@ import sys
 # 添加src路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from tools.image_similarity import (
+from utils.image_similarity import (
     ProductImageSimilarity,
     load_image_from_source,
     calculate_hash_similarity,
