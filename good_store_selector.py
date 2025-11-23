@@ -17,8 +17,8 @@ from common.models import (
 from common.config import GoodStoreSelectorConfig, get_config
 from common.excel_processor import ExcelStoreProcessor
 from common.scrapers import SeerfarScraper, OzonScraper, ErpPluginScraper
-from common.scrapers.filter_manager import FilterManager
-from common.business import ProfitEvaluator, StoreEvaluator
+from business.filter_manager import FilterManager
+from business import ProfitEvaluator, StoreEvaluator
 from common.task_control import TaskExecutionController, TaskControlMixin
 # 🔧 用户反馈：移除不必要的图片URL转换功能
 # from utils.url_converter import convert_image_url_to_product_url

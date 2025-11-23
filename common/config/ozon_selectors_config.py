@@ -4,12 +4,13 @@ OZON平台选择器配置
 """
 
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Optional
 from .language_config import get_language_config
+from .base_scraping_config import BaseScrapingConfig
 
 
 @dataclass
-class OzonSelectorsConfig:
+class OzonSelectorsConfig(BaseScrapingConfig):
     """OZON平台选择器配置"""
     
     # ========== 价格前缀词配置 ==========
@@ -200,6 +201,127 @@ class OzonSelectorsConfig:
         ":nth-child({}) a[href*='/seller/']",
         "div.pdp_kb2:nth-child({})"
     ])
+
+    def get_selector(self, category: str, key: str) -> Optional[str]:
+        """
+        获取选择器
+
+        Args:
+            category: 选择器分类
+            key: 选择器键名
+
+        Returns:
+            str: 选择器字符串，如果未找到返回None
+        """
+        selectors_dict = {
+            'price': dict(enumerate([f"{sel[0]}#{sel[1]}" for sel in self.price_selectors])),
+            'image': dict(enumerate(self.image_selectors)),
+            'competitor_area': dict(enumerate(self.competitor_area_selectors)),
+            'competitor_element': dict(enumerate(self.competitor_element_selectors)),
+            'store_name': dict(enumerate(self.store_name_selectors)),
+            'store_price': dict(enumerate(self.store_price_selectors)),
+            'store_link': dict(enumerate(self.store_link_selectors)),
+            'competitor_count': dict(enumerate(self.competitor_count_selectors)),
+            'competitor_container': dict(enumerate(self.competitor_container_selectors)),
+            'competitor_click': dict(enumerate(self.competitor_click_selectors))
+        }
+
+        category_selectors = selectors_dict.get(category)
+        if category_selectors and isinstance(key, (str, int)):
+            if isinstance(key, str) and key.isdigit():
+                key = int(key)
+            return category_selectors.get(key)
+        return None
+
+    def get_selectors(self, category: str) -> Optional[Dict[str, str]]:
+        """
+        批量获取选择器
+
+        Args:
+            category: 选择器分类
+
+        Returns:
+            Dict[str, str]: 选择器字典，如果未找到返回None
+        """
+        selectors_dict = {
+            'price': dict(enumerate([f"{sel[0]}#{sel[1]}" for sel in self.price_selectors])),
+            'image': dict(enumerate(self.image_selectors)),
+            'competitor_area': dict(enumerate(self.competitor_area_selectors)),
+            'competitor_element': dict(enumerate(self.competitor_element_selectors)),
+            'store_name': dict(enumerate(self.store_name_selectors)),
+            'store_price': dict(enumerate(self.store_price_selectors)),
+            'store_link': dict(enumerate(self.store_link_selectors)),
+            'competitor_count': dict(enumerate(self.competitor_count_selectors)),
+            'competitor_container': dict(enumerate(self.competitor_container_selectors)),
+            'competitor_click': dict(enumerate(self.competitor_click_selectors))
+        }
+
+        category_selectors = selectors_dict.get(category)
+        if category_selectors:
+            return {str(k): v for k, v in category_selectors.items()}
+        return None
+
+    def validate(self) -> bool:
+        """
+        验证配置是否有效
+
+        Returns:
+            bool: 配置是否有效
+        """
+        # 检查关键选择器列表是否不为空
+        if not self.price_selectors:
+            return False
+        if not self.image_selectors:
+            return False
+        if not self.competitor_area_selectors:
+            return False
+        if not self.competitor_element_selectors:
+            return False
+        if not self.store_name_selectors:
+            return False
+        if not self.store_price_selectors:
+            return False
+        if not self.competitor_count_selectors:
+            return False
+        if not self.competitor_container_selectors:
+            return False
+        if not self.competitor_click_selectors:
+            return False
+
+        # 检查价格选择器格式
+        for price_selector in self.price_selectors:
+            if not isinstance(price_selector, tuple) or len(price_selector) != 3:
+                return False
+            selector, price_type, priority = price_selector
+            if not isinstance(selector, str) or not selector.strip():
+                return False
+            if not isinstance(price_type, str) or not price_type.strip():
+                return False
+            if not isinstance(priority, int) or priority <= 0:
+                return False
+
+        # 检查其他选择器是否为有效字符串
+        all_string_selectors = (
+            self.image_selectors +
+            self.competitor_area_selectors +
+            self.competitor_element_selectors +
+            self.store_name_selectors +
+            self.store_price_selectors +
+            self.store_link_selectors +
+            self.competitor_count_selectors +
+            self.competitor_container_selectors +
+            self.competitor_click_selectors
+        )
+
+        for selector in all_string_selectors:
+            if not isinstance(selector, str) or not selector.strip():
+                return False
+
+        # 检查货币符号和价格前缀词
+        if not self.currency_symbols or not self.price_prefix_words:
+            return False
+
+        return True
 
 
 # 全局默认配置实例

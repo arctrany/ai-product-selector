@@ -32,11 +32,44 @@ class TestBaseScraper:
     def setup_method(self):
         """每个测试方法执行前的初始化"""
         self.scraper = BaseScraper()
-        
-        # 创建 Mock browser_service - 使用 MagicMock 因为现在是同步方法
+
+        # 创建 Mock wait_utils - 这是真正的问题！
+        self.mock_wait_utils = MagicMock()
+        self.mock_wait_utils.smart_wait = MagicMock(return_value=True)
+        self.scraper.wait_utils = self.mock_wait_utils
+
+        # 创建完整的 Mock browser_service - 包含所有必需方法
         self.mock_browser_service = MagicMock()
-        self.mock_browser_service.navigate_to_sync = MagicMock()
+
+        # 基础导航和页面操作
+        self.mock_browser_service.navigate_to_sync = MagicMock(return_value=True)
+        self.mock_browser_service.wait_for_selector_sync = MagicMock(return_value=True)
+        self.mock_browser_service.text_content_sync = MagicMock(return_value="Test Content")
+        self.mock_browser_service.evaluate_sync = MagicMock(return_value="<html></html>")
+        self.mock_browser_service.click_sync = MagicMock(return_value=True)
         self.mock_browser_service.close_sync = MagicMock()
+        self.mock_browser_service.shutdown_sync = MagicMock()
+
+        # 缺失的方法 - 修复测试失败问题
+        self.mock_browser_service.smart_wait = MagicMock(return_value=True)
+        self.mock_browser_service.get_page_content = MagicMock(return_value="<html><body>Mock Content</body></html>")
+        self.mock_browser_service.wait_for_load_state_sync = MagicMock(return_value=True)
+        self.mock_browser_service.scroll_to_bottom_sync = MagicMock(return_value=True)
+        self.mock_browser_service.take_screenshot_sync = MagicMock(return_value=b"mock_screenshot")
+
+        # 元素查找和操作
+        self.mock_browser_service.query_selector_sync = MagicMock()
+        self.mock_browser_service.query_selector_all_sync = MagicMock(return_value=[])
+        self.mock_browser_service.get_attribute_sync = MagicMock(return_value="mock_attribute")
+        self.mock_browser_service.get_inner_text_sync = MagicMock(return_value="Mock Text")
+
+        # 表单操作
+        self.mock_browser_service.fill_sync = MagicMock(return_value=True)
+        self.mock_browser_service.select_option_sync = MagicMock(return_value=True)
+
+        # 高级功能
+        self.mock_browser_service.execute_script_sync = MagicMock(return_value=None)
+        self.mock_browser_service.wait_for_timeout_sync = MagicMock()
 
         # 创建 Mock extractor 函数
         self.mock_extractor = MagicMock()
@@ -167,9 +200,8 @@ class TestBaseScraper:
         assert result.data == test_data
         assert result.error_message is None
 
-    @patch('time.sleep')
-    def test_scrape_page_data_wait_called(self, mock_sleep):
-        """测试 scrape_page_data 调用 time.sleep 等待页面加载"""
+    def test_scrape_page_data_wait_called(self):
+        """测试 scrape_page_data 调用 wait_utils.smart_wait 等待页面加载"""
         # Arrange
         test_url = "https://example.com/test"
         test_data = {"test": "data"}
@@ -183,7 +215,7 @@ class TestBaseScraper:
 
         # Assert
         assert result.success is True
-        mock_sleep.assert_called_once_with(1)
+        self.mock_wait_utils.smart_wait.assert_called_once_with(1.0)
 
     # ==================== 资源管理方法测试 ====================
 
@@ -341,6 +373,12 @@ class TestBaseScraper:
         self.scraper.browser_service = self.mock_browser_service
         self.mock_browser_service.navigate_to_sync.return_value = True
 
+        # 让 smart_wait 实际等待，模拟真实场景
+        def actual_wait(seconds):
+            time.sleep(seconds)
+
+        self.mock_wait_utils.smart_wait.side_effect = actual_wait
+
         # 模拟耗时操作
         def slow_extractor(browser_service):
             time.sleep(0.1)  # 100ms 延迟
@@ -354,7 +392,7 @@ class TestBaseScraper:
         # Assert
         assert result.success is True
         assert result.execution_time is not None
-        # 执行时间应该在合理范围内（考虑到 time.sleep(1) + 0.1 的延迟）
+        # 执行时间应该在合理范围内（考虑到 smart_wait(1.0) + 0.1 的延迟）
         assert 1.0 <= result.execution_time <= total_time + 0.1
 
     # ==================== 参数化测试 ====================
@@ -449,19 +487,26 @@ class TestBaseScraper:
         # Arrange
         test_content = "<html><body>Test Content</body></html>"
         self.scraper.browser_service = self.mock_browser_service
-        self.mock_browser_service.get_page_content.return_value = test_content
+        # 设置正确的Mock：get_page_content实际调用evaluate_sync方法
+        self.scraper.browser_service.evaluate_sync.return_value = test_content
 
         # Act
         result = self.scraper.get_page_content()
 
         # Assert
         assert result == test_content
-        self.mock_browser_service.get_page_content.assert_called_once()
+        self.scraper.browser_service.evaluate_sync.assert_called_once_with("() => document.documentElement.outerHTML")
 
     def test_wait_duration(self):
         """测试 wait 方法等待指定时间"""
         # Arrange
         wait_seconds = 2.5
+
+        # 让 smart_wait 实际等待，模拟真实场景
+        def actual_wait(seconds):
+            time.sleep(seconds)
+
+        self.mock_wait_utils.smart_wait.side_effect = actual_wait
 
         # Act
         start_time = time.time()
@@ -472,9 +517,8 @@ class TestBaseScraper:
         # 允许一定的时间误差（±0.1秒）
         assert wait_seconds - 0.1 <= elapsed_time <= wait_seconds + 0.1
 
-    @patch('time.sleep')
-    def test_wait_calls_time_sleep(self, mock_sleep):
-        """测试 wait 方法调用 time.sleep"""
+    def test_wait_calls_smart_wait(self):
+        """测试 wait 方法调用 wait_utils.smart_wait"""
         # Arrange
         wait_seconds = 1.5
 
@@ -482,7 +526,7 @@ class TestBaseScraper:
         self.scraper.wait(wait_seconds)
 
         # Assert
-        mock_sleep.assert_called_once_with(wait_seconds)
+        self.mock_wait_utils.smart_wait.assert_called_once_with(wait_seconds)
 
 if __name__ == "__main__":
     # 运行所有测试

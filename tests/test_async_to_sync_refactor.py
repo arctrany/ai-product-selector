@@ -385,16 +385,19 @@ class TestIntegrationScenarios:
     def test_scraper_with_sync_driver_integration(self):
         """测试Scraper与同步Driver的集成"""
         from common.scrapers.base_scraper import BaseScraper
+        from common.utils.wait_utils import WaitUtils
         from unittest.mock import MagicMock
-        
+
         # 创建Mock同步浏览器服务
         mock_browser_service = MagicMock()
         mock_browser_service.navigate_to_sync = MagicMock(return_value=True)
         mock_browser_service.close_sync = MagicMock(return_value=True)
-        
+
         # 创建Scraper实例
         scraper = BaseScraper()
         scraper.browser_service = mock_browser_service
+        # 初始化wait_utils以避免"'NoneType' object has no attribute 'smart_wait'"错误
+        scraper.wait_utils = WaitUtils(mock_browser_service)
         
         # 测试数据抓取流程
         def mock_extractor(browser_service):

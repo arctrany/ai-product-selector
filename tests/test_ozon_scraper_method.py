@@ -21,6 +21,7 @@ sys.path.insert(0, str(project_root))
 
 from common.config import get_config
 from common.scrapers.ozon_scraper import OzonScraper
+from tests.base_scraper_test import BaseScraperTest
 
 
 class OzonScraperMethodTester:
@@ -347,16 +348,18 @@ if __name__ == "__main__":
     sys.exit(exit_code)
 
 
-class TestOzonScraperMethod(unittest.TestCase):
-    """OzonScraper.scrape() 方法单元测试 - 同步版本"""
+class TestOzonScraperMethod(BaseScraperTest):
+    """OzonScraper.scrape() 方法单元测试 - 使用统一测试基类"""
 
     def setUp(self):
         """测试初始化"""
+        super().setUp()  # 调用基类初始化
         self.tester = OzonScraperMethodTester()
 
     def tearDown(self):
         """测试清理"""
         self.tester.close()
+        super().tearDown()  # 调用基类清理
 
     def test_scenario_1_no_competitors(self):
         """测试场景1：无跟卖店铺 - 同步版本"""

@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 from openpyxl import Workbook
 
-from common.business.excel_calculator import (
+from business.excel_calculator import (
     ExcelProfitCalculator,
     ExcelCalculatorError,
     ProfitCalculatorInput,

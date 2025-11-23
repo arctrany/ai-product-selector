@@ -24,6 +24,7 @@ sys.path.insert(0, str(project_root))
 from common.config import get_config
 from common.scrapers.ozon_scraper import OzonScraper
 from common.models import ScrapingResult
+from tests.base_scraper_test import BaseScraperTest
 
 class OzonCompetitorScenarioTester:
     """OZON跟卖功能场景测试器"""
@@ -463,16 +464,18 @@ if __name__ == "__main__":
     exit_code = main()
     sys.exit(exit_code)
 
-class TestOzonCompetitorScenariosFixed(unittest.TestCase):
-    """测试OZON跟卖功能场景 - 修复版"""
+class TestOzonCompetitorScenariosFixed(BaseScraperTest):
+    """测试OZON跟卖功能场景 - 使用统一测试基类"""
 
     def setUp(self):
         """测试初始化"""
+        super().setUp()  # 调用基类初始化
         self.tester = OzonCompetitorScenarioTester()
 
     def tearDown(self):
         """测试清理"""
         self.tester.close()
+        super().tearDown()  # 调用基类清理
 
     def test_browser_functionality(self):
         """测试浏览器基本功能"""

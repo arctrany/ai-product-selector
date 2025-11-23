@@ -7,10 +7,11 @@ Seerfar平台选择器配置文件
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional
+from .base_scraping_config import BaseScrapingConfig
 
 
 @dataclass
-class SeerfarSelectors:
+class SeerfarSelectors(BaseScrapingConfig):
     """Seerfar平台选择器配置"""
     
     # 店铺销售数据选择器
@@ -33,6 +34,104 @@ class SeerfarSelectors:
 
     # ========== 列索引配置 ==========
     column_indexes: Optional[Dict[str, int]] = None
+
+    def get_selector(self, category: str, key: str) -> Optional[str]:
+        """
+        获取选择器
+
+        Args:
+            category: 选择器分类
+            key: 选择器键名
+
+        Returns:
+            str: 选择器字符串，如果未找到返回None
+        """
+        selectors_dict = {
+            'store_sales_data': self.store_sales_data,
+            'product_list': self.product_list,
+            'product_detail': self.product_detail,
+            'common': self.common
+        }
+
+        category_selectors = selectors_dict.get(category)
+        if category_selectors:
+            return category_selectors.get(key)
+        return None
+
+    def get_selectors(self, category: str) -> Optional[Dict[str, str]]:
+        """
+        批量获取选择器
+
+        Args:
+            category: 选择器分类
+
+        Returns:
+            Dict[str, str]: 选择器字典，如果未找到返回None
+        """
+        selectors_dict = {
+            'store_sales_data': self.store_sales_data,
+            'product_list': self.product_list,
+            'product_detail': self.product_detail,
+            'common': self.common
+        }
+
+        return selectors_dict.get(category)
+
+    def validate(self) -> bool:
+        """
+        验证配置是否有效
+
+        Returns:
+            bool: 配置是否有效
+        """
+        # 检查所有必需的选择器字典是否不为空
+        if not self.store_sales_data:
+            return False
+        if not self.product_list:
+            return False
+        if not self.product_detail:
+            return False
+        if not self.common:
+            return False
+
+        # 检查所有选择器是否为有效字符串
+        all_selectors_dicts = [
+            self.store_sales_data,
+            self.product_list,
+            self.product_detail,
+            self.common
+        ]
+
+        for selectors_dict in all_selectors_dicts:
+            for key, selector in selectors_dict.items():
+                if not isinstance(key, str) or not key.strip():
+                    return False
+                if not isinstance(selector, str) or not selector.strip():
+                    return False
+
+        # 检查可选配置
+        if self.js_scripts:
+            for key, script in self.js_scripts.items():
+                if not isinstance(key, str) or not key.strip():
+                    return False
+                if not isinstance(script, str) or not script.strip():
+                    return False
+
+        if self.regex_patterns:
+            for key, pattern in self.regex_patterns.items():
+                if not isinstance(key, str) or not key.strip():
+                    return False
+                if not isinstance(pattern, str) or not pattern.strip():
+                    return False
+
+        if self.column_indexes:
+            for key, index in self.column_indexes.items():
+                if not isinstance(key, str) or not key.strip():
+                    return False
+                if not isinstance(index, int) or index < 0:
+                    return False
+
+        return True
 
 
 def _get_default_js_scripts() -> Dict[str, str]:

@@ -71,12 +71,11 @@ class BrowserConfig:
     window_height: int = 1080
 
     # 超时和重试配置
-    timeout_seconds: int = 30  # 超时时间（秒）- 统一命名
-    page_load_timeout: int = 30  # 页面加载超时（秒）- 保留向后兼容
-    element_wait_timeout: int = 10  # 元素等待超时（秒）
-    max_retries: int = 3  # 最大重试次数 - 统一命名
-    max_retry_attempts: int = 3  # 最大重试次数 - 保留向后兼容
-    retry_delay: float = 2.0  # 重试延迟（秒）
+    default_timeout_ms: int = 30000  # 默认超时时间（毫秒）
+    page_load_timeout_ms: int = 30000  # 页面加载超时（毫秒）
+    element_wait_timeout_ms: int = 10000  # 元素等待超时（毫秒）
+    max_retries: int = 3  # 最大重试次数
+    retry_delay_ms: int = 2000  # 重试延迟（毫秒）
 
     # 登录态配置
     required_login_domains: List[str] = field(default_factory=list)  # 必需登录的域名列表
@@ -277,25 +276,31 @@ class GoodStoreSelectorConfig:
         
         # 店铺筛选配置
         if os.getenv('MIN_SALES_30DAYS'):
-            config.store_filter.min_sales_30days = float(os.getenv('MIN_SALES_30DAYS'))
+            config.selector_filter.store_min_sales_30days = float(os.getenv('MIN_SALES_30DAYS'))
         if os.getenv('MIN_ORDERS_30DAYS'):
-            config.store_filter.min_orders_30days = int(os.getenv('MIN_ORDERS_30DAYS'))
+            config.selector_filter.store_min_orders_30days = int(os.getenv('MIN_ORDERS_30DAYS'))
         if os.getenv('PROFIT_RATE_THRESHOLD'):
-            config.store_filter.profit_rate_threshold = float(os.getenv('PROFIT_RATE_THRESHOLD'))
-        
+            config.selector_filter.profit_rate_threshold = float(os.getenv('PROFIT_RATE_THRESHOLD'))
+
         # 价格计算配置
         if os.getenv('RUB_TO_CNY_RATE'):
             config.price_calculation.rub_to_cny_rate = float(os.getenv('RUB_TO_CNY_RATE'))
         if os.getenv('PRICING_DISCOUNT_RATE'):
             config.price_calculation.pricing_discount_rate = float(os.getenv('PRICING_DISCOUNT_RATE'))
-        
+
         # 抓取配置
         if os.getenv('BROWSER_TYPE'):
-            config.scraping.browser_type = os.getenv('BROWSER_TYPE')
+            config.browser.browser_type = os.getenv('BROWSER_TYPE')
         if os.getenv('HEADLESS'):
-            config.scraping.headless = os.getenv('HEADLESS').lower() == 'true'
-        if os.getenv('PAGE_LOAD_TIMEOUT'):
-            config.scraping.page_load_timeout = int(os.getenv('PAGE_LOAD_TIMEOUT'))
+            config.browser.headless = os.getenv('HEADLESS').lower() == 'true'
+        if os.getenv('PAGE_LOAD_TIMEOUT_MS'):
+            config.browser.page_load_timeout_ms = int(os.getenv('PAGE_LOAD_TIMEOUT_MS'))
+        if os.getenv('ELEMENT_WAIT_TIMEOUT_MS'):
+            config.browser.element_wait_timeout_ms = int(os.getenv('ELEMENT_WAIT_TIMEOUT_MS'))
+        if os.getenv('MAX_RETRIES'):
+            config.browser.max_retries = int(os.getenv('MAX_RETRIES'))
+        if os.getenv('RETRY_DELAY_MS'):
+            config.browser.retry_delay_ms = int(os.getenv('RETRY_DELAY_MS'))
         
         # Excel配置
         if os.getenv('DEFAULT_EXCEL_PATH'):
@@ -346,12 +351,11 @@ class GoodStoreSelectorConfig:
                 'headless': self.browser.headless,
                 'window_width': self.browser.window_width,
                 'window_height': self.browser.window_height,
-                'timeout_seconds': self.browser.timeout_seconds,
-                'page_load_timeout': self.browser.page_load_timeout,
-                'element_wait_timeout': self.browser.element_wait_timeout,
+                'default_timeout_ms': self.browser.default_timeout_ms,
+                'page_load_timeout_ms': self.browser.page_load_timeout_ms,
+                'element_wait_timeout_ms': self.browser.element_wait_timeout_ms,
                 'max_retries': self.browser.max_retries,
-                'max_retry_attempts': self.browser.max_retry_attempts,
-                'retry_delay': self.browser.retry_delay,
+                'retry_delay_ms': self.browser.retry_delay_ms,
                 'required_login_domains': self.browser.required_login_domains,
                 'debug_port': self.browser.debug_port,
                 'seerfar_base_url': self.browser.seerfar_base_url,
@@ -412,10 +416,10 @@ class GoodStoreSelectorConfig:
             assert 0 < self.price_calculation.pricing_discount_rate <= 1
             assert 0 < self.price_calculation.rub_to_cny_rate
             
-            assert 0 < self.scraping.page_load_timeout <= 300
-            assert 0 < self.scraping.element_wait_timeout <= 60
-            assert 0 < self.scraping.max_retry_attempts <= 10
-            assert 0 <= self.scraping.retry_delay <= 10
+            assert 0 < self.browser.page_load_timeout_ms <= 300000
+            assert 0 < self.browser.element_wait_timeout_ms <= 60000
+            assert 0 < self.browser.max_retries <= 10
+            assert 0 <= self.browser.retry_delay_ms <= 10000
             
             assert 0 < self.excel.max_rows_to_process <= 100000
             

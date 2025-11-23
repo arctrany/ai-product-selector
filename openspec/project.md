@@ -38,7 +38,7 @@ AI选品自动化系统是一个跨境电商选品工具，专注于OZON等俄�
   - 示例：`@dataclass class ProductInfo: product_id: str; green_price: Optional[float] = None`
 
 ### 架构模式
-- **模块化设计**: 按功能领域划分模块 (cli, common, rpa)
+- **模块化设计**: 按功能领域划分模块 (cli, common, rpa, business)
 - **单一职责**: 每个类和函数只负责一个明确的功能
 - **依赖注入**: 通过配置对象传递依赖，避免硬编码
 - **异步处理策略**: 
@@ -60,6 +60,87 @@ AI选品自动化系统是一个跨境电商选品工具，专注于OZON等俄�
   - 批次间添加适当延迟，避免资源耗尽
 - **跨平台兼容**: 支持 Windows、Linux、macOS 三大操作系统
 - **配置驱动**: 所有选择器、关键字、路径通过配置文件管理
+
+### 🏗️ 分层架构原则 (重构后统一架构)
+
+#### **工具层 (Utils Layer)**
+**职责**: 提供可复用的工具类和辅助函数
+- **WaitUtils** (`common/utils/wait_utils.py`): 统一时序控制
+  - 显式等待替代硬编码 `time.sleep()`
+  - 元素可见性/可点击性等待
+  - URL变化检测、条件等待
+- **ScrapingUtils** (`common/utils/scraping_utils.py`): 统一数据提取
+  - 价格提取和验证
+  - 文本清理和规范化
+  - URL处理和ID提取
+  - 结构化数据提取
+
+**设计原则**:
+- 无状态设计，纯函数式工具方法
+- 高度可复用，所有Scraper共享
+- 消除重复逻辑，统一实现标准
+
+#### **抓取层 (Scraping Layer)**
+**职责**: 页面交互和原始数据获取
+- **BaseScraper**: 所有Scraper的基类，提供通用功能
+- **SeerfarScraper**: Seerfar平台店铺和商品数据抓取
+- **OzonScraper**: OZON平台商品价格信息抓取
+- **CompetitorScraper**: 跟卖店铺数据抓取
+- **ErpPluginScraper**: ERP插件区域数据抓取
+
+**设计原则**:
+- 单一职责：每个Scraper专注特定平台或功能
+- 职责分离：只负责数据抓取，不做业务逻辑计算
+- 统一工具：必须使用WaitUtils和ScrapingUtils
+- 标准接口：统一的方法签名和返回格式（ScrapingResult）
+
+#### **服务层 (Service Layer)**
+**职责**: 独立的业务服务和跨Scraper功能
+- **CompetitorDetectionService** (`common/services/`): 独立的跟卖检测服务
+  - 跟卖区域检测
+  - 跟卖数据提取
+  - 价格比较分析
+
+**设计原则**:
+- 服务独立性：可被多个Scraper调用
+- 业务封装：封装复杂的业务逻辑
+- 统一接口：返回标准数据模型
+
+#### **业务层 (Business Layer)**
+**职责**: 业务规则计算和数据处理
+- **FilterManager** (`business/filter_manager.py`): 店铺和商品过滤
+- **PricingCalculator** (`common/business/pricing_calculator.py`): 价格计算
+- **ProfitEvaluator** (`common/business/profit_evaluator.py`): 利润评估
+- **StoreEvaluator** (`common/business/store_evaluator.py`): 店铺评估
+
+**设计原则**:
+- 业务逻辑集中管理
+- 与数据抓取层解耦
+- 可独立测试和复用
+
+#### **配置层 (Config Layer)**
+**职责**: 统一配置管理
+- **BaseScrapingConfig**: 所有Scraper配置的基类
+- **OzonSelectorsConfig**: OZON选择器配置
+- **SeerfarSelectors**: Seerfar选择器配置
+- **ERPSelectorsConfig**: ERP选择器配置
+
+**设计原则**:
+- 配置继承：所有配置继承BaseScrapingConfig
+- 统一接口：`get_selector()`, `get_selectors()`, `validate()`
+- 集中管理：避免配置分散和重复
+
+#### **数据模型层 (Data Model Layer)**
+**职责**: 标准数据传输对象
+- **ScrapingResult**: 统一抓取结果格式
+- **CompetitorInfo**: 跟卖店铺信息
+- **CompetitorDetectionResult**: 跟卖检测结果
+- **ProductScrapingResult**: 商品抓取结果
+
+**设计原则**:
+- 类型安全：使用dataclass和类型注解
+- 标准化：所有Scraper使用统一数据格式
+- 可扩展：支持metadata字段扩展
 
 
 ### 跨平台兼容性规范

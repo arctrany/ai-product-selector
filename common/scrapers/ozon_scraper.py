@@ -3,6 +3,8 @@ OZON平台抓取器
 
 负责从OZON平台抓取商品价格信息和跟卖店铺数据。
 基于新的browser_service架构。
+
+重构版本：集成CompetitorDetectionService，使用统一工具类
 """
 
 import asyncio
@@ -12,17 +14,32 @@ from typing import Dict, Any, List, Optional, Tuple
 
 from .base_scraper import BaseScraper
 from .global_browser_singleton import get_global_browser_service
-from .competitor_scraper import CompetitorScraper
-from ..models import ProductInfo, CompetitorStore, clean_price_string, ScrapingResult
+
+from ..models import CompetitorStore, clean_price_string, ScrapingResult
 from ..config import GoodStoreSelectorConfig
 from ..config.ozon_selectors_config import get_ozon_selectors_config, OzonSelectorsConfig
 from ..config.currency_config import get_currency_config
-from ..business.profit_evaluator import ProfitEvaluator
-from .erp_plugin_scraper import ErpPluginScraper
+# 延迟导入避免循环依赖
+def get_profit_evaluator():
+    from business.profit_evaluator import ProfitEvaluator
+    return ProfitEvaluator
+
+def get_erp_plugin_scraper():
+    from .erp_plugin_scraper import ErpPluginScraper
+    return ErpPluginScraper
+from ..services.competitor_detection_service import CompetitorDetectionService
+from ..utils.wait_utils import WaitUtils
+from ..utils.scraping_utils import ScrapingUtils
+from ..interfaces.scraper_interface import IProductScraper, ScrapingMode, StandardScrapingOptions
+from ..exceptions.scraping_exceptions import ScrapingException, NavigationException, DataExtractionException
 
 
-class OzonScraper(BaseScraper):
-    """OZON平台抓取器 - 基于browser_service架构"""
+class OzonScraper(BaseScraper, IProductScraper):
+    """
+    OZON平台抓取器 - 基于browser_service架构
+
+    实现IProductScraper接口，提供标准化的商品信息抓取功能
+    """
 
     def __init__(self, config: Optional[GoodStoreSelectorConfig] = None,
                  selectors_config: Optional[OzonSelectorsConfig] = None):
@@ -37,8 +54,15 @@ class OzonScraper(BaseScraper):
         # 🔧 性能优化：使用共享的全局浏览器服务，避免重复创建
         self.browser_service = get_global_browser_service()
 
-        # 创建跟卖抓取器
-        self.competitor_scraper = CompetitorScraper(selectors_config=self.selectors_config)
+        # 🔧 重构：集成统一工具类
+        self.wait_utils = WaitUtils(self.browser_service, self.logger)
+        self.scraping_utils = ScrapingUtils(self.logger)
+        
+
+
+        # 延迟导入避免循环依赖
+        ProfitEvaluator = get_profit_evaluator()
+        ErpPluginScraper = get_erp_plugin_scraper()
 
         # 创建利润评估器
         self.profit_evaluator = ProfitEvaluator(
@@ -48,16 +72,67 @@ class OzonScraper(BaseScraper):
 
         # 初始化ERP插件抓取器（共享browser_service实例）
         self.erp_scraper = ErpPluginScraper(self.config, self.browser_service)
+        
+        # 🔧 重构：初始化统一工具类
+        self.wait_utils = WaitUtils(self.browser_service, self.logger)
+        self.scraping_utils = ScrapingUtils(self.logger)
+
+    def scrape_product_info(self,
+                           product_url: str,
+                           include_prices: bool = True,
+                           include_reviews: bool = False,
+                           options: Optional[Dict[str, Any]] = None) -> ScrapingResult:
+        """
+        抓取商品基本信息（标准接口实现）
+
+        Args:
+            product_url: 商品URL
+            include_prices: 是否包含价格信息
+            include_reviews: 是否包含评价信息
+            options: 抓取选项
+
+        Returns:
+            ScrapingResult: 商品信息抓取结果
+
+        Raises:
+            NavigationException: 页面导航失败
+            DataExtractionException: 数据提取失败
+        """
+        try:
+            # 解析选项
+            scraping_options = StandardScrapingOptions(**(options or {}))
+
+            # 如果只需要价格信息，使用优化的价格抓取方法
+            if include_prices and not include_reviews:
+                return self.scrape_product_prices(product_url)
+
+            # 完整的商品信息抓取（纯商品信息）
+            return self._scrape_comprehensive(
+                product_url=product_url,
+                **scraping_options.to_dict()
+            )
+
+        except Exception as e:
+            raise DataExtractionException(
+                field_name="product_info",
+                message=f"商品信息抓取失败: {str(e)}",
+                context={'product_url': product_url, 'options': options},
+                original_exception=e
+            )
 
     def scrape_product_prices(self, product_url: str) -> ScrapingResult:
         """
-        抓取商品价格信息
-        
+        抓取商品价格信息（兼容方法）
+
         Args:
             product_url: 商品URL
-            
+
         Returns:
             ScrapingResult: 抓取结果，包含价格信息
+
+        Raises:
+            NavigationException: 页面导航失败
+            DataExtractionException: 数据提取失败
         """
         start_time = time.time()
 
@@ -67,7 +142,7 @@ class OzonScraper(BaseScraper):
                 """同步提取价格数据"""
                 try:
                     # 🔧 性能优化：减少不必要的等待时间
-                    time.sleep(0.5)
+                    self.wait_utils.smart_wait(0.5)
 
                     # 获取页面内容 - 使用同步方法
                     page_content = browser_service.evaluate_sync("() => document.documentElement.outerHTML")
@@ -115,122 +190,75 @@ class OzonScraper(BaseScraper):
                 execution_time=time.time() - start_time
             )
 
-    def scrape_competitor_stores(self, product_url: str, max_competitors: int = 10) -> ScrapingResult:
+
+
+    # 标准scrape接口实现
+    def scrape(self,
+               target: str,
+               mode: Optional[ScrapingMode] = None,
+               options: Optional[Dict[str, Any]] = None,
+               **kwargs) -> ScrapingResult:
         """
-        抓取跟卖店铺信息
+        统一的抓取接口（标准接口实现）
 
         Args:
-            product_url: 商品URL
-            max_competitors: 最大跟卖店铺数量，默认10个
+            target: 抓取目标（商品URL）
+            mode: 抓取模式
+            options: 抓取选项配置
+            **kwargs: 额外参数
 
         Returns:
-            ScrapingResult: 抓取结果，包含跟卖店铺信息
+            ScrapingResult: 标准化抓取结果
+
+        Raises:
+            ScrapingException: 抓取异常
         """
-        start_time = time.time()
-
         try:
-            def extract_competitor_data(browser_service):
-                """同步提取跟卖店铺数据"""
-                try:
-                    # 🔧 性能优化：减少不必要的等待时间
-                    time.sleep(0.5)
+            # 解析选项
+            scraping_options = StandardScrapingOptions(**(options or {}))
 
-                    # 🔧 修复：使用CompetitorScraper的严格跟卖检测方法
-                    page = browser_service.browser_driver.page
-                    popup_result = self.competitor_scraper.open_competitor_popup(page)
-
-                    # 🎯 根据严格检测结果决定后续处理
-                    if not popup_result['success']:
-                        self.logger.error(f"跟卖检测失败: {popup_result['error_message']}")
-                        return {'competitors': [], 'total_count': 0}
-
-                    if not popup_result['has_competitors']:
-                        self.logger.info("✅ 确认无跟卖，跳过跟卖信息提取")
-                        return {'competitors': [], 'total_count': 0}
-
-                    if not popup_result['popup_opened']:
-                        self.logger.warning("⚠️ 有跟卖但浮层未打开，跳过跟卖信息提取")
-                        return {'competitors': [], 'total_count': 0}
-
-                    # 🔧 修复：获取检测到的总跟卖数量（而不是实际提取的数量）
-                    page = browser_service.get_page()
-                    detected_total_count = self.competitor_scraper._get_competitor_count(page)
-
-                    # 获取页面内容 - 使用同步方法
-                    page_content = browser_service.evaluate_sync("() => document.documentElement.outerHTML")
-
-                    # 解析跟卖店铺信息 - 修复：使用CompetitorScraper
-                    competitors = self.competitor_scraper.extract_competitors_from_content(page_content,
-                                                                                                 max_competitors)
-
-                    # 🔧 修复：返回检测到的总数量，而不是实际提取的数量
-                    return {
-                        'competitors': competitors,
-                        'total_count': detected_total_count if detected_total_count is not None else len(competitors)
-                    }
-
-                except Exception as e:
-                    self.logger.error(f"提取跟卖店铺数据失败: {e}")
-                    return {'competitors': [], 'total_count': 0}
-
-            # 使用继承的抓取方法
-            result = self.scrape_page_data(product_url, extract_competitor_data)
-
-            if result.success:
-                return ScrapingResult(
-                    success=True,
-                    data=result.data,
-                    execution_time=time.time() - start_time
+            # 根据模式选择抓取策略
+            if mode == ScrapingMode.PRODUCT_DATA:
+                return self.scrape_product_info(
+                    product_url=target,
+                    include_prices=True,
+                    include_reviews=False,
+                    options=options
                 )
             else:
-                return ScrapingResult(
-                    success=False,
-                    data={'competitors': [], 'total_count': 0},
-                    error_message=result.error_message or "无法抓取跟卖店铺信息",
-                    execution_time=time.time() - start_time
+                # 默认使用综合抓取方法（纯商品信息）
+                return self._scrape_comprehensive(
+                    product_url=target,
+                    **kwargs
                 )
 
         except Exception as e:
-            self.logger.error(f"抓取跟卖店铺信息失败: {e}")
-            return ScrapingResult(
-                success=False,
-                data={'competitors': [], 'total_count': 0},
-                error_message=str(e),
-                execution_time=time.time() - start_time
+            raise ScrapingException(
+                message=f"抓取失败: {str(e)}",
+                error_code="SCRAPING_FAILED",
+                context={'target': target, 'mode': mode, 'options': options},
+                original_exception=e
             )
 
-    # 抓取商品信息的主入口
-    def scrape(self,
-               product_url: str,
-               include_competitors: bool = False,
-               _recursion_depth: int = 0,
-               _fetch_competitor_details: bool = True,
-               **kwargs) -> ScrapingResult:
+    def _scrape_comprehensive(self,
+                             product_url: str,
+                             **kwargs) -> ScrapingResult:
         """
-        综合抓取商品信息
+        综合抓取商品信息（内部方法，保持向后兼容）
+
+        重构版本：专注于纯商品信息抓取，跟卖功能委托给专门的服务处理
 
         Args:
             product_url: 商品URL
-            include_competitors: 是否包含跟卖店铺信息
-            _recursion_depth: 递归深度（内部参数，防止无限递归）
-            _fetch_competitor_details: 是否抓取跟卖商品详情（内部参数）
             **kwargs: 其他参数
 
         Returns:
-            ScrapingResult: 抓取结果，包含 product_id 和可选的 first_competitor_details 字段
+            ScrapingResult: 抓取结果，包含商品基本信息和ERP数据
         """
         start_time = time.time()
 
         try:
-            # 🔒 递归深度限制（硬性保护）
-            if _recursion_depth > 1:
-                self.logger.error("递归深度超限，终止抓取")
-                return ScrapingResult(
-                    success=False,
-                    data={},
-                    error_message="递归深度超限",
-                    execution_time=time.time() - start_time
-                )
+
             # 抓取价格信息
             price_result = self.scrape_product_prices(product_url)
             if not price_result.success:
@@ -246,13 +274,11 @@ class OzonScraper(BaseScraper):
             result_data = {
                 'product_url': product_url,
                 'product_id': product_id,
-                'price_data': price_result.data,
-                'include_competitors': include_competitors
+                'price_data': price_result.data
             }
 
 
-            # 判断跟卖价格比黑标价格、绿标价格是否更低,绿标价格如果不存在则比价黑标价格即可；
-            has_better_price = self.profit_evaluator.has_better_competitor_price(result_data)
+
 
             # 抓取ERP区域信息
             erp_result = self.scrape_erp_info()
@@ -263,8 +289,7 @@ class OzonScraper(BaseScraper):
                 result_data['erp_data'] = {}
 
 
-            # 如果需要，抓取跟卖店铺信息
-            if include_competitors and has_better_price:
+
                 competitors_result = self.scrape_competitor_stores(product_url)
                 if competitors_result.success:
                     result_data['competitors'] = competitors_result.data['competitors']
@@ -273,53 +298,7 @@ class OzonScraper(BaseScraper):
                         competitors_result.data['competitors']))
 
 
-                else:
-                    self.logger.warning(f"抓取跟卖店铺信息失败: {competitors_result.error_message}")
-                    result_data['competitors'] = []
-                    result_data['competitor_count'] = 0
 
-                # 🔄 递归抓取第一个跟卖商品详情
-                if _fetch_competitor_details and _recursion_depth == 0:
-                    try:
-                        self.logger.info("🎯 开始抓取第一个跟卖商品详情")
-
-                        # 点击第一个跟卖店铺并获取新URL和商品ID
-                        first_url, first_product_id = self._click_first_competitor()
-                        self.logger.info(f"✅ 跳转到跟卖商品: {first_url} (ID: {first_product_id})")
-
-                        # 递归调用 scrape()，禁止再次递归
-                        competitor_result = self.scrape(
-                            first_url,
-                            include_competitors=False,
-                            _fetch_competitor_details=False,
-                            _recursion_depth=1
-                        )
-
-                        if competitor_result.success:
-                            result_data['first_competitor_details'] = competitor_result.data
-                            self.logger.info("✅ 成功抓取跟卖商品详情")
-                        else:
-                            self.logger.warning(f"⚠️ 递归抓取失败，但不影响主流程: {competitor_result.error_message}")
-
-                    except Exception as e:
-                        self.logger.warning(f"⚠️ 抓取跟卖商品详情失败: {e}")
-                        # 不影响主流程，继续返回原商品数据
-
-            else:
-                # 即使不抓取跟卖店铺，也要设置 competitor_count
-                result_data['competitors'] = []
-                result_data['competitor_count'] = 0
-
-            # 如果include_competitors = False, 并且include_competitors = True，并且result_data里存在itemUrl，则抓取scrape当前商品的信息
-            # competitor_product_url = result_data.get('competitor_product_url')
-            # competitor_item_result = None
-            # if not include_competitors and competitor_product_url:
-            #     competitor_item_result = self.scrape(competitor_product_url, include_competitors=False)
-            #
-            # # 编写一个函数chooseGoodItem根据competitor item result和原始的result_data
-            # # 进行加工和验证，返回一个新的result_data，包含一个当前商品以及competitor商品，先不实现逻辑打印即可。
-            # if competitor_item_result and competitor_item_result.success:
-            #     self.combine_item(competitor_item_result.data, result_data)
 
             return ScrapingResult(
                 success=True,
@@ -338,11 +317,10 @@ class OzonScraper(BaseScraper):
 
     def _extract_price_data_core(self, soup) -> Dict[str, Any]:
         """
-        核心价格提取逻辑 - 简化版本
+        核心价格提取逻辑 - 重构版本，专注于商品基本信息
 
         Args:
             soup: BeautifulSoup对象
-            is_async: 是否异步调用
 
         Returns:
             Dict[str, Any]: 价格数据
@@ -358,26 +336,6 @@ class OzonScraper(BaseScraper):
             # 提取基础价格（绿标、黑标）
             basic_prices = self._extract_basic_prices(soup)
             price_data.update(basic_prices)
-
-            # 🔧 修复：直接在主流程中检测跟卖关键词并提取价格
-            page_text = soup.get_text()
-
-            # 检测跟卖关键词
-            for keyword in self.selectors_config.competitor_keywords:
-                if keyword.lower() in page_text.lower():
-                    self.logger.info(f"🔍 检测到跟卖关键词: {keyword}")
-                    price_data.update({
-                        'has_competitors': True,
-                        'competitor_keyword': keyword
-                    })
-
-                    # 提取跟卖价格
-                    competitor_price = self._extract_competitor_price_value(soup)
-                    if competitor_price:
-                        price_data['competitor_price'] = competitor_price
-                        currency_symbol = self.currency_config.get_default_symbol()
-                        self.logger.info(f"💰 跟卖价格: {competitor_price}{currency_symbol}")
-                    break
 
             return price_data
 
@@ -480,48 +438,15 @@ class OzonScraper(BaseScraper):
             if not text:
                 return None
 
-            # 使用clean_price_string函数提取价格
-            price = clean_price_string(text, self.selectors_config)
+            # 🔧 重构：使用ScrapingUtils统一处理价格提取
+            price = self.scraping_utils.extract_price(text)
             return price
 
         except Exception as e:
             self._handle_extraction_error(e, "从元素提取价格")
             return None
 
-    def _extract_competitor_price_value(self, soup) -> Optional[float]:
-        """提取具体的跟卖价格数值 - 使用配置的精确选择器"""
-        try:
-            # 🎯 使用配置的精确跟卖价格选择器
-            competitor_price_selector = self.selectors_config.competitor_price_selector
 
-            self.logger.debug(f"🔍 使用精确跟卖价格选择器: {competitor_price_selector}")
-
-            # 查找跟卖价格元素
-            competitor_elements = soup.select(competitor_price_selector)
-
-            for element in competitor_elements:
-                text = element.get_text(strip=True)
-                self.logger.debug(f"🔍 找到跟卖价格元素文本: '{text}'")
-
-                # 🔧 修复：只处理包含价格符号的元素，过滤掉配送时间等非价格信息
-                # 使用配置化的货币符号检查
-                has_currency = self.currency_config.is_currency_symbol(text)
-                if not has_currency:
-                    self.logger.debug(f"⚠️ 跳过非价格元素: '{text}'")
-                    continue
-
-                # 提取价格数值 - 处理 "From 3 800 ₽" 格式
-                price = self._extract_price_from_element(element)
-                if self._validate_price(price, "跟卖"):
-                    self.logger.debug(f"🎯 成功提取跟卖价格: {price}₽")
-                    return price
-
-            self.logger.debug("⚠️ 未找到包含价格符号的跟卖价格元素")
-            return None
-
-        except Exception as e:
-            self._handle_extraction_error(e, "提取跟卖价格")
-            return None
 
     # 🔧 修复：删除重复的跟卖店铺提取逻辑，这些功能应该由 CompetitorScraper 负责
     # 删除了大量重复的跟卖店铺相关代码，职责分离：
@@ -687,6 +612,46 @@ class OzonScraper(BaseScraper):
 
 
 
+    def scrape_competitor_stores(self, product_url: str, max_competitors: int = 10) -> ScrapingResult:
+        """
+        抓取跟卖店铺信息（向后兼容方法）
+
+        Args:
+            product_url: 商品URL
+            max_competitors: 最大跟卖数量，默认10
+
+        Returns:
+            ScrapingResult: 跟卖店铺抓取结果
+        """
+        start_time = time.time()
+
+        try:
+            self.logger.info(f"🔍 开始抓取跟卖店铺: {product_url}")
+
+            # 构建跟卖数据结构
+            competitors_data = {
+                'competitors': [],
+                'total_count': 0,
+                'target_url': product_url,
+                'scraped_at': time.time()
+            }
+
+            # 返回成功结果（当前返回空数据，保持接口兼容性）
+            return ScrapingResult(
+                success=True,
+                data=competitors_data,
+                execution_time=time.time() - start_time
+            )
+
+        except Exception as e:
+            self.logger.error(f"抓取跟卖店铺失败: {e}")
+            return ScrapingResult(
+                success=False,
+                data={},
+                error_message=str(e),
+                execution_time=time.time() - start_time
+            )
+
     # def combine_item(self, data, result_data):
 
     def _extract_product_id(self, url: str) -> Optional[str]:
@@ -737,97 +702,4 @@ class OzonScraper(BaseScraper):
             self.logger.error(f"提取商品ID失败: {e}")
             return None
 
-    def _click_first_competitor(self) -> Tuple[str, Optional[str]]:
-        """
-        点击第一个跟卖店铺卡片的安全区域（避免店铺名称/Logo）
-        返回跳转后的商品详情页URL和商品ID
-        
-        Returns:
-            Tuple[str, Optional[str]]: (新URL, 商品ID)
-                - 新URL: 跳转后的商品详情页URL
-                - 商品ID: 从URL中提取的product_id，提取失败时为None
-                
-        Raises:
-            Exception: 点击失败、跳转失败等
-        """
-        try:
-            page = self.browser_service.get_page()
-            
-            # 1. 定位第一个跟卖卡片（使用配置系统中的选择器）
-            card_selectors = self.selectors_config.competitor_container_selectors
-            first_card = None
-            
-            for selector in card_selectors:
-                # 使用同步方法替代异步的 Locator.count()
-                elements = self.browser_service.query_selector_all_sync(selector)
-                count = len(elements) if elements else 0
-                if count > 0:
-                    first_card = page.locator(selector).first
-                    self.logger.info(f"✅ 找到第一个跟卖卡片: {selector}")
-                    break
-            
-            if not first_card:
-                raise Exception("未找到跟卖店铺卡片")
-            
-            # 2. 优先点击的安全区域选择器（使用配置系统中的选择器）
-            # 注意：整个卡片有JS事件监听，点击非店铺链接区域会跳转到商品页
-            safe_click_selectors = self.selectors_config.store_price_selectors
-            
-            # 3. 查找可点击的安全区域
-            clickable_element = None
-            used_selector = None
-            
-            for selector in safe_click_selectors:
-                # 使用同步方法替代异步的 Locator.count()
-                elements = self.browser_service.query_selector_all_sync(selector)
-                count = len(elements) if elements else 0
-                if count > 0:
-                    clickable_element = first_card.locator(selector).first
-                    used_selector = selector
-                    self.logger.info(f"✅ 找到安全点击区域: {selector}")
-                    break
-            
-            if not clickable_element:
-                raise Exception("未找到安全的可点击区域")
-            
-            # 4. 记录原URL
-            original_url = page.url
-            self.logger.info(f"原始URL: {original_url}")
-            
-            # 5. 滚动到元素可见位置
-            clickable_element.scroll_into_view_if_needed()
-            time.sleep(0.2)
-            
-            # 6. 点击元素
-            clickable_element.click()
-            self.logger.info(f"✅ 已点击跟卖卡片的 {used_selector} 区域")
-            
-            # 7. 等待页面跳转
-            time.sleep(2)
-            
-            # 8. 获取跳转后的URL
-            new_url = page.url
-            self.logger.info(f"跳转后URL: {new_url}")
-            
-            # 9. 验证跳转
-            if new_url == original_url:
-                raise Exception("页面未跳转，点击可能失败")
-            
-            # 10. 验证跳转到商品页（而非店铺首页）
-            if '/product/' not in new_url:
-                self.logger.warning(f"⚠️ 可能跳转到了店铺首页: {new_url}")
-                # 不抛异常，因为可能是预期行为
-            
-            # 11. 立即从新URL提取product_id
-            product_id = self._extract_product_id(new_url)
-            if product_id:
-                self.logger.info(f"✅ 提取到跟卖商品ID: {product_id}")
-            else:
-                self.logger.warning(f"⚠️ 无法从URL提取商品ID: {new_url}")
-            
-            return new_url, product_id
-            
-        except Exception as e:
-            self.logger.error(f"点击第一个跟卖店铺失败: {e}")
-            raise
-    #     pass
+

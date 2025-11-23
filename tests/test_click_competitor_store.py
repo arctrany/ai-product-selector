@@ -11,6 +11,8 @@
 import time
 import logging
 import sys
+import signal
+import threading
 from pathlib import Path
 
 # 添加项目根目录到路径
@@ -36,9 +38,22 @@ def test_click_first_competitor():
         logger.info("🚀 初始化浏览器服务...")
         browser_service = get_global_browser_service()
 
-        # 初始化浏览器（使用异步调用）
+        # 初始化浏览器（使用异步调用，增加超时控制）
         import asyncio
-        init_success = asyncio.run(browser_service.initialize())
+        import signal
+
+        def timeout_handler(signum, frame):
+            raise TimeoutError("浏览器初始化超时")
+
+        # 设置30秒超时
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(30)
+
+        try:
+            init_success = asyncio.run(browser_service.initialize())
+        finally:
+            signal.alarm(0)  # 取消超时
+
         if not init_success:
             logger.error("❌ 浏览器初始化失败")
             assert False, "浏览器初始化失败"
@@ -46,11 +61,18 @@ def test_click_first_competitor():
         # 2. 访问商品页面
         test_url = "https://www.ozon.ru/product/krem-dlya-ruk-tela-nog-dlya-suhoy-i-ochen-suhoy-kozhi-skin-food-1416193337/"
         logger.info(f"📄 访问商品页面: {test_url}")
-        browser_service.navigate_to_sync(test_url)
 
-        # 等待页面加载（使用同步方法等待选择器出现）
-        time.sleep(3)  # 给页面一些时间加载
-        logger.info("⏱️ 页面加载等待完成")
+        # 添加导航超时控制
+        try:
+            browser_service.navigate_to_sync(test_url)
+            # 智能等待：等待页面主要内容加载
+            if browser_service.wait_for_selector_sync("body", timeout=10000):
+                logger.info("⏱️ 页面加载完成")
+            else:
+                logger.warning("⚠️ 页面加载超时，但继续执行")
+        except Exception as e:
+            logger.error(f"❌ 页面导航失败: {e}")
+            raise
 
         # 3. 查找并点击跟卖浮层按钮
         logger.info("🔍 查找跟卖浮层按钮...")
@@ -71,44 +93,41 @@ def test_click_first_competitor():
         ]
 
         button_found = False
-        for selector in competitor_button_selectors:
-            try:
-                logger.debug(f"尝试选择器: {selector}")
+        max_attempts = 3
+        attempt = 0
 
-                # 判断是否为XPath
-                if selector.startswith('//') or selector.startswith('(//'):
-                    button = browser_service.page.locator(f"xpath={selector}")
-                else:
-                    button = browser_service.page.locator(selector)
-
-                # 检查元素是否存在（尝试同步调用）
+        while attempt < max_attempts and not button_found:
+            for selector in competitor_button_selectors:
                 try:
-                    # 简单等待元素出现
-                    time.sleep(1)
-                    # 尝试点击，如果成功说明元素存在
-                    logger.info(f"✅ 找到跟卖浮层按钮: {selector}")
+                    logger.debug(f"尝试选择器: {selector} (第{attempt + 1}次)")
 
-                    # 等待按钮可见和可点击
-                    # 等待按钮可见和可点击（使用同步方式）
-                    time.sleep(1)
+                    # 智能等待元素出现（替代 time.sleep）
+                    if browser_service.wait_for_selector_sync(selector, timeout=3000):
+                        logger.info(f"✅ 找到跟卖浮层按钮: {selector}")
 
-                    # 点击按钮打开浮层（使用浏览器服务的同步方法）
-                    success = browser_service.click_sync(selector)
-                    if success:
-                        logger.info("✅ 成功点击跟卖浮层按钮")
-                        button_found = True
+                        # 点击按钮打开浮层（增加超时控制）
+                        success = browser_service.click_sync(selector, timeout=5000)
+                        if success:
+                            logger.info("✅ 成功点击跟卖浮层按钮")
 
-                        # 等待浮层出现
-                        time.sleep(2)
-                        break
-                    
+                            # 智能等待浮层出现
+                            if browser_service.wait_for_selector_sync(".competitors, [data-widget*='competitor']", timeout=3000):
+                                logger.info("✅ 跟卖浮层已出现")
+                            button_found = True
+                            break
+                        else:
+                            logger.debug(f"按钮点击失败")
+                    else:
+                        logger.debug(f"选择器 {selector} 未找到元素")
+
                 except Exception as e:
-                    logger.debug(f"按钮点击失败: {e}")
+                    logger.debug(f"选择器 {selector} 失败: {e}")
                     continue
 
-            except Exception as e:
-                logger.debug(f"选择器 {selector} 失败: {e}")
-                continue
+            attempt += 1
+            if not button_found and attempt < max_attempts:
+                logger.info(f"第{attempt}次尝试失败，等待后重试...")
+                time.sleep(2)  # 短暂等待后重试
 
         if not button_found:
             logger.warning("⚠️ 未找到跟卖浮层按钮，页面可能已经显示了跟卖信息")
@@ -137,23 +156,42 @@ def test_click_first_competitor():
                 logger.debug(f"获取卡片时出错: {e}")
                 continue
 
-        # 如果没找到，等待更长时间并重试
+        # 如果没找到，使用智能等待重试
         if card_count == 0:
-            logger.info("⏳ 店铺卡片可能还在加载，等待5秒后重试...")
-            time.sleep(5)
+            logger.info("⏳ 店铺卡片可能还在加载，智能等待并重试...")
 
+            # 尝试等待任何店铺卡片出现
+            card_found = False
             for selector in card_selectors:
-                try:
-                    cards = browser_service.page.locator(selector)
-                    first_card = cards.first
-                    if first_card:
-                        all_cards = cards
-                        card_count = 1
-                        logger.info(f"📊 重试后使用 {selector} 找到店铺卡片")
-                        break
-                except Exception as e:
-                    logger.debug(f"重试获取卡片时出错: {e}")
-                    continue
+                if browser_service.wait_for_selector_sync(selector, timeout=8000):
+                    try:
+                        cards = browser_service.page.locator(selector)
+                        first_card = cards.first
+                        if first_card:
+                            all_cards = cards
+                            card_count = 1
+                            card_found = True
+                            logger.info(f"📊 智能等待后找到店铺卡片: {selector}")
+                            break
+                    except Exception as e:
+                        logger.debug(f"获取卡片时出错: {e}")
+                        continue
+
+            if not card_found:
+                # 最后一次尝试：等待页面稳定
+                logger.info("⏳ 最后尝试：等待页面完全稳定...")
+                time.sleep(3)
+                for selector in card_selectors:
+                    try:
+                        cards = browser_service.page.locator(selector)
+                        first_card = cards.first
+                        if first_card:
+                            all_cards = cards
+                            card_count = 1
+                            logger.info(f"📊 最终尝试找到店铺卡片: {selector}")
+                            break
+                    except Exception as e:
+                        continue
 
         # 使用之前找到的卡片
         if card_count == 0:
@@ -211,13 +249,27 @@ def test_click_first_competitor():
         current_url = browser_service.page.url
         logger.info(f"📍 当前页面: {current_url}")
 
-        # 6. 点击链接
+        # 6. 点击链接（增加超时控制）
         logger.info("👆 点击跟卖店铺链接...")
-        browser_service.click_sync(link_selector)
+        click_success = browser_service.click_sync(link_selector, timeout=5000)
 
-        # 等待页面跳转
+        if not click_success:
+            logger.error("❌ 点击店铺链接失败")
+            assert False, "点击店铺链接失败"
+
+        # 智能等待页面跳转
         logger.info("⏳ 等待页面跳转...")
-        time.sleep(3)
+        start_time = time.time()
+        timeout = 10  # 10秒超时
+
+        while time.time() - start_time < timeout:
+            new_url = browser_service.page.url
+            if new_url != current_url:
+                logger.info(f"✅ 检测到页面跳转: {new_url}")
+                break
+            time.sleep(0.5)  # 每0.5秒检查一次
+        else:
+            logger.warning("⚠️ 页面跳转等待超时，使用当前URL")
 
         # 7. 验证跳转
         new_url = browser_service.page.url
@@ -238,10 +290,27 @@ def test_click_first_competitor():
         assert False, f"测试失败: {e}"
         
     finally:
-        # 8. 清理资源
+        # 8. 清理资源（增加超时控制）
         if browser_service:
             logger.info("🧹 关闭浏览器...")
-            browser_service.close_sync()
+            try:
+                # 增加浏览器关闭超时控制
+
+                def close_browser():
+                    browser_service.close_sync()
+
+                close_thread = threading.Thread(target=close_browser)
+                close_thread.start()
+                close_thread.join(timeout=10)  # 10秒超时
+
+                if close_thread.is_alive():
+                    logger.warning("⚠️ 浏览器关闭超时，强制结束")
+                else:
+                    logger.info("✅ 浏览器已正常关闭")
+
+            except Exception as e:
+                logger.error(f"❌ 关闭浏览器时出错: {e}")
+
             logger.info("✅ 测试完成")
 
 def main():

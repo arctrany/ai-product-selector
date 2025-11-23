@@ -4,10 +4,19 @@
 基于用户提供的真实HTML结构，验证选择器配置是否能正确提取所有跟卖店铺
 """
 
+import sys
 import logging
+import unittest
+from pathlib import Path
 from bs4 import BeautifulSoup
+
+# 添加项目根目录到路径
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 from common.scrapers.competitor_scraper import CompetitorScraper
 from common.config.ozon_selectors_config import get_ozon_selectors_config
+from tests.base_scraper_test import BaseScraperTest
 
 # 设置日志
 logging.basicConfig(level=logging.DEBUG)
@@ -164,6 +173,60 @@ def test_selector_matching():
                 if len(found_prices) == 5:
                     print(f"🎯 完美匹配！找到所有5个价格: {found_prices}")
                     break
+
+class TestCompetitorScraperDebug(BaseScraperTest):
+    """CompetitorScraper调试测试 - 使用统一测试基类"""
+    
+    def test_competitor_extraction_from_html(self):
+        """测试从HTML提取跟卖店铺信息"""
+        scraper = CompetitorScraper()
+        competitors = scraper.extract_competitors_from_content(REAL_HTML, max_competitors=10)
+        
+        # 使用基类的断言方法
+        self.assertIsNotNone(competitors, "提取的跟卖店铺列表不应为None")
+        self.assertEqual(len(competitors), 5, f"期望提取5个跟卖店铺，实际提取{len(competitors)}个")
+        
+        # 验证店铺名称
+        expected_stores = [
+            "Счастливый магазин",
+            "Good and excellent 12", 
+            "NEW Воспоминания Страница 7",
+            "Original quality store 7",
+            "Money and Prosperity5"
+        ]
+        extracted_names = [c.get('store_name', '') for c in competitors]
+        for expected_name in expected_stores:
+            self.assertIn(expected_name, extracted_names, f"缺失店铺: {expected_name}")
+        
+        # 验证价格
+        expected_prices = [14482.0, 14556.0, 14562.0, 14602.0, 14864.0]
+        extracted_prices = [c.get('price') for c in competitors if c.get('price')]
+        for expected_price in expected_prices:
+            self.assertIn(expected_price, extracted_prices, f"缺失价格: {expected_price}₽")
+    
+    def test_selector_configuration(self):
+        """测试选择器配置的有效性"""
+        soup = BeautifulSoup(REAL_HTML, 'html.parser')
+        config = get_ozon_selectors_config()
+        
+        # 测试容器选择器
+        container = None
+        for selector in config.competitor_container_selectors:
+            container = soup.select_one(selector)
+            if container:
+                break
+        
+        self.assertIsNotNone(container, "应该能找到跟卖容器")
+        
+        # 测试店铺元素选择器
+        elements = []
+        for selector in config.competitor_element_selectors:
+            elements = container.select(selector)
+            if elements:
+                break
+        
+        self.assertEqual(len(elements), 5, f"应该找到5个店铺元素，实际找到{len(elements)}个")
+
 
 def main():
     """主测试函数 - 同步版本"""

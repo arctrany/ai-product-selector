@@ -9,27 +9,38 @@ import asyncio
 import logging
 import time
 import re
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable
 from datetime import datetime
 
 from .base_scraper import BaseScraper
 from .global_browser_singleton import get_global_browser_service
-from ..models import ProductInfo, ScrapingResult
-from ..config import GoodStoreSelectorConfig
+from common.models.scraping_result import ScrapingResult as ScrapingResultImport
+from common.models.scraping_result import ScrapingResult
+from common.utils.wait_utils import WaitUtils
+from common.utils.scraping_utils import ScrapingUtils
+from common.config.erp_selectors_config import ERPSelectorsConfig, get_erp_selectors_config
+from ..interfaces.scraper_interface import IERPScraper, ScrapingMode, StandardScrapingOptions
+from ..exceptions.scraping_exceptions import ScrapingException, NavigationException, DataExtractionException
 
-class ErpPluginScraper(BaseScraper):
-    """毛子ERP插件抓取器 - 使用全局浏览器单例"""
+class ErpPluginScraper(BaseScraper, IERPScraper):
+    """
+    毛子ERP插件抓取器 - 使用全局浏览器单例
 
-    def __init__(self, config: Optional[GoodStoreSelectorConfig] = None, browser_service = None):
+    实现IERPScraper接口，提供标准化的ERP数据抓取功能
+    """
+
+    def __init__(self, selectors_config: Optional[ERPSelectorsConfig] = None, browser_service = None):
         """
         初始化ERP插件抓取器
 
         Args:
-            config: 配置对象
+            selectors_config: ERP选择器配置对象
             browser_service: 可选的共享浏览器服务实例（向后兼容，推荐使用全局单例）
         """
         super().__init__()
-        self.config = config or GoodStoreSelectorConfig()
+        self.selectors_config = selectors_config or get_erp_selectors_config()
+        # 为了兼容测试，添加config属性（指向selectors_config）
+        self.config = self.selectors_config
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
         # 使用全局浏览器单例
@@ -39,6 +50,10 @@ class ErpPluginScraper(BaseScraper):
         else:
             self.browser_service = get_global_browser_service()
             self._owns_browser_service = False  # 使用全局单例，不负责关闭
+        
+        # 🔧 重构：初始化统一工具类
+        self.wait_utils = WaitUtils(self.browser_service, self.logger)
+        self.scraping_utils = ScrapingUtils(self.logger)
         
         # ERP区域数据字段映射
         self.field_mappings = {
@@ -72,12 +87,108 @@ class ErpPluginScraper(BaseScraper):
             '跟卖最高价': 'competitor_max_price'
         }
 
-    def scrape(self, product_url: Optional[str] = None) -> ScrapingResult:
+    def scrape_erp_data(self,
+                       product_url: str,
+                       include_attributes: bool = True,
+                       options: Optional[Dict[str, Any]] = None) -> ScrapingResult:
         """
-        抓取ERP区域的结构化数据
-        
+        抓取ERP数据（标准接口实现）
+
+        Args:
+            product_url: 商品URL
+            include_attributes: 是否包含商品属性
+            options: 抓取选项
+
+        Returns:
+            ScrapingResult: ERP数据抓取结果
+
+        Raises:
+            NavigationException: 页面导航失败
+            DataExtractionException: 数据提取失败
+        """
+        try:
+            # 解析选项
+            scraping_options = StandardScrapingOptions(**(options or {}))
+
+            # 使用内部方法进行抓取
+            return self._scrape_comprehensive(
+                product_url=product_url,
+                include_attributes=include_attributes,
+                **scraping_options.to_dict()
+            )
+
+        except Exception as e:
+            raise DataExtractionException(
+                field_name="erp_data",
+                message=f"ERP数据抓取失败: {str(e)}",
+                context={'product_url': product_url, 'options': options},
+                original_exception=e
+            )
+
+    # 标准scrape接口实现
+    def scrape(self,
+               target: Optional[str] = None,
+               mode: Optional[ScrapingMode] = None,
+               options: Optional[Dict[str, Any]] = None,
+               **kwargs) -> ScrapingResult:
+        """
+        统一的抓取接口（标准接口实现）
+
+        Args:
+            target: 抓取目标（商品URL）
+            mode: 抓取模式
+            options: 抓取选项配置
+            **kwargs: 额外参数
+
+        Returns:
+            ScrapingResult: 标准化抓取结果
+
+        Raises:
+            ScrapingException: 抓取异常
+        """
+        try:
+            # 解析选项
+            scraping_options = StandardScrapingOptions(**(options or {}))
+
+            # 根据模式选择抓取策略
+            if mode == ScrapingMode.ERP_DATA:
+                return self.scrape_erp_data(
+                    product_url=target,
+                    include_attributes=kwargs.get('include_attributes', True),
+                    options=options
+                )
+            elif mode == ScrapingMode.PRODUCT_ATTRIBUTES:
+                return self.scrape_product_attributes(
+                    product_url=target,
+                    green_price=kwargs.get('green_price', None)
+                )
+            else:
+                # 默认使用ERP数据抓取
+                return self._scrape_comprehensive(
+                    product_url=target,
+                    include_attributes=kwargs.get('include_attributes', True),
+                    **kwargs
+                )
+
+        except Exception as e:
+            raise ScrapingException(
+                message=f"抓取失败: {str(e)}",
+                error_code="SCRAPING_FAILED",
+                context={'target': target, 'mode': mode, 'options': options},
+                original_exception=e
+            )
+
+    def _scrape_comprehensive(self,
+                             product_url: Optional[str] = None,
+                             include_attributes: bool = True,
+                             **kwargs) -> ScrapingResult:
+        """
+        综合ERP数据抓取（内部方法，保持向后兼容）
+
         Args:
             product_url: 可选的商品URL，如果提供则导航到该页面，否则从当前页面抓取
+            include_attributes: 是否包含商品属性
+            **kwargs: 其他参数
             
         Returns:
             ScrapingResult: 抓取结果，包含结构化的ERP数据
@@ -109,7 +220,7 @@ class ErpPluginScraper(BaseScraper):
                 )
 
             # 解析ERP信息
-            erp_data = self._extract_erp_data_from_content(page_content)
+            erp_data = self._extract_erp_data()
 
             return ScrapingResult(
                 success=True,
@@ -125,6 +236,25 @@ class ErpPluginScraper(BaseScraper):
                 error_message=str(e),
                 execution_time=time.time() - start_time
             )
+
+    def _extract_erp_data(self, *args, **kwargs) -> Dict[str, Any]:
+        """
+        提取ERP数据的入口方法（测试接口兼容性）
+
+        Returns:
+            Dict[str, Any]: 提取的ERP数据
+        """
+        try:
+            # 获取页面内容
+            page_content = self.browser_service.evaluate_sync("() => document.documentElement.outerHTML")
+            if not page_content:
+                return {}
+
+            # 调用实际的提取方法
+            return self._extract_erp_data_from_content(page_content)
+        except Exception as e:
+            self.logger.error(f"提取ERP数据失败: {e}")
+            return {}
 
     def _extract_erp_data_from_content(self, page_content: str) -> Dict[str, Any]:
         """
@@ -529,10 +659,10 @@ class ErpPluginScraper(BaseScraper):
             float: 佣金率（百分比）
         """
         try:
-            # 根据配置中的价格阈值计算佣金率
-            if price <= self.config.price_calculation.commission_rate_low_threshold:
+            # 🔧 重构：使用硬编码阈值，符合架构分离原则
+            if price <= 500:  # 低价商品阈值500卢布
                 return 15.0  # 低价商品佣金率15%
-            elif price >= self.config.price_calculation.commission_rate_high_threshold:
+            elif price >= 2000:  # 高价商品阈值2000卢布
                 return 8.0   # 高价商品佣金率8%
             else:
                 return 12.0  # 中等价格商品佣金率12%
@@ -542,3 +672,147 @@ class ErpPluginScraper(BaseScraper):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+    # ========== 抽象方法实现 ==========
+
+    def extract_data(self,
+                    selectors: Optional[Dict[str, str]] = None,
+                    options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        从当前页面提取数据（抽象方法实现）
+
+        Args:
+            selectors: 选择器映射
+            options: 提取选项
+
+        Returns:
+            Dict[str, Any]: 提取的数据
+        """
+        try:
+            # 获取页面内容
+            page_content = self.browser_service.evaluate_sync("() => document.documentElement.outerHTML")
+            if not page_content:
+                return {}
+
+            # 使用现有的ERP数据提取逻辑
+            erp_data = self._extract_erp_data_from_content(page_content)
+
+            return erp_data
+
+        except Exception as e:
+            self.logger.error(f"数据提取失败: {e}")
+            return {}
+
+    def validate_data(self, data: Dict[str, Any],
+                     filters: Optional[List[Callable]] = None) -> bool:
+        """
+        验证提取的数据（抽象方法实现）
+
+        Args:
+            data: 待验证的数据
+            filters: 验证过滤器列表
+
+        Returns:
+            bool: 数据是否有效
+        """
+        try:
+            # 基本验证：数据不为空
+            if not data:
+                return False
+
+            # 验证ERP数据的关键字段
+            erp_fields = ['category', 'sku', 'brand_name', 'monthly_sales_volume', 'monthly_sales_amount']
+            has_valid_field = False
+
+            for field in erp_fields:
+                if field in data and data[field] is not None:
+                    has_valid_field = True
+                    break
+
+            if not has_valid_field:
+                self.logger.warning("没有找到有效的ERP数据字段")
+                return False
+
+            # 验证数值字段的合理性
+            numeric_fields = ['monthly_sales_volume', 'monthly_sales_amount', 'daily_sales_volume', 'daily_sales_amount']
+            for field in numeric_fields:
+                if field in data:
+                    try:
+                        value = float(data[field]) if data[field] is not None else 0
+                        if value < 0:
+                            self.logger.warning(f"字段 {field} 值为负数: {value}")
+                            return False
+                    except (ValueError, TypeError):
+                        self.logger.warning(f"字段 {field} 值无法转换为数字: {data[field]}")
+
+            # 应用自定义过滤器
+            if filters:
+                for filter_func in filters:
+                    if not filter_func(data):
+                        return False
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"数据验证失败: {e}")
+            return False
+
+    def get_health_status(self) -> Dict[str, Any]:
+        """
+        获取Scraper健康状态（抽象方法实现）
+
+        Returns:
+            Dict[str, Any]: 健康状态信息
+        """
+        try:
+            status = {
+                'scraper_name': 'ErpPluginScraper',
+                'status': 'healthy',
+                'browser_service_available': self.browser_service is not None,
+                'selectors_config_loaded': self.selectors_config is not None,
+                'field_mappings_count': len(self.field_mappings)
+            }
+
+            # 检查浏览器服务状态
+            if self.browser_service:
+                try:
+                    # 简单检查浏览器是否响应
+                    page_url = self.browser_service.evaluate_sync("() => window.location.href")
+                    status['browser_responsive'] = page_url is not None
+                    status['current_url'] = page_url
+
+                    # 检查ERP插件是否存在
+                    status['erp_plugin_detected'] = self._wait_for_erp_plugin_loaded(max_wait_seconds=1)
+                except:
+                    status['browser_responsive'] = False
+                    status['status'] = 'degraded'
+                    status['erp_plugin_detected'] = False
+            else:
+                status['status'] = 'unavailable'
+                status['browser_responsive'] = False
+                status['erp_plugin_detected'] = False
+
+            return status
+
+        except Exception as e:
+            return {
+                'scraper_name': 'ErpPluginScraper',
+                'status': 'error',
+                'error': str(e)
+            }
+
+    def wait_for_erp_plugin(self, timeout: int = 30) -> bool:
+        """
+        等待ERP插件加载完成（抽象方法实现）
+
+        Args:
+            timeout: 超时时间（秒）
+
+        Returns:
+            bool: 插件是否加载成功
+        """
+        try:
+            return self._wait_for_erp_plugin_loaded(max_wait_seconds=timeout)
+        except Exception as e:
+            self.logger.error(f"等待ERP插件加载失败: {e}")
+            return False

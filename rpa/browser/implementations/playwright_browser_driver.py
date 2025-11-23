@@ -1533,6 +1533,14 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
         """
         return self.screenshot_sync(file_path)
 
+    def close(self):
+        """
+        关闭浏览器驱动（向后兼容）
+
+        这是shutdown方法的别名，用于兼容期望使用close方法的代码
+        """
+        self.shutdown()
+
     async def __aenter__(self):
         """异步上下文管理器入口"""
         await self.initialize()

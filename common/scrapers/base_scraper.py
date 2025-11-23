@@ -22,11 +22,13 @@ import time
 import logging
 import threading
 import signal
-from typing import Any, Callable, Optional, Dict
+from typing import Any, Callable, Optional, Dict, List
 from ..models import ScrapingResult
+from ..interfaces.scraper_interface import IScraperInterface, ScrapingMode
+from abc import ABC
 
 
-class BaseScraper:
+class BaseScraper(IScraperInterface, ABC):
     """
     Scraper 基类 - 完全同步实现
 
@@ -42,6 +44,7 @@ class BaseScraper:
         """初始化基类"""
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.browser_service = None  # 子类必须设置此属性
+        self.wait_utils = None  # 子类必须初始化 WaitUtils
         
         # 分层超时配置 - 根据操作复杂度设定合理时间
         self.timeouts = {
@@ -156,7 +159,7 @@ class BaseScraper:
                         delay = retry_delay * attempt  # 线性增长: 1, 2, 3, 4...
 
                     self.logger.info(f"🔄 重试{operation_name}（第{attempt}/{max_retries}次），等待{delay:.1f}秒...")
-                    time.sleep(delay)
+                    self.wait_utils.smart_wait(delay)
 
                 # 执行操作
                 result = operation_func()
@@ -372,7 +375,7 @@ class BaseScraper:
         """
         if seconds > 0:
             self.logger.debug(f"等待 {seconds} 秒")
-            time.sleep(seconds)
+            self.wait_utils.smart_wait(seconds)
 
     def get_page_content(self) -> Optional[str]:
         """
@@ -612,3 +615,73 @@ class BaseScraper:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """上下文管理器出口"""
         self.close()
+
+    # ========== IScraperInterface 抽象方法实现 ==========
+
+    def scrape(self,
+               target: str,
+               mode: Optional[ScrapingMode] = None,
+               options: Optional[Dict[str, Any]] = None,
+               **kwargs) -> ScrapingResult:
+        """
+        统一的抓取接口（抽象方法实现）
+
+        Args:
+            target: 抓取目标（URL、店铺ID等）
+            mode: 抓取模式
+            options: 抓取选项配置
+            **kwargs: 额外参数
+
+        Returns:
+            ScrapingResult: 标准化抓取结果
+        """
+        # 默认实现，子类应该重写此方法
+        return ScrapingResult(
+            success=False,
+            data={},
+            error_message="未实现 scrape 方法"
+        )
+
+    def extract_data(self,
+                    selectors: Optional[Dict[str, str]] = None,
+                    options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        从当前页面提取数据（抽象方法实现）
+
+        Args:
+            selectors: 选择器映射
+            options: 提取选项
+
+        Returns:
+            Dict[str, Any]: 提取的数据
+        """
+        # 默认实现，子类应该重写此方法
+        return {}
+
+    def validate_data(self, data: Dict[str, Any],
+                     filters: Optional[List[Callable]] = None) -> bool:
+        """
+        验证提取的数据（抽象方法实现）
+
+        Args:
+            data: 待验证的数据
+            filters: 验证过滤器列表
+
+        Returns:
+            bool: 数据是否有效
+        """
+        # 默认实现，子类应该重写此方法
+        return bool(data)
+
+    def get_health_status(self) -> Dict[str, Any]:
+        """
+        获取Scraper健康状态（抽象方法实现）
+
+        Returns:
+            Dict[str, Any]: 健康状态信息
+        """
+        # 默认实现，子类应该重写此方法
+        return {
+            'status': 'unknown',
+            'message': '未实现健康状态检查'
+        }

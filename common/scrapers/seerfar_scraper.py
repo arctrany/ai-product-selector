@@ -6,44 +6,64 @@ Seerfar平台抓取器
 """
 
 import time
-import re
 from typing import Dict, Any, List, Optional, Callable
 
 from .base_scraper import BaseScraper
 from .global_browser_singleton import get_global_browser_service
-from .scraper_utils import ScraperUtils
-from ..models import ScrapingResult
-from common.config import GoodStoreSelectorConfig
-from common.config.seerfar_selectors import get_seerfar_selector, SEERFAR_SELECTORS
+from common.models.scraping_result import ScrapingResult
+from common.utils.wait_utils import WaitUtils
+from common.utils.scraping_utils import ScrapingUtils
+from common.config.seerfar_selectors import SeerfarSelectors, get_seerfar_selector, SEERFAR_SELECTORS
+from ..interfaces.scraper_interface import IStoreScraper
 
 
-class SeerfarScraper(BaseScraper):
-    """Seerfar平台抓取器"""
+class SeerfarScraper(BaseScraper, IStoreScraper):
+    """
+    Seerfar平台抓取器
 
-    def __init__(self, config: Optional[GoodStoreSelectorConfig] = None):
+    实现IStoreScraper接口，提供标准化的店铺数据抓取功能
+    """
+
+    def __init__(self, selectors_config: Optional[SeerfarSelectors] = None):
         """初始化Seerfar抓取器"""
         super().__init__()
-        from common.config import get_config
         import logging
+        from common.config import get_config
 
-        self.config = config or get_config()
+        # 🔧 重构：使用新的配置系统
+        self.selectors_config = selectors_config or SEERFAR_SELECTORS
+        self.config = self.selectors_config  # 向后兼容：确保config属性存在
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        self.base_url = self.config.scraping.seerfar_base_url
-        self.store_detail_path = self.config.scraping.seerfar_store_detail_path
+
+        # 🔧 重构：使用硬编码URL配置（符合架构分离原则）
+        self.base_url = "https://seerfar.ru"
+        self.store_detail_path = "/store-analytics/detail"
 
         # 使用全局浏览器服务
         self.browser_service = get_global_browser_service()
+        
+        # 🔧 重构：初始化统一工具类
+        self.wait_utils = WaitUtils(self.browser_service, self.logger)
+        self.scraping_utils = ScrapingUtils(self.logger)
 
-    def scrape_store_sales_data(self, store_id: str, store_filter_func=None) -> ScrapingResult:
+    def scrape_store_sales_data(self,
+                               store_id: str,
+                               period_days: int = 30,
+                               options: Optional[Dict[str, Any]] = None) -> ScrapingResult:
         """
-        抓取店铺销售数据
+        抓取店铺销售数据（标准接口实现）
 
         Args:
             store_id: 店铺ID
-            store_filter_func: 店铺过滤函数，用于筛选店铺（检查销售额和订单量）
+            period_days: 统计天数，默认30天
+            options: 抓取选项，可包含store_filter_func等配置
 
         Returns:
             ScrapingResult: 抓取结果，包含销售数据
+
+        Raises:
+            NavigationException: 页面导航失败
+            DataExtractionException: 数据提取失败
         """
         # 构建店铺详情页URL
         url = f"{self.base_url}{self.store_detail_path}?storeId={store_id}&platform=OZON"
@@ -56,8 +76,9 @@ class SeerfarScraper(BaseScraper):
         # 使用继承的抓取方法
         result = self.scrape_page_data(url, self._extract_sales_data)
 
-        # 如果提供了过滤函数，则应用过滤
+        # 从选项中获取过滤函数并应用过滤
         # 注意：需要将字段名转换为统一格式
+        store_filter_func = options.get('store_filter_func') if options else None
         if result.success and store_filter_func and result.data:
             filter_data = {
                 'store_sales_30days': result.data.get('sold_30days', 0),
@@ -254,101 +275,9 @@ class SeerfarScraper(BaseScraper):
                 'daily_avg_sold': 0
             }
 
-    def _extract_sales_amount(self, page, sales_data: Dict[str, Any]):
-        """提取销售额 - 使用配置文件中的选择器"""
-        try:
-            # 从配置文件获取销售额选择器
-            sales_amount_selector = get_seerfar_selector('store_sales_data', 'sales_amount')
-            self.logger.debug(f"销售额选择器: {sales_amount_selector}")
-            if not sales_amount_selector:
-                self.logger.error("❌ 未能找到销售额选择器配置")
-                return
 
-            # 🔧 使用同步方法获取文本内容
-            self.logger.debug(f"尝试获取销售额元素文本，选择器: {sales_amount_selector}")
-            text = self.browser_service.text_content_sync(sales_amount_selector, timeout=5000)
-            self.logger.debug(f"销售额元素文本内容: '{text}'")
-            if text and text.strip():
-                # 提取数字并转换为销售额
-                stripped_text = text.strip()
-                self.logger.debug(f"处理销售额文本: '{stripped_text}'")
-                number = ScraperUtils.extract_number_from_text(stripped_text)
-                self.logger.debug(f"提取到的数字: {number}")
-                if number:
-                    sales_data['sold_30days'] = number
-                    self.logger.debug(f"销售额提取成功: {number}")
-                    return
-                else:
-                    self.logger.warning(f"无法从文本中提取数字: '{stripped_text}'")
-
-            self.logger.warning("⚠️ 未能提取到销售额数据")
-
-        except Exception as e:
-            self.logger.error(f"❌ 销售额提取失败: {str(e)}", exc_info=True)
-
-    def _extract_sales_volume(self, page, sales_data: Dict[str, Any]):
-        """提取销量 - 使用配置文件中的选择器"""
-        try:
-            # 从配置文件获取销量选择器
-            sales_volume_selector = get_seerfar_selector('store_sales_data', 'sales_volume')
-            self.logger.debug(f"销量选择器: {sales_volume_selector}")
-            if not sales_volume_selector:
-                self.logger.error("❌ 未能找到销量选择器配置")
-                return
-
-            # 🔧 使用同步方法获取文本内容
             self.logger.debug(f"尝试获取销量元素文本，选择器: {sales_volume_selector}")
-            text = self.browser_service.text_content_sync(sales_volume_selector, timeout=5000)
-            self.logger.debug(f"销量元素文本内容: '{text}'")
-            if text and text.strip():
-                # 提取数字并转换为销量
-                stripped_text = text.strip()
-                self.logger.debug(f"处理销量文本: '{stripped_text}'")
-                number = ScraperUtils.extract_number_from_text(stripped_text)
-                self.logger.debug(f"提取到的数字: {number}")
-                if number:
-                    sales_data['sold_count_30days'] = int(number)
-                    self.logger.debug(f"销量提取成功: {number}")
-                    return
-                else:
-                    self.logger.warning(f"无法从文本中提取数字: '{stripped_text}'")
 
-            self.logger.warning("⚠️ 未能提取到销量数据")
-
-        except Exception as e:
-            self.logger.error(f"❌ 销量提取失败: {str(e)}", exc_info=True)
-
-    def _extract_daily_avg_sales(self, page, sales_data: Dict[str, Any]):
-        """提取日均销量 - 使用配置文件中的选择器"""
-        try:
-            # 从配置文件获取日均销量选择器
-            daily_avg_selector = get_seerfar_selector('store_sales_data', 'daily_avg_sales')
-            self.logger.debug(f"日均销量选择器: {daily_avg_selector}")
-            if not daily_avg_selector:
-                self.logger.error("❌ 未能找到日均销量选择器配置")
-                return
-
-            # 🔧 使用同步方法获取文本内容
-            self.logger.debug(f"尝试获取日均销量元素文本，选择器: {daily_avg_selector}")
-            text = self.browser_service.text_content_sync(daily_avg_selector, timeout=5000)
-            self.logger.debug(f"日均销量元素文本内容: '{text}'")
-            if text and text.strip():
-                # 提取数字并转换为日均销量
-                stripped_text = text.strip()
-                self.logger.debug(f"处理日均销量文本: '{stripped_text}'")
-                number = ScraperUtils.extract_number_from_text(stripped_text)
-                self.logger.debug(f"提取到的数字: {number}")
-                if number:
-                    sales_data['daily_avg_sold'] = number
-                    self.logger.debug(f"日均销量提取成功: {number}")
-                    return
-                else:
-                    self.logger.warning(f"无法从文本中提取数字: '{stripped_text}'")
-
-            self.logger.warning("⚠️ 未能提取到日均销量数据")
-
-        except Exception as e:
-            self.logger.error(f"❌ 日均销量提取失败: {str(e)}", exc_info=True)
 
     def _extract_category_data(self, page, sales_data: Dict[str, Any]):
         """提取类目数据 - 使用配置文件中的选择器"""
@@ -370,170 +299,28 @@ class SeerfarScraper(BaseScraper):
         except Exception as e:
             self.logger.error(f"❌ 类目数据提取失败: {str(e)}")
 
-    def _extract_sales_data_generic(self, page) -> Dict[str, Any]:
-        """
-        同步通用方法提取销售数据
-        
-        Args:
-            page: Playwright页面对象
-            
-        Returns:
-            Dict[str, Any]: 销售数据
-        """
-        sales_data = {}
 
-        try:
-            # 🔧 使用 evaluate_sync 直接在页面上提取文本内容
-            script = """
-                () => {
-                    const xpath = "//*[contains(text(), '₽') or contains(text(), '万') or contains(text(), '千')]";
-                    const elements = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-                    const texts = [];
-                    for (let i = 0; i < Math.min(elements.snapshotLength, 10); i++) {
-                        const element = elements.snapshotItem(i);
-                        if (element && element.textContent) {
-                            texts.push(element.textContent.trim());
-                        }
-                    }
-                    return texts;
-                }
-            """
-            text_list = self.browser_service.evaluate_sync(script, timeout=5000)
-
-            if text_list:
-                for text in text_list:
-                    try:
-                        if not text:
-                            continue
-
-                        # 判断是否为销售额
-                        if any(keyword in text for keyword in ['销售额', '营业额', '收入', '₽']):
-                            number = ScraperUtils.extract_number_from_text(text)
-                            if number and number > 1000:  # 销售额通常较大
-                                sales_data['sold_30days'] = number
-
-                        # 判断是否为销量
-                        elif any(keyword in text for keyword in ['销量', '订单', '件数']):
-                            number = ScraperUtils.extract_number_from_text(text)
-                            if number and 10 <= number <= 10000:  # 销量通常在合理范围内
-                                sales_data['sold_count_30days'] = int(number)
-                    except Exception as e:
-                        self.logger.debug(f"处理元素文本失败: {e}")
-                        continue
-
-            # 如果找到销售额和销量，计算日均销量
-            if 'sold_30days' in sales_data and 'sold_count_30days' in sales_data:
-                sales_data['daily_avg_sold'] = sales_data['sold_count_30days'] / 30
-
-            return sales_data
-
-        except Exception as e:
-            self.logger.error(f"通用方法提取销售数据失败: {e}")
-            return {}
 
     def _extract_all_products_data_js(self, product_rows_selector: str) -> List[Dict[str, Any]]:
         """
-        使用 JavaScript evaluate 一次性提取所有商品行数据
-
-        这个方法避免了 ElementHandle 的事件循环问题，通过在浏览器端直接提取数据
-
-        Args:
-            product_rows_selector: 商品行选择器
-
-        Returns:
-            List[Dict[str, Any]]: 商品行数据列表
+        使用 JavaScript evaluate 一次性提取所有商品行数据 - 使用统一工具类
         """
         try:
-            # 🔧 从配置文件获取选择器和列索引
-            category_cn_selector = SEERFAR_SELECTORS.product_list.get('category_cn_selector', 'span.category-title')
-            category_ru_selector = SEERFAR_SELECTORS.product_list.get('category_ru_selector', 'span.text-muted')
-            category_column_idx = SEERFAR_SELECTORS.column_indexes['category']
-            sales_volume_column_idx = SEERFAR_SELECTORS.column_indexes['sales_volume']
+            # 使用 ScrapingUtils 的通用JavaScript产品提取器
+            js_script = self.scraping_utils.create_js_product_extractor(
+                SEERFAR_SELECTORS.column_indexes
+            )
 
-            # JavaScript 代码：在浏览器端提取所有商品行数据
-            # 注意：正则表达式直接硬编码在JS中，避免f-string花括号冲突
-            js_code = f"""
-            () => {{
-                const rows = document.querySelectorAll('{product_rows_selector}');
-                return Array.from(rows).map((row, index) => {{
-                    const tds = row.querySelectorAll('td');
-                    
-                    // 提取类目（第{category_column_idx}列）
-                    const categoryTd = tds[{category_column_idx}];
-                    const categoryCn = categoryTd?.querySelector('{category_cn_selector}')?.textContent?.trim() || null;
-                    const categoryRu = categoryTd?.querySelector('{category_ru_selector}')?.textContent?.trim() || null;
-                    
-                    // 提取销量（第{sales_volume_column_idx}列）
-                    const salesTd = tds[{sales_volume_column_idx}];
-                    const salesText = salesTd?.textContent?.trim() || '';
-                    const salesMatch = salesText.match(/^(\\d+)/);
-                    const salesVolume = salesMatch ? parseInt(salesMatch[1]) : null;
-                    
-                    // 提取重量（倒数第二列）
-                    const weightTd = tds[tds.length - 2];
-                    const weightText = weightTd?.textContent?.trim() || '';
-                    const weightMatch = weightText.match(/([\\d.]+)\\s*(g|kg)/i);
-                    let weight = null;
-                    if (weightMatch) {{
-                        const value = parseFloat(weightMatch[1]);
-                        const unit = weightMatch[2].toLowerCase();
-                        weight = unit === 'kg' ? value * 1000 : value;
-                    }}
-                    
-                    // 提取上架时间（最后一列）
-                    const listingTd = tds[tds.length - 1];
-                    const listingHtml = listingTd?.innerHTML || '';
-                    const dateMatch = listingHtml.match(/(\\d{{4}}-\\d{{2}}-\\d{{2}})/);
-                    const durationMatch = listingHtml.match(/<span[^>]*>([^<]+)<\\/span>/);
-                    const listingDate = dateMatch ? dateMatch[1] : null;
-                    const shelfDuration = durationMatch ? durationMatch[1].trim() : null;
-                    
-                    // 提取 OZON URL（第2列的 onclick 事件）
-                    const td2 = tds[2];
-                    const clickableElement = td2?.querySelector('[onclick*="window.open"]') || 
-                                           td2?.querySelector('a[onclick*="window.open"]');
-                    const onclickAttr = clickableElement?.getAttribute('onclick') || '';
-                    const urlMatch = onclickAttr.match(/window\\.open\\('([^']+)'\\)/);
-                    const ozonUrl = urlMatch ? urlMatch[1] : null;
-                    
-                    // 获取 data-index 用于去重
-                    const dataIndex = row.getAttribute('data-index');
-                    
-                    return {{
-                        index: index,
-                        dataIndex: dataIndex,
-                        categoryCn: categoryCn,
-                        categoryRu: categoryRu,
-                        salesVolume: salesVolume,
-                        weight: weight,
-                        listingDate: listingDate,
-                        shelfDuration: shelfDuration,
-                        ozonUrl: ozonUrl
-                    }};
-                }});
-            }}
-            """
+            # 执行JavaScript并获取结果
+            products_data = self.scraping_utils.extract_data_with_js(
+                self.browser_service, js_script, "商品数据"
+            )
 
-            # 使用同步的 evaluate 方法
-            products_data = self.browser_service.evaluate_sync(js_code)
-
-            # 去重：基于 dataIndex
             if products_data:
-                seen_indices = set()
-                unique_products = []
-                for product in products_data:
-                    data_index = product.get('dataIndex')
-                    if data_index and data_index not in seen_indices:
-                        seen_indices.add(data_index)
-                        unique_products.append(product)
-                    elif not data_index:
-                        # 没有 data-index 的也保留
-                        unique_products.append(product)
-
-                self.logger.info(f"📋 JavaScript 提取到 {len(unique_products)} 个商品行（去重后）")
-                return unique_products
-
-            return []
+                self.logger.info(f"📋 JavaScript 提取到 {len(products_data)} 个商品行")
+                return products_data
+            else:
+                return []
 
         except Exception as e:
             self.logger.error(f"❌ JavaScript 提取商品数据失败: {e}")
@@ -755,192 +542,39 @@ class SeerfarScraper(BaseScraper):
             self.logger.error(f"提取 OZON URL 失败: {e}")
             return None
 
-    def _extract_data_with_selector(self, category: str, key: str, data_key: str,
-                                   validation_func: Callable = None,
-                                   default_selector: str = None) -> Optional[Any]:
-        """
-        通用数据提取方法 - 统一处理选择器获取、元素等待、数据验证
 
-        Args:
-            category: 配置分类
-            key: 配置键名
-            data_key: 数据键名（用于日志）
-            validation_func: 验证函数
-            default_selector: 默认选择器
-
-        Returns:
-            提取的数据或None
-        """
-        try:
-            # 从配置文件获取选择器
-            selector = get_seerfar_selector(category, key)
-            if not selector and default_selector:
-                selector = default_selector
-                self.logger.warning(f"使用降级{data_key}选择器")
-
-            if not selector:
-                self.logger.error(f"❌ 未能找到{data_key}选择器配置")
-                return None
-
-            # 等待元素加载
-            if not self.wait_for_element(selector, timeout=15.0):
-                self.logger.warning(f"⚠️ {data_key}元素等待超时，尝试直接提取")
-
-            # 提取文本内容
-            text = self.get_text_content(selector, timeout=5.0)
-            if text and text.strip():
-                # 提取数字
-                value = ScraperUtils.extract_number_from_text(text.strip())
-                if value and (validation_func is None or validation_func(value)):
-                    self.logger.debug(f"✅ {data_key}提取成功: {value}")
-                    return value
-                else:
-                    self.logger.warning(f"⚠️ {data_key}数值异常: {value}")
-            else:
-                self.logger.warning(f"⚠️ 未能获取{data_key}文本")
-
-        except Exception as e:
-            self.logger.error(f"❌ {data_key}提取失败: {e}")
-
-        return None
-
-    def _extract_data_with_js(self, js_template: str, data_key: str = "数据", **kwargs) -> Any:
-        """
-        通用JavaScript数据提取方法 - 统一JavaScript执行和错误处理
-
-        Args:
-            js_template: JavaScript模板
-            data_key: 数据键名（用于日志）
-            **kwargs: 模板参数
-
-        Returns:
-            JavaScript执行结果
-        """
-        try:
-            # 格式化JavaScript代码
-            js_script = js_template.format(**kwargs)
-
-            # 执行JavaScript
-            result = self.browser_service.evaluate_sync(js_script)
-
-            if result is not None:
-                self.logger.debug(f"✅ {data_key}JavaScript提取成功")
-                return result
-            else:
-                self.logger.warning(f"⚠️ {data_key}JavaScript执行未返回有效数据")
-                return None
-
-        except Exception as e:
-            self.logger.error(f"❌ {data_key}JavaScript执行失败: {e}")
-            return None
 
     def _extract_sales_amount(self, page, sales_data: Dict[str, Any]):
-        """提取销售额 - 使用配置文件中的选择器"""
-        try:
-            # 从配置文件获取销售额选择器
-            sales_amount_selector = get_seerfar_selector('store_sales_data', 'sales_amount')
-            self.logger.debug(f"销售额选择器: {sales_amount_selector}")
-            if not sales_amount_selector:
-                self.logger.error("❌ 未能找到销售额选择器配置")
-                # 尝试使用降级选择器
-                sales_amount_selector = '.store-total-revenue'
-                self.logger.warning(f"使用降级销售额选择器: {sales_amount_selector}")
-
-            # 等待元素加载（最多15秒）
-            if not self.wait_for_element(sales_amount_selector, timeout=15.0):
-                self.logger.warning("⚠️ 销售额元素等待超时，尝试直接提取")
-
-            # 提取销售额文本
-            sales_text = self.get_text_content(sales_amount_selector, timeout=5.0)
-            self.logger.debug(f"销售额元素文本内容: '{sales_text}'")
-            if sales_text and sales_text.strip():
-                # 使用工具类提取数字
-                sales_amount = ScraperUtils.extract_number_from_text(sales_text.strip())
-                self.logger.debug(f"提取到的销售额数字: {sales_amount}")
-                if sales_amount is not None:  # 不再使用过于严格的验证
-                    sales_data['sold_30days'] = sales_amount
-                    self.logger.debug(f"✅ 销售额提取成功: {sales_amount}")
-                    return
-                else:
-                    self.logger.warning(f"⚠️ 无法从文本中提取销售额数字: '{sales_text.strip()}'")
-            else:
-                self.logger.warning("⚠️ 未能获取销售额文本")
-
-        except Exception as e:
-            self.logger.error(f"❌ 销售额提取失败: {e}", exc_info=True)
+        """提取销售额 - 使用统一工具类"""
+        result = self.scraping_utils.extract_sales_data_generic(
+            self.browser_service, self.wait_utils, get_seerfar_selector,
+            'store_sales_data', 'sales_amount', '销售额', 'sold_30days',
+            default_selector='.store-total-revenue'
+        )
+        if result:
+            sales_data.update(result)
 
     def _extract_sales_volume(self, page, sales_data: Dict[str, Any]):
-        """提取销量 - 使用配置文件中的选择器"""
-        try:
-            # 从配置文件获取销量选择器
-            sales_volume_selector = get_seerfar_selector('store_sales_data', 'sales_volume')
-            self.logger.debug(f"销量选择器: {sales_volume_selector}")
-            if not sales_volume_selector:
-                self.logger.error("❌ 未能找到销量选择器配置")
-                # 尝试使用降级选择器
-                sales_volume_selector = '.store-total-sales'
-                self.logger.warning(f"使用降级销量选择器: {sales_volume_selector}")
-
-            # 等待元素加载（最多15秒）
-            if not self.wait_for_element(sales_volume_selector, timeout=15.0):
-                self.logger.warning("⚠️ 销量元素等待超时，尝试直接提取")
-
-            # 提取销量文本
-            volume_text = self.get_text_content(sales_volume_selector, timeout=5.0)
-            self.logger.debug(f"销量元素文本内容: '{volume_text}'")
-            if volume_text and volume_text.strip():
-                # 使用工具类提取数字
-                sales_volume = ScraperUtils.extract_number_from_text(volume_text.strip())
-                self.logger.debug(f"提取到的销量数字: {sales_volume}")
-                if sales_volume is not None:  # 不再使用过于严格的验证
-                    sales_data['sold_count_30days'] = int(sales_volume)
-                    self.logger.debug(f"✅ 销量提取成功: {sales_volume}")
-                    return
-                else:
-                    self.logger.warning(f"⚠️ 无法从文本中提取销量数字: '{volume_text.strip()}'")
-            else:
-                self.logger.warning("⚠️ 未能获取销量文本")
-
-        except Exception as e:
-            self.logger.error(f"❌ 销量提取失败: {e}", exc_info=True)
+        """提取销量 - 使用统一工具类"""
+        result = self.scraping_utils.extract_sales_data_generic(
+            self.browser_service, self.wait_utils, get_seerfar_selector,
+            'store_sales_data', 'sales_volume', '销量', 'sold_count_30days',
+            default_selector='.store-total-sales', is_int=True
+        )
+        if result:
+            sales_data.update(result)
 
     def _extract_daily_avg_sales(self, page, sales_data: Dict[str, Any]):
-        """提取日均销量 - 使用配置文件中的选择器或根据已有数据计算"""
-        try:
-            # 从配置文件获取日均销量选择器
-            daily_avg_selector = get_seerfar_selector('store_sales_data', 'daily_avg_sales')
-            self.logger.debug(f"日均销量选择器: {daily_avg_selector}")
-            if not daily_avg_selector:
-                self.logger.error("❌ 未能找到日均销量选择器配置")
-                # 尝试使用降级选择器
-                daily_avg_selector = '.store-daily-sales'
-                self.logger.warning(f"使用降级日均销量选择器: {daily_avg_selector}")
-
-            # 等待元素加载（最多15秒）
-            if not self.wait_for_element(daily_avg_selector, timeout=15.0):
-                self.logger.warning("⚠️ 日均销量元素等待超时，尝试直接提取")
-
-            # 提取日均销量文本
-            daily_avg_text = self.get_text_content(daily_avg_selector, timeout=5.0)
-            self.logger.debug(f"日均销量元素文本内容: '{daily_avg_text}'")
-            if daily_avg_text and daily_avg_text.strip():
-                # 使用工具类提取数字
-                daily_avg = ScraperUtils.extract_number_from_text(daily_avg_text.strip())
-                self.logger.debug(f"提取到的日均销量数字: {daily_avg}")
-                if daily_avg is not None:  # 不再使用过于严格的验证
-                    sales_data['daily_avg_sold'] = daily_avg
-                    self.logger.debug(f"✅ 日均销量提取成功: {daily_avg}")
-                    return
-                else:
-                    self.logger.warning(f"⚠️ 无法从文本中提取日均销量数字: '{daily_avg_text.strip()}'")
-            else:
-                self.logger.warning("⚠️ 未能获取日均销量文本")
-
-        except Exception as e:
-            self.logger.error(f"❌ 日均销量提取失败: {e}", exc_info=True)
-
-        # 如果直接提取失败，尝试根据已有数据计算
-        if 'sold_count_30days' in sales_data:
+        """提取日均销量 - 使用统一工具类，支持计算后备方案"""
+        result = self.scraping_utils.extract_sales_data_generic(
+            self.browser_service, self.wait_utils, get_seerfar_selector,
+            'store_sales_data', 'daily_avg_sales', '日均销量', 'daily_avg_sold',
+            default_selector='.store-daily-sales'
+        )
+        if result:
+            sales_data.update(result)
+        elif 'sold_count_30days' in sales_data:
+            # 如果直接提取失败，尝试根据已有数据计算
             try:
                 daily_avg = sales_data['sold_count_30days'] / 30
                 sales_data['daily_avg_sold'] = daily_avg
@@ -1146,9 +780,8 @@ class SeerfarScraper(BaseScraper):
         return null;
         """
 
-        category_data = self._extract_data_with_js(
-            js_template,
-            "类目信息",
+        category_data = self.scraping_utils.extract_data_with_js(
+            self.browser_service, js_template, "类目信息",
             category_index=SEERFAR_SELECTORS.column_indexes['category']
         )
 
@@ -1333,4 +966,166 @@ class SeerfarScraper(BaseScraper):
         except Exception as e:
             self.logger.error(f"❌ 重量提取失败: {e}")
             return None
+
+    def scrape_store_info(self,
+                         store_id: str,
+                         include_products: bool = True,
+                         max_products: Optional[int] = None,
+                         options: Optional[Dict[str, Any]] = None) -> ScrapingResult:
+        """
+        抓取店铺基本信息（标准接口实现）
+
+        Args:
+            store_id: 店铺ID
+            include_products: 是否包含商品信息
+            max_products: 最大商品数量
+            options: 抓取选项
+
+        Returns:
+            ScrapingResult: 店铺信息抓取结果
+
+        Raises:
+            NavigationException: 页面导航失败
+            DataExtractionException: 数据提取失败
+        """
+        try:
+            # 简化实现：直接调用核心scrape方法，避免复杂依赖
+            return self.scrape(
+                store_id=store_id,
+                include_products=include_products,
+                max_products=max_products,
+                product_filter_func=options.get('product_filter_func') if options else None,
+                store_filter_func=options.get('store_filter_func') if options else None
+            )
+
+        except Exception as e:
+            return ScrapingResult(
+                success=False,
+                data={},
+                error_message=f"店铺信息抓取失败: {str(e)}"
+            )
+
+    # ========== 抽象方法实现 ==========
+
+    def extract_data(self,
+                    selectors: Optional[Dict[str, str]] = None,
+                    options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        从当前页面提取数据（抽象方法实现）
+
+        Args:
+            selectors: 选择器映射
+            options: 提取选项
+
+        Returns:
+            Dict[str, Any]: 提取的数据
+        """
+        try:
+            # 获取页面内容
+            page_content = self.get_page_content()
+            if not page_content:
+                return {}
+
+            # 使用默认的销售数据提取逻辑
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(page_content, 'html.parser')
+
+            extracted_data = {}
+
+            # 提取销售额、销量等关键指标
+            sales_data = {}
+            self._extract_sales_amount(None, sales_data)
+            self._extract_sales_volume(None, sales_data)
+            self._extract_daily_avg_sales(None, sales_data)
+
+            extracted_data.update(sales_data)
+
+            return extracted_data
+
+        except Exception as e:
+            self.logger.error(f"数据提取失败: {e}")
+            return {}
+
+    def validate_data(self, data: Dict[str, Any],
+                     filters: Optional[List[Callable]] = None) -> bool:
+        """
+        验证提取的数据（抽象方法实现）
+
+        Args:
+            data: 待验证的数据
+            filters: 验证过滤器列表
+
+        Returns:
+            bool: 数据是否有效
+        """
+        try:
+            # 基本验证：数据不为空
+            if not data:
+                return False
+
+            # 验证关键字段
+            required_fields = ['sold_30days', 'sold_count_30days']
+            for field in required_fields:
+                if field in data:
+                    value = data[field]
+                    if value is not None and value >= 0:
+                        continue
+                    else:
+                        self.logger.warning(f"字段 {field} 值无效: {value}")
+                        return False
+
+            # 应用自定义过滤器
+            if filters:
+                for filter_func in filters:
+                    if not filter_func(data):
+                        return False
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"数据验证失败: {e}")
+            return False
+
+    def get_health_status(self) -> Dict[str, Any]:
+        """
+        获取Scraper健康状态（抽象方法实现）
+
+        Returns:
+            Dict[str, Any]: 健康状态信息
+        """
+        try:
+            status = {
+                'scraper_name': 'SeerfarScraper',
+                'status': 'healthy',
+                'browser_service_available': self.browser_service is not None,
+                'last_operation_time': getattr(self, '_last_operation_time', None),
+                'total_operations': getattr(self, '_operation_count', 0)
+            }
+
+            # 检查浏览器服务状态
+            if self.browser_service:
+                try:
+                    # 简单检查浏览器是否响应
+                    page_url = self.browser_service.evaluate_sync("() => window.location.href")
+                    status['browser_responsive'] = page_url is not None
+                    status['current_url'] = page_url
+                except:
+                    status['browser_responsive'] = False
+                    status['status'] = 'degraded'
+            else:
+                status['status'] = 'unavailable'
+                status['browser_responsive'] = False
+
+            return status
+
+        except Exception as e:
+            return {
+                'scraper_name': 'SeerfarScraper',
+                'status': 'error',
+                'error': str(e)
+            }
+
+
+
+
 

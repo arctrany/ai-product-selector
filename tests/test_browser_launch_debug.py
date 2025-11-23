@@ -25,7 +25,7 @@ def test_profile_detection():
     detector = BrowserDetector()
     
     # 检测有登录态的 Profile
-    active_profile = detect_active_profile("seerfar.cn")
+    active_profile = detect_active_profile()
     print(f"✅ 检测到有登录态的 Profile: {active_profile}")
     
     # 获取用户数据目录
