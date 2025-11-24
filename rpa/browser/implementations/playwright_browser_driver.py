@@ -210,7 +210,8 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
                     self._async_shutdown(),
                     self._event_loop
                 )
-                future.result(timeout=10)
+                # 增加超时时间到30秒，因为浏览器关闭可能需要较长时间
+                future.result(timeout=30)
             else:
                 # 如果事件循环不可用，尝试直接清理
                 try:
@@ -244,6 +245,14 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             self.playwright = None
             self._initialized = False
             return False
+
+    def __del__(self):
+        """析构函数，确保资源被正确释放"""
+        try:
+            self.shutdown()
+        except:
+            # 在Python关闭阶段可能无法正常执行清理，忽略异常
+            pass
 
     async def _async_shutdown(self) -> None:
         """在专用事件循环中执行的异步关闭逻辑"""
@@ -945,7 +954,7 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
 
     def _get_default_launch_args(self) -> List[str]:
         """获取默认启动参数 - 🔧 保持用户登录状态和输入记忆"""
-        return [
+        args = [
             '--no-first-run',
             '--no-default-browser-check',
             '--lang=zh-CN',
@@ -953,8 +962,7 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             '--disable-infobars',
             '--enable-extensions',  # 启用扩展
             # 🔧 保持登录状态的关键参数
-            # 移除 --disable-blink-features=AutomationControlled（不受支持的参数）
-            # 使用 JavaScript 反检测脚本替代
+            '--disable-blink-features=AutomationControlled',  # 🔧 修复：恢复反自动化检测参数
             '--exclude-switches=enable-automation',  # 排除自动化开关
             # 🔧 保持输入记忆的参数
             '--enable-password-generation',  # 启用密码生成
@@ -965,6 +973,14 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             # '--disable-web-security',  # 这会重置Cookie和存储
             # '--disable-extensions-except',  # 这会影响扩展状态
         ]
+
+        # 🔧 新增：添加CDP端口配置支持
+        if hasattr(self, '_config') and self._config and self._config.get('debug_port'):
+            args.append(f'--remote-debugging-port={self._config["debug_port"]}')
+        elif hasattr(self, 'config') and self.config and self.config.get('debug_port'):
+            args.append(f'--remote-debugging-port={self.config["debug_port"]}')
+
+        return args
 
     async def _inject_stealth_scripts(self) -> None:
         """注入反检测脚本"""
@@ -1532,6 +1548,21 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             Optional[Path]: 截图文件路径
         """
         return self.screenshot_sync(file_path)
+
+    def navigate(self, url: str, wait_until: str = "domcontentloaded") -> bool:
+        """
+        导航到指定URL（向后兼容方法）
+
+        这是navigate_to_sync方法的别名，用于兼容期望使用navigate方法的测试代码
+
+        Args:
+            url: 目标URL
+            wait_until: 等待条件
+
+        Returns:
+            bool: 导航是否成功
+        """
+        return self.navigate_to_sync(url, wait_until)
 
     def close(self):
         """

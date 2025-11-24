@@ -1,35 +1,67 @@
 """
-OZON选择器配置模块
+配置模块
 
-提供OZON网站抓取所需的各种配置信息，包括：
-- CSS选择器配置
-- 货币符号和价格前缀词配置
-- 特殊字符配置
-- 浏览器配置等
+统一导出所有配置相关的类和函数，支持模块化配置管理
 """
 
-from .ozon_selectors_config import (
-    get_ozon_selectors_config,
-    OzonSelectorsConfig
+# 新的模块化配置
+from .base_config import (
+    GoodStoreSelectorConfig,
+    get_config,
+    set_config,
+    load_config,
+    create_default_config_file
 )
 
-# 导入好店筛选配置
-import sys
-import os
-# 添加父目录到路径以导入 config.py
-parent_dir = os.path.dirname(os.path.dirname(__file__))
-config_file_path = os.path.join(parent_dir, 'config.py')
-spec = __import__('importlib.util').util.spec_from_file_location("config_module", config_file_path)
-config_module = __import__('importlib.util').util.module_from_spec(spec)
-spec.loader.exec_module(config_module)
-GoodStoreSelectorConfig = config_module.GoodStoreSelectorConfig
-get_config = config_module.get_config
+from .browser_config import (
+    BrowserConfig,
+    ScrapingConfig  # 向后兼容
+)
+
+from .business_config import (
+    SelectorFilterConfig,
+    PriceCalculationConfig,
+    ExcelConfig
+)
+
+from .system_config import (
+    LoggingConfig,
+    PerformanceConfig
+)
+
+# 原有的选择器配置（保持兼容）
+from .timeout_config import TimeoutConfig, RetryConfig, TimingConfig
+from .base_scraping_config import BaseScrapingConfig
+from .ozon_selectors_config import get_ozon_selectors_config, OzonSelectorsConfig
+from .seerfar_selectors import get_seerfar_selectors
+from .erp_selectors_config import get_erp_selectors_config
+from .currency_config import get_currency_config
+from .language_config import get_language_config
 
 __all__ = [
-    # OZON选择器配置
+    # 新的模块化配置
+    'GoodStoreSelectorConfig',
+    'get_config',
+    'set_config', 
+    'load_config',
+    'create_default_config_file',
+    # 配置类
+    'BrowserConfig',
+    'ScrapingConfig',
+    'SelectorFilterConfig',
+    'PriceCalculationConfig',
+    'ExcelConfig',
+    'LoggingConfig',
+    'PerformanceConfig',
+    # 原有的选择器配置（保持兼容）
+    'TimeoutConfig',
+    'RetryConfig',
+    'TimingConfig',
+    'BaseScrapingConfig',
     'get_ozon_selectors_config',
     'OzonSelectorsConfig',
-    # 好店筛选配置
-    'GoodStoreSelectorConfig',
-    'get_config'
+    'get_seerfar_selectors',
+    'get_erp_selectors_config',
+    'get_currency_config',
+    'get_language_config',
 ]

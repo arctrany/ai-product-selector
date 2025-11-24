@@ -10,16 +10,15 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional, Union
 from pathlib import Path
 
-from common.models import (
-    ExcelStoreData, StoreInfo, ProductInfo, BatchProcessingResult,
-    StoreAnalysisResult, GoodStoreFlag, StoreStatus, CompetitorStore
-)
-from common.config import GoodStoreSelectorConfig, get_config
+from common.models.excel_models import ExcelStoreData
+from common.models.business_models import StoreInfo, ProductInfo, BatchProcessingResult, StoreAnalysisResult, CompetitorStore
+from common.models.enums import GoodStoreFlag, StoreStatus
+from common.config.base_config import GoodStoreSelectorConfig, get_config
 from common.excel_processor import ExcelStoreProcessor
-from common.scrapers import SeerfarScraper, OzonScraper, ErpPluginScraper
-from business.filter_manager import FilterManager
-from business import ProfitEvaluator, StoreEvaluator
-from common.task_control import TaskExecutionController, TaskControlMixin
+from common.services.scraping_orchestrator import ScrapingOrchestrator, ScrapingMode, get_global_scraping_orchestrator
+from common.business.filter_manager import FilterManager
+from common.business import ProfitEvaluator, StoreEvaluator
+from task_manager.mixins import TaskControlMixin
 # 🔧 用户反馈：移除不必要的图片URL转换功能
 # from utils.url_converter import convert_image_url_to_product_url
 from utils.result_factory import ErrorResultFactory
@@ -30,7 +29,8 @@ class GoodStoreSelector(TaskControlMixin):
     
     def __init__(self, excel_file_path: str, 
                  profit_calculator_path: str,
-                 config: Optional[GoodStoreSelectorConfig] = None):
+                 config: Optional[GoodStoreSelectorConfig] = None,
+                 execution_context: Optional['TaskExecutionContext'] = None):
         """
         初始化好店筛选系统
         
@@ -45,15 +45,16 @@ class GoodStoreSelector(TaskControlMixin):
         self.profit_calculator_path = Path(profit_calculator_path)
         self.logger = logging.getLogger(f"{__name__}.GoodStoreSelector")
         
+        # 执行上下文集成
+        self.execution_context = execution_context
+
         # 初始化组件
         self.excel_processor = None
         self.profit_evaluator = None
         self.store_evaluator = StoreEvaluator(config)
 
-        # 抓取器（延迟初始化）
-        self.seerfar_scraper = None
-        self.ozon_scraper = None
-        self.erp_scraper = None
+        # 🎯 使用ScrapingOrchestrator统一管理所有抓取器
+        self.scraping_orchestrator = None
         
         # 工具类
         self.error_factory = ErrorResultFactory(config)
@@ -193,10 +194,8 @@ class GoodStoreSelector(TaskControlMixin):
             self.excel_processor = ExcelStoreProcessor(self.excel_file_path, self.config)
             # 利润评估器
             self.profit_evaluator = ProfitEvaluator(self.profit_calculator_path, self.config)
-            # 抓取器（使用上下文管理器）
-            self.seerfar_scraper = SeerfarScraper(self.config)
-            self.ozon_scraper = OzonScraper(self.config)
-            self.erp_scraper = ErpPluginScraper(self.config)
+            # 🎯 使用ScrapingOrchestrator统一管理所有抓取器
+            self.scraping_orchestrator = get_global_scraping_orchestrator()
             self.logger.info("所有组件初始化完成")
             
         except Exception as e:
@@ -269,11 +268,14 @@ class GoodStoreSelector(TaskControlMixin):
                 # select-goods 模式：跳过店铺过滤，直接抓取商品
                 self.logger.info(f"select-goods 模式：跳过店铺 {store_data.store_id} 的过滤，直接进行商品选品")
 
-                # 使用统一的 scrape() 接口，不应用店铺过滤
-                result = self.seerfar_scraper.scrape(
-                    store_data.store_id,
+                # 🎯 使用ScrapingOrchestrator进行统一抓取管理
+                # 注意：ScrapingOrchestrator会从store_id构建正确的URL，不需要我们硬编码URL
+                result = self.scraping_orchestrator.scrape_with_orchestration(
+                    mode=ScrapingMode.STORE_ANALYSIS,
+                    url="",  # 空URL，让协调器处理
+                    store_id=store_data.store_id,
                     include_products=True,
-                    max_products=self.config.store_filter.max_products_to_check,
+                    max_products=self.config.selector_filter.max_products_to_check,
                     product_filter_func=filter_manager.get_product_filter_func(),
                     store_filter_func=None  # select-goods 模式不过滤店铺
                 )
@@ -285,9 +287,12 @@ class GoodStoreSelector(TaskControlMixin):
                     status=store_data.status
                 )
             else:
-                # select-shops 模式：使用统一的 scrape() 接口，应用店铺和商品过滤
-                result = self.seerfar_scraper.scrape(
-                    store_data.store_id,
+                # select-shops 模式：🎯 使用ScrapingOrchestrator进行统一抓取管理
+                # 注意：ScrapingOrchestrator会从store_id构建正确的URL，不需要我们硬编码URL
+                result = self.scraping_orchestrator.scrape_with_orchestration(
+                    mode=ScrapingMode.STORE_ANALYSIS,
+                    url="",  # 空URL，让协调器处理
+                    store_id=store_data.store_id,
                     include_products=True,
                     max_products=self.config.selector_filter.max_products_to_check,
                     product_filter_func=filter_manager.get_product_filter_func(),
@@ -416,8 +421,11 @@ class GoodStoreSelector(TaskControlMixin):
                 self.logger.warning(f"商品{product.product_id}缺少产品URL，跳过价格抓取")
                 return
 
-            # 🔧 关键修复：不使用上下文管理器，直接使用已初始化的scraper
-            result = self.ozon_scraper.scrape_product_prices(product.product_url)
+            # 🎯 使用ScrapingOrchestrator进行商品价格抓取
+            result = self.scraping_orchestrator.scrape_with_orchestration(
+                mode=ScrapingMode.PRODUCT_INFO,
+                url=product.product_url
+            )
 
             if result.success:
                 price_data = result.data
@@ -435,8 +443,12 @@ class GoodStoreSelector(TaskControlMixin):
                 self.logger.warning(f"商品{product.product_id}缺少产品URL，跳过ERP数据抓取")
                 return
 
-            # 🔧 关键修复：不使用上下文管理器，直接使用已初始化的scraper
-            result = self.erp_scraper.scrape_product_attributes(product.product_url, product.green_price)
+            # 🎯 使用ScrapingOrchestrator进行ERP数据抓取
+            result = self.scraping_orchestrator.scrape_with_orchestration(
+                mode=ScrapingMode.ERP_DATA,
+                url=product.product_url,
+                price=product.green_price
+            )
 
             if result.success:
                 attributes = result.data
@@ -459,9 +471,10 @@ class GoodStoreSelector(TaskControlMixin):
                     product_result.product_info.image_url):
                     
                     try:
-                        # 🔧 关键修复：不使用上下文管理器，直接使用已初始化的scraper
-                        competitor_result = self.ozon_scraper.scrape_competitor_stores(
-                            product_result.product_info.image_url
+                        # 🎯 使用ScrapingOrchestrator进行跟卖检测
+                        competitor_result = self.scraping_orchestrator.scrape_with_orchestration(
+                            mode=ScrapingMode.COMPETITOR_DETECTION,
+                            url=product_result.product_info.image_url
                         )
 
                         if competitor_result.success:
@@ -551,12 +564,9 @@ class GoodStoreSelector(TaskControlMixin):
                 self.excel_processor.close()
             if self.profit_evaluator:
                 self.profit_evaluator.close()
-            if self.seerfar_scraper:
-                self.seerfar_scraper.close()
-            if self.ozon_scraper:
-                self.ozon_scraper.close()
-            if self.erp_scraper:
-                self.erp_scraper.close()
+            # 🎯 ScrapingOrchestrator会自动管理所有scraper的生命周期
+            if self.scraping_orchestrator:
+                self.scraping_orchestrator.close()
                 
             self.logger.info("组件清理完成")
             
@@ -566,6 +576,66 @@ class GoodStoreSelector(TaskControlMixin):
     def get_processing_statistics(self) -> Dict[str, Any]:
         """获取处理统计信息"""
         return self.processing_stats.copy()
+
+    # 增强的任务控制机制集成
+    def _check_task_control(self, task_point: str) -> bool:
+        """检查任务控制点，集成TaskExecutionContext
+
+        Args:
+            task_point: 任务检查点描述
+
+        Returns:
+            bool: True表示继续执行，False表示需要停止
+        """
+        if self.execution_context:
+            # 使用新的TaskExecutionContext
+            return self.execution_context.check_pause_point()
+        else:
+            # 兼容模式：使用TaskControlMixin的原有功能
+            return super()._check_task_control(task_point)
+
+    def _report_task_progress(self, message: str = "", **kwargs) -> None:
+        """报告任务进度，集成TaskExecutionContext
+
+        Args:
+            message: 进度消息
+            **kwargs: 额外参数（total, current, processed_stores, good_stores等）
+        """
+        if self.execution_context:
+            # 使用新的TaskExecutionContext进行进度报告
+            percentage = kwargs.get('percentage')
+            if percentage is None and 'current' in kwargs and 'total' in kwargs:
+                percentage = (kwargs['current'] / kwargs['total']) * 100 if kwargs['total'] > 0 else 0
+
+            self.execution_context.update_progress(
+                percentage=percentage,
+                current_step=message,
+                processed_items=kwargs.get('current'),
+                total_items=kwargs.get('total')
+            )
+        else:
+            # 兼容模式：使用TaskControlMixin的原有功能
+            percentage = kwargs.get('percentage', 0.0)
+            super()._report_task_progress("good_store_selector", percentage, message)
+
+    def _log_task_message(self, level: str, message: str, store_id: str = "") -> None:
+        """记录任务消息
+
+        Args:
+            level: 日志级别（INFO, SUCCESS, WARNING, ERROR）
+            message: 消息内容
+            store_id: 店铺ID（可选）
+        """
+        full_message = f"[{store_id}] {message}" if store_id else message
+
+        if level == "SUCCESS":
+            self.logger.info(f"✅ {full_message}")
+        elif level == "WARNING":
+            self.logger.warning(f"⚠️ {full_message}")
+        elif level == "ERROR":
+            self.logger.error(f"❌ {full_message}")
+        else:  # INFO
+            self.logger.info(full_message)
 
 
 
@@ -589,10 +659,10 @@ def run_good_store_selection(excel_file_path: str,
     try:
         # 加载配置
         if config_file_path:
-            from common.config import load_config, get_config
+            from common.config.base_config import load_config, get_config
             config = load_config(config_file_path)
         else:
-            from common.config import get_config
+            from common.config.base_config import get_config
             config = get_config()
 
         # 创建选择器并运行

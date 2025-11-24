@@ -21,10 +21,6 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
-# 添加项目根目录到Python路径
-project_root = Path(__file__)
-sys.path.insert(0, str(project_root))
-
 try:
     from cli import UIConfig, AppState, ui_state_manager
     from cli import task_controller

@@ -19,10 +19,10 @@ from common.models.scraping_result import ScrapingResult
 from common.utils.wait_utils import WaitUtils
 from common.utils.scraping_utils import ScrapingUtils
 from common.config.erp_selectors_config import ERPSelectorsConfig, get_erp_selectors_config
-from ..interfaces.scraper_interface import IERPScraper, ScrapingMode, StandardScrapingOptions
-from ..exceptions.scraping_exceptions import ScrapingException, NavigationException, DataExtractionException
+from ..services.scraping_orchestrator import ScrapingMode
+# 异常类导入已移除，使用通用异常处理
 
-class ErpPluginScraper(BaseScraper, IERPScraper):
+class ErpPluginScraper(BaseScraper):
     """
     毛子ERP插件抓取器 - 使用全局浏览器单例
 
@@ -108,22 +108,17 @@ class ErpPluginScraper(BaseScraper, IERPScraper):
         """
         try:
             # 解析选项
-            scraping_options = StandardScrapingOptions(**(options or {}))
+            # StandardScrapingOptions类不存在，直接使用options字典
 
             # 使用内部方法进行抓取
             return self._scrape_comprehensive(
                 product_url=product_url,
                 include_attributes=include_attributes,
-                **scraping_options.to_dict()
+                **(options or {})
             )
 
         except Exception as e:
-            raise DataExtractionException(
-                field_name="erp_data",
-                message=f"ERP数据抓取失败: {str(e)}",
-                context={'product_url': product_url, 'options': options},
-                original_exception=e
-            )
+            raise ValueError(f"ERP数据抓取失败: {str(e)}")
 
     # 标准scrape接口实现
     def scrape(self,
@@ -148,7 +143,7 @@ class ErpPluginScraper(BaseScraper, IERPScraper):
         """
         try:
             # 解析选项
-            scraping_options = StandardScrapingOptions(**(options or {}))
+            # StandardScrapingOptions类不存在，直接使用options字典
 
             # 根据模式选择抓取策略
             if mode == ScrapingMode.ERP_DATA:
@@ -171,12 +166,7 @@ class ErpPluginScraper(BaseScraper, IERPScraper):
                 )
 
         except Exception as e:
-            raise ScrapingException(
-                message=f"抓取失败: {str(e)}",
-                error_code="SCRAPING_FAILED",
-                context={'target': target, 'mode': mode, 'options': options},
-                original_exception=e
-            )
+            raise RuntimeError(f"抓取失败: {str(e)}")
 
     def _scrape_comprehensive(self,
                              product_url: Optional[str] = None,

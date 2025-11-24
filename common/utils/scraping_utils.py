@@ -165,7 +165,7 @@ class ScrapingUtils:
             return None
     
     def extract_data_with_js(self, browser_service, script: str, 
-                           description: str = "数据") -> Any:
+                           description: str = "数据", *args) -> Any:
         """
         使用JavaScript提取数据
         
@@ -182,7 +182,14 @@ class ScrapingUtils:
                 self.logger.error("Browser service not initialized")
                 return None
             
-            result = browser_service.evaluate_sync(script)
+            # 🔧 支持参数传递：如果有参数，创建函数调用格式
+            if args:
+                # 将参数转为JSON字符串数组
+                args_json = [f"'{arg}'" if isinstance(arg, str) else str(arg) for arg in args]
+                script_with_args = f"(function() {{ {script} }})({', '.join(args_json)})"
+                result = browser_service.evaluate_sync(script_with_args)
+            else:
+                result = browser_service.evaluate_sync(script)
             self.logger.debug(f"✅ JavaScript提取{description}成功")
             return result
         except Exception as e:
@@ -284,3 +291,73 @@ def reset_global_scraping_utils():
     """重置全局ScrapingUtils实例"""
     global _scraping_utils_instance
     _scraping_utils_instance = None
+
+
+def clean_price_string(price_str: str, selectors_config=None) -> Optional[float]:
+    """
+    清理价格字符串，提取数值
+
+    Args:
+        price_str: 价格字符串
+        selectors_config: 选择器配置对象，包含货币符号等配置
+
+    Returns:
+        Optional[float]: 提取的价格数值，失败返回None
+    """
+    if not price_str or not isinstance(price_str, str):
+        return None
+
+    # 🔧 修复：支持配置化的货币匹配
+    import re
+
+    # 获取配置，如果没有提供则使用默认配置
+    if selectors_config is None:
+        try:
+            from common.config.ozon_selectors_config import get_ozon_selectors_config
+            selectors_config = get_ozon_selectors_config()
+        except ImportError:
+            # 如果配置不可用，使用基本的清理逻辑
+            cleaned = re.sub(r'[^\d.,]', '', price_str)
+            cleaned = cleaned.replace(',', '.')
+            number_match = re.search(r'(\d+(?:\.\d+)?)', cleaned)
+            if number_match:
+                try:
+                    return float(number_match.group(1))
+                except (ValueError, TypeError):
+                    return None
+            return None
+
+    # 处理价格前缀词，移除前缀词
+    prefix_pattern = '|'.join(re.escape(prefix) for prefix in selectors_config.price_prefix_words)
+    if prefix_pattern:
+        text = re.sub(f'^({prefix_pattern})\\s+', '', price_str, flags=re.IGNORECASE)
+    else:
+        text = price_str
+
+    # 移除货币符号和特殊空格字符
+    # 构建货币符号模式
+    currency_pattern = '|'.join(re.escape(symbol) for symbol in selectors_config.currency_symbols)
+
+    # 构建特殊空格字符模式
+    space_chars = ''.join(selectors_config.special_space_chars)
+
+    # 移除货币符号、特殊空格字符和普通空格
+    if currency_pattern:
+        cleaned = re.sub(f'[{re.escape(space_chars)}\\s]|({currency_pattern})', '', text, flags=re.IGNORECASE)
+    else:
+        cleaned = re.sub(f'[{re.escape(space_chars)}\\s]', '', text)
+
+    # 处理千位分隔符（俄语中使用窄空格作为千位分隔符）
+    cleaned = cleaned.replace(',', '.').replace(' ', '').replace(' ', '')
+
+    # 使用正则表达式提取数字
+    # 匹配数字模式：可能包含小数点
+    number_match = re.search(r'(\d+(?:[.,]\d+)?)', cleaned)
+    if number_match:
+        number_str = number_match.group(1).replace(',', '.')
+        try:
+            return float(number_str)
+        except (ValueError, TypeError):
+            return None
+
+    return None

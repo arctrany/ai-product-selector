@@ -1,58 +1,58 @@
 """
 数据模型包
 
-导出所有数据模型类
+导出所有数据模型类，支持统一的模型访问接口
 """
 
-# 从新的模型定义导入
-from .scraping_result import (
-    ScrapingStatus,
-    CompetitorInfo,
-    CompetitorDetectionResult,
-    ProductScrapingResult
+# 枚举类型
+from .enums import (
+    StoreStatus,
+    GoodStoreFlag
 )
 
-# 从旧模型导入业务相关类
-# 使用相对导入从上级目录的 models.py 文件导入
-import sys
-from pathlib import Path
+# 业务模型
+from .business_models import (
+    StoreInfo,
+    ProductInfo,
+    PriceCalculationResult,
+    CompetitorStore,
+    ProductAnalysisResult,
+    StoreAnalysisResult,
+    BatchProcessingResult
+)
 
-# 获取当前文件的路径
-current_dir = Path(__file__).parent
-# 构建 models.py 文件的路径
-models_py_path = current_dir.parent / "models.py"
+# 抓取模型
+from .scraping_models import (
+    ScrapingResult
+)
 
-# 动态导入 models.py 文件
-if models_py_path.exists():
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("legacy_models", models_py_path)
-    legacy_models = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(legacy_models)
+# Excel模型
+from .excel_models import (
+    ExcelStoreData
+)
 
-    # 重新导出需要的类和函数
-    CompetitorStore = legacy_models.CompetitorStore
-    clean_price_string = legacy_models.clean_price_string
-    ExcelStoreData = legacy_models.ExcelStoreData
-    StoreInfo = legacy_models.StoreInfo
-    ProductInfo = legacy_models.ProductInfo
-    BatchProcessingResult = legacy_models.BatchProcessingResult
-    StoreAnalysisResult = legacy_models.StoreAnalysisResult
-    GoodStoreFlag = legacy_models.GoodStoreFlag
-    StoreStatus = legacy_models.StoreStatus
-    PriceCalculationResult = legacy_models.PriceCalculationResult
-    ProductAnalysisResult = legacy_models.ProductAnalysisResult
+# 异常类
+from .exceptions import (
+    GoodStoreSelectorError,
+    DataValidationError,
+    ScrapingError,
+    CriticalBrowserError,
+    ExcelProcessingError,
+    PriceCalculationError,
+    ConfigurationError
+)
 
-    # 异常类
-    GoodStoreSelectorError = legacy_models.GoodStoreSelectorError
-    DataValidationError = legacy_models.DataValidationError
-    ScrapingError = legacy_models.ScrapingError
-    CriticalBrowserError = legacy_models.CriticalBrowserError
-    ExcelProcessingError = legacy_models.ExcelProcessingError
-    PriceCalculationError = legacy_models.PriceCalculationError
-    ConfigurationError = legacy_models.ConfigurationError
-
-# 重新导出 ScrapingResult 以确保使用新的版本
-from .scraping_result import ScrapingResult
+# 工具函数 - 从新位置导入以保持向后兼容性
+from ..utils.model_utils import (
+    validate_store_id,
+    validate_price,
+    validate_weight,
+    format_currency,
+    calculate_profit_rate
+)
+from ..utils.scraping_utils import (
+    clean_price_string
+)
 
 # 延迟导入 ErrorResultFactory 以避免循环导入
 def get_error_result_factory():
@@ -61,24 +61,21 @@ def get_error_result_factory():
     return ErrorResultFactory
 
 __all__ = [
-    # 新的抓取结果相关类
-    'ScrapingResult',
-    'ScrapingStatus',
-    'CompetitorInfo',
-    'CompetitorDetectionResult',
-    'ProductScrapingResult',
-    # 旧的业务模型类
-    'CompetitorStore',
-    'clean_price_string',
-    'ExcelStoreData',
+    # 枚举类型
+    'StoreStatus',
+    'GoodStoreFlag',
+    # 业务模型类
     'StoreInfo',
     'ProductInfo',
-    'BatchProcessingResult',
-    'StoreAnalysisResult',
-    'GoodStoreFlag',
-    'StoreStatus',
     'PriceCalculationResult',
+    'CompetitorStore',
     'ProductAnalysisResult',
+    'StoreAnalysisResult',
+    'BatchProcessingResult',
+    # 抓取模型
+    'ScrapingResult',
+    # Excel模型
+    'ExcelStoreData',
     # 异常类
     'GoodStoreSelectorError',
     'DataValidationError',
@@ -88,5 +85,11 @@ __all__ = [
     'PriceCalculationError',
     'ConfigurationError',
     # 工具函数
+    'validate_store_id',
+    'validate_price',
+    'validate_weight',
+    'clean_price_string',
+    'format_currency',
+    'calculate_profit_rate',
     'get_error_result_factory'
 ]

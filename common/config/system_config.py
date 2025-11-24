@@ -21,10 +21,6 @@ class LoggingConfig:
 @dataclass
 class PerformanceConfig:
     """性能配置"""
-    # 并发配置
-    max_concurrent_stores: int = 5  # 最大并发处理店铺数
-    max_concurrent_products: int = 10  # 最大并发处理商品数
-    
     # 缓存配置
     enable_cache: bool = True
     cache_ttl: int = 3600  # 缓存过期时间（秒）

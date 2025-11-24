@@ -1,0 +1,1 @@
+{"selector_filter": {"store_min_sales_30days": 100000.0, "store_min_orders_30days": 100}, "selection_mode": "select-goods", "dryrun": false}

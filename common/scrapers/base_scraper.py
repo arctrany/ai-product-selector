@@ -24,11 +24,11 @@ import threading
 import signal
 from typing import Any, Callable, Optional, Dict, List
 from ..models import ScrapingResult
-from ..interfaces.scraper_interface import IScraperInterface, ScrapingMode
+from ..services.scraping_orchestrator import ScrapingMode
 from abc import ABC
 
 
-class BaseScraper(IScraperInterface, ABC):
+class BaseScraper(ABC):
     """
     Scraper 基类 - 完全同步实现
 
@@ -286,15 +286,63 @@ class BaseScraper(IScraperInterface, ABC):
         Returns:
             bool: 是否成功
         """
+        # 🔧 增强日志：记录导航开始
+        self.logger.info(f"📋 步骤 1: 页面导航")
+        self.logger.info(f"🚀 开始导航到: {url}")
+
+        # 🔧 增强验证：记录当前页面状态
+        try:
+            if self.browser_service and hasattr(self.browser_service, 'get_page_url_sync'):
+                current_url = self.browser_service.get_page_url_sync()
+                self.logger.info(f"📍 当前页面: {current_url}")
+            else:
+                self.logger.warning("⚠️ 无法获取当前页面URL")
+        except Exception as e:
+            self.logger.debug(f"获取当前URL失败: {e}")
+
         def _navigate():
             if not self.browser_service:
                 raise RuntimeError("browser_service 未初始化")
+
+            # 🔧 增强日志：调用底层导航方法
+            self.logger.info(f"🔗 调用 browser_service.navigate_to_sync({url}, {wait_until})")
             result = self.browser_service.navigate_to_sync(url, wait_until)
             self.logger.info(f"🔍 navigate_to_sync返回值: {result}")
+
+            # 🔧 增强验证：检查导航后的页面URL
+            if result:
+                try:
+                    final_url = self.browser_service.get_page_url_sync()
+                    self.logger.info(f"✅ 导航成功，最终页面: {final_url}")
+
+                    # 🔧 关键验证：确保导航到了正确的域名
+                    if url and final_url:
+                        import re
+                        # 提取域名进行验证
+                        target_domain = re.search(r'https?://([^/]+)', url)
+                        final_domain = re.search(r'https?://([^/]+)', final_url)
+
+                        if target_domain and final_domain:
+                            target_host = target_domain.group(1)
+                            final_host = final_domain.group(1)
+
+                            if target_host.lower() == final_host.lower():
+                                self.logger.info(f"✅ 域名验证通过: {final_host}")
+                            else:
+                                self.logger.warning(f"⚠️ 域名不匹配 - 目标: {target_host}, 实际: {final_host}")
+                                return False
+                        else:
+                            self.logger.warning(f"⚠️ 无法解析域名 - 目标URL: {url}, 最终URL: {final_url}")
+
+                except Exception as e:
+                    self.logger.warning(f"验证导航结果时出错: {e}")
+            else:
+                self.logger.error(f"❌ navigate_to_sync 返回 False，导航失败")
+
             return result
 
         try:
-            return self.retry_operation(
+            success = self.retry_operation(
                 lambda: self.execute_with_smart_timeout(
                     _navigate,
                     "navigation",
@@ -304,8 +352,19 @@ class BaseScraper(IScraperInterface, ABC):
                 retry_delay=2.0,
                 operation_name=f"导航到{url}"
             )
+
+            if success:
+                self.logger.info(f"🎉 页面导航完成: {url}")
+            else:
+                self.logger.error(f"❌ 页面导航最终失败: {url}")
+
+            return success
+
         except Exception as e:
-            self.logger.error(f"❌ 导航失败: {e}")
+            self.logger.error(f"❌ 导航过程异常: {e}")
+            # 🔧 增强错误报告：提供详细的异常信息
+            import traceback
+            self.logger.debug(f"导航异常详情:\n{traceback.format_exc()}")
             return False
 
     def wait_for_element(self, selector: str, timeout: Optional[float] = None) -> bool:

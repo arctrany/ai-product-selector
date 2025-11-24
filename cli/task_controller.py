@@ -6,7 +6,7 @@
 """
 
 from typing import Dict, Any
-from cli.models import UIConfig
+from .models import UIConfig
 from cli.task_controller_adapter import TaskControllerAdapter
 
 class TaskController:

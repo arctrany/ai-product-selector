@@ -20,6 +20,11 @@ numpy>=1.24.0
 # PyInstaller 打包工具
 pyinstaller>=6.0.0
 
+# 测试框架
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+
 # 异步编程支持 (Python 内置，但确保兼容性)
 # asyncio - 内置模块
 

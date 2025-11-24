@@ -50,16 +50,16 @@ class TaskControlMixin(ABC):
         context = self._get_task_context(task_id)
         current_time = time.perf_counter()
         
+        # 检查是否需要停止（优先检查停止标志，不受检查间隔限制）
+        if context.should_stop:
+            return False
+
         # 确保检查间隔小于1ms
         if current_time - context.last_check_time < context.check_interval:
             return True
-            
+
         context.last_check_time = current_time
-        
-        # 检查是否需要停止
-        if context.should_stop:
-            return False
-            
+
         # 检查是否需要暂停
         if context.should_pause:
             # 等待恢复信号
@@ -67,6 +67,9 @@ class TaskControlMixin(ABC):
                 time.sleep(0.001)  # 1ms 轮询间隔
                 if time.perf_counter() - context.last_check_time > 1.0:  # 每秒至少检查一次
                     context.last_check_time = time.perf_counter()
+                    # 再次检查停止标志
+                    if context.should_stop:
+                        return False
                     
         return not context.should_stop
         

@@ -27,8 +27,6 @@ class SelectorFilterConfig:
 
     # 商品级别过滤：类目黑名单配置
     item_category_blacklist: List[str] = field(default_factory=lambda: [
-        "成人用品", "情趣用品", "医疗器械", "处方药", "烟草制品",
-        "危险化学品", "易燃易爆物品", "武器装备", "赌博用具"
     ])  # 商品类目黑名单列表
 
 
@@ -70,26 +68,4 @@ class ExcelConfig:
     skip_empty_rows: bool = True  # 跳过空行
 
 
-@dataclass
-class LoggingConfig:
-    """日志配置"""
-    log_level: str = "INFO"
-    log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    log_file: Optional[str] = None  # 日志文件路径，None表示只输出到控制台
-    max_log_file_size: int = 10 * 1024 * 1024  # 最大日志文件大小（字节）
-    backup_count: int = 5  # 日志文件备份数量
 
-
-@dataclass
-class PerformanceConfig:
-    """性能配置"""
-    # 并发配置
-    max_concurrent_stores: int = 5  # 最大并发处理店铺数
-    max_concurrent_products: int = 10  # 最大并发处理商品数
-    
-    # 缓存配置
-    enable_cache: bool = True
-    cache_ttl: int = 3600  # 缓存过期时间（秒）
-    
-    # 批处理配置
-    batch_size: int = 100  # 批处理大小

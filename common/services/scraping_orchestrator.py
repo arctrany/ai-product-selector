@@ -180,6 +180,13 @@ class ScrapingOrchestrator:
             ScrapingResult: 抓取结果
         """
         start_time = time.time()
+        # 确保mode是ScrapingMode枚举类型，如果是字符串则转换
+        if isinstance(mode, str):
+            try:
+                mode = ScrapingMode(mode)
+            except ValueError:
+                raise ValueError(f"不支持的抓取模式字符串: {mode}")
+
         operation_id = f"{mode.value}_{int(start_time)}"
         
         try:
@@ -243,23 +250,32 @@ class ScrapingOrchestrator:
         try:
             self.logger.info("🔧 执行店铺分析抓取...")
             
-            # 提取店铺ID
+            # 🔧 修复：优先使用传入的store_id参数，避免依赖不存在的extract_id_from_url方法
             store_id = kwargs.get('store_id')
-            if not store_id:
-                # 尝试从URL提取
-                store_id = self.scraping_utils.extract_id_from_url(url)
-                
             if not store_id:
                 return ScrapingResult(
                     success=False,
                     data={},
-                    error_message="无法提取店铺ID"
+                    error_message="缺少必需的store_id参数"
                 )
+
+            self.logger.info(f"🎯 使用店铺ID进行分析: {store_id}")
             
-            # 使用SeerfarScraper进行店铺销售数据抓取
+            # 🔧 修复：使用完整的scrape方法，支持include_products参数
+            # 获取传入的参数
+            include_products = kwargs.get('include_products', False)
+            max_products = kwargs.get('max_products')
+            product_filter_func = kwargs.get('product_filter_func')
             store_filter_func = kwargs.get('store_filter_func')
-            result = self.seerfar_scraper.scrape_store_sales_data(
-                store_id, 
+
+            self.logger.info(f"📋 店铺分析参数: include_products={include_products}, max_products={max_products}")
+
+            # 使用SeerfarScraper的完整scrape方法，支持销售数据+商品列表
+            result = self.seerfar_scraper.scrape(
+                store_id=store_id,
+                include_products=include_products,
+                max_products=max_products,
+                product_filter_func=product_filter_func,
                 store_filter_func=store_filter_func
             )
             
@@ -403,62 +419,62 @@ class ScrapingOrchestrator:
             self.logger.error(f"全量分析协调失败: {e}")
             raise
     
-    def execute_with_retry(self, 
-                          operation: callable,
-                          operation_name: str,
-                          *args, **kwargs) -> ScrapingResult:
-        """
-        带重试机制的操作执行
-        
-        Args:
-            operation: 要执行的操作
-            operation_name: 操作名称（用于日志）
-            *args, **kwargs: 操作参数
-            
-        Returns:
-            ScrapingResult: 执行结果
-        """
-        start_time = time.time()
-        
-        for attempt in range(self.config.max_retries + 1):
-            try:
-                if attempt > 0:
-                    self.logger.info(f"🔄 {operation_name} 重试第 {attempt} 次...")
-                    self._update_metrics('retry_count', 1)
-                    time.sleep(self.config.retry_delay_seconds)
-                
-                result = operation(*args, **kwargs)
-                
-                if result.success:
-                    if attempt > 0:
-                        self.logger.info(f"✅ {operation_name} 重试成功")
-                    return result
-                else:
-                    if attempt < self.config.max_retries:
-                        self.logger.warning(f"⚠️ {operation_name} 第 {attempt + 1} 次失败，准备重试: {result.error_message}")
-                    else:
-                        self.logger.error(f"❌ {operation_name} 所有重试失败: {result.error_message}")
-                        return result
-                        
-            except Exception as e:
-                if attempt < self.config.max_retries:
-                    self.logger.warning(f"⚠️ {operation_name} 第 {attempt + 1} 次异常，准备重试: {e}")
-                else:
-                    self.logger.error(f"❌ {operation_name} 所有重试异常: {e}")
-                    return ScrapingResult(
-                        success=False,
-                        data={},
-                        error_message=str(e),
-                        execution_time=time.time() - start_time
-                    )
-        
-        # 理论上不会到达这里，但为了安全性
-        return ScrapingResult(
-            success=False,
-            data={},
-            error_message=f"{operation_name}执行失败",
-            execution_time=time.time() - start_time
-        )
+    # def execute_with_retry(self,
+    #                       operation: callable,
+    #                       operation_name: str,
+    #                       *args, **kwargs) -> ScrapingResult:
+    #     """
+    #     带重试机制的操作执行
+    #
+    #     Args:
+    #         operation: 要执行的操作
+    #         operation_name: 操作名称（用于日志）
+    #         *args, **kwargs: 操作参数
+    #
+    #     Returns:
+    #         ScrapingResult: 执行结果
+    #     """
+    #     start_time = time.time()
+    #
+    #     for attempt in range(self.config.max_retries + 1):
+    #         try:
+    #             if attempt > 0:
+    #                 self.logger.info(f"🔄 {operation_name} 重试第 {attempt} 次...")
+    #                 self._update_metrics('retry_count', 1)
+    #                 time.sleep(self.config.retry_delay_seconds)
+    #
+    #             result = operation(*args, **kwargs)
+    #
+    #             if result.success:
+    #                 if attempt > 0:
+    #                     self.logger.info(f"✅ {operation_name} 重试成功")
+    #                 return result
+    #             else:
+    #                 if attempt < self.config.max_retries:
+    #                     self.logger.warning(f"⚠️ {operation_name} 第 {attempt + 1} 次失败，准备重试: {result.error_message}")
+    #                 else:
+    #                     self.logger.error(f"❌ {operation_name} 所有重试失败: {result.error_message}")
+    #                     return result
+    #
+    #         except Exception as e:
+    #             if attempt < self.config.max_retries:
+    #                 self.logger.warning(f"⚠️ {operation_name} 第 {attempt + 1} 次异常，准备重试: {e}")
+    #             else:
+    #                 self.logger.error(f"❌ {operation_name} 所有重试异常: {e}")
+    #                 return ScrapingResult(
+    #                     success=False,
+    #                     data={},
+    #                     error_message=str(e),
+    #                     execution_time=time.time() - start_time
+    #                 )
+    #
+    #     # 理论上不会到达这里，但为了安全性
+    #     return ScrapingResult(
+    #         success=False,
+    #         data={},
+    #         error_message=f"{operation_name}执行失败",
+    #         execution_time=time.time() - start_time
+    #     )
     
     def get_scraper_by_type(self, scraper_type: str):
         """

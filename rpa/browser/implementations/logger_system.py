@@ -19,6 +19,18 @@ from datetime import datetime
 from enum import Enum
 import traceback
 
+# 模块级变量，用于跟踪Python是否正在关闭
+_python_shutting_down = False
+
+def _set_shutting_down():
+    """标记Python正在关闭"""
+    global _python_shutting_down
+    _python_shutting_down = True
+
+# 注册关闭回调
+import atexit
+atexit.register(_set_shutting_down)
+
 from ..core.exceptions.browser_exceptions import BrowserError
 
 
@@ -365,8 +377,8 @@ class StructuredLogger:
             'level': level,
             'logger': self.name,
             'msg': message,  # 使用 'msg' 而不是 'message' 避免冲突
-            'thread_id': threading.current_thread().ident if 'threading' in sys.modules else None,
-            'process_id': os.getpid() if 'os' in sys.modules else None
+            'thread_id': threading.current_thread().ident if 'threading' in sys.modules and sys.meta_path is not None else None,
+            'process_id': os.getpid() if 'os' in sys.modules and sys.meta_path is not None else None
         }
         
         # 添加上下文信息
@@ -397,6 +409,13 @@ class StructuredLogger:
 
     def debug(self, message: str, **kwargs):
         """输出DEBUG级别日志"""
+        # 检查是否在Python关闭阶段
+        global _python_shutting_down
+        if _python_shutting_down or sys.meta_path is None:
+            # 在关闭阶段，直接使用print输出关键信息
+            print(f"DEBUG: {message}")
+            return
+
         # 创建包含上下文的额外信息
         extra_info = {}
         if self.context:
@@ -416,6 +435,13 @@ class StructuredLogger:
 
     def info(self, message: str, **kwargs):
         """输出INFO级别日志"""
+        # 检查是否在Python关闭阶段
+        global _python_shutting_down
+        if _python_shutting_down or sys.meta_path is None:
+            # 在关闭阶段，直接使用print输出关键信息
+            print(f"INFO: {message}")
+            return
+
         # 创建包含上下文的额外信息
         extra_info = {}
         if self.context:
@@ -435,6 +461,13 @@ class StructuredLogger:
 
     def warning(self, message: str, **kwargs):
         """输出WARNING级别日志"""
+        # 检查是否在Python关闭阶段
+        global _python_shutting_down
+        if _python_shutting_down or sys.meta_path is None:
+            # 在关闭阶段，直接使用print输出关键信息
+            print(f"WARNING: {message}")
+            return
+
         # 创建包含上下文的额外信息
         extra_info = {}
         if self.context:
@@ -454,6 +487,15 @@ class StructuredLogger:
 
     def error(self, message: str, exception: Optional[Exception] = None, **kwargs):
         """输出ERROR级别日志"""
+        # 检查是否在Python关闭阶段
+        if sys.meta_path is None:
+            # 在关闭阶段，直接使用print输出关键信息
+            error_message = message
+            if exception:
+                error_message = f"{message} - Exception: {str(exception)}"
+            print(f"ERROR: {error_message}")
+            return
+
         # 创建包含上下文的额外信息
         extra_info = {}
         if self.context:
@@ -479,6 +521,16 @@ class StructuredLogger:
 
     def critical(self, message: str, exception: Optional[Exception] = None, **kwargs):
         """输出CRITICAL级别日志"""
+        # 检查是否在Python关闭阶段
+        global _python_shutting_down
+        if _python_shutting_down or sys.meta_path is None:
+            # 在关闭阶段，直接使用print输出关键信息
+            critical_message = message
+            if exception:
+                critical_message = f"{message} - Exception: {str(exception)}"
+            print(f"CRITICAL: {critical_message}")
+            return
+
         # 创建包含上下文的额外信息
         extra_info = {}
         if self.context:
@@ -589,25 +641,57 @@ class StructuredFormatter(logging.Formatter):
         self.console = console
 
     def format(self, record):
-        # 基础信息
-        timestamp = datetime.fromtimestamp(record.created).strftime('%Y-%m-%d %H:%M:%S')
-        
-        if self.console:
-            # 控制台输出：简洁格式
-            base_msg = f"{timestamp} - {record.levelname} - {record.getMessage()}"
-        else:
-            # 文件输出：详细格式
-            base_msg = f"{timestamp} - {record.name} - {record.levelname} - {record.filename}:{record.lineno} - {record.getMessage()}"
-        
-        # 添加结构化信息
-        if hasattr(record, 'extra') and record.extra:
-            extra_info = []
-            for key, value in record.extra.items():
-                if key not in ['timestamp', 'level', 'logger', 'message']:
-                    extra_info.append(f"{key}={value}")
-            
-            if extra_info:
-                base_msg += f" [{', '.join(extra_info)}]"
+        # 检查Python是否正在关闭
+        global _python_shutting_down
+        if _python_shutting_down or sys.meta_path is None:
+            # Python关闭阶段：使用简化的格式化
+            try:
+                message = record.getMessage() if hasattr(record, 'getMessage') else str(record.msg)
+                return f"[SHUTDOWN] {record.levelname}: {message}"
+            except:
+                # 极端情况下的最简格式
+                return f"[SHUTDOWN] LOG: {getattr(record, 'msg', 'Unknown message')}"
+
+        try:
+            # 基础信息 - 添加异常处理
+            timestamp = datetime.fromtimestamp(record.created).strftime('%Y-%m-%d %H:%M:%S')
+        except (ImportError, AttributeError, OSError):
+            # 如果时间格式化失败，使用简单的时间戳
+            timestamp = str(getattr(record, 'created', 'Unknown'))
+
+        try:
+            # 安全获取消息内容
+            try:
+                message = record.getMessage()
+            except:
+                # 如果getMessage失败，尝试直接获取msg
+                message = str(getattr(record, 'msg', 'Unknown message'))
+
+            if self.console:
+                # 控制台输出：简洁格式
+                base_msg = f"{timestamp} - {record.levelname} - {message}"
+            else:
+                # 文件输出：详细格式
+                base_msg = f"{timestamp} - {record.name} - {record.levelname} - {record.filename}:{record.lineno} - {message}"
+        except (ImportError, AttributeError):
+            # 降级处理：最基本的格式
+            level = getattr(record, 'levelname', 'UNKNOWN')
+            msg = str(getattr(record, 'msg', 'Unknown message'))
+            base_msg = f"{timestamp} - {level} - {msg}"
+
+        try:
+            # 添加结构化信息
+            if hasattr(record, 'extra') and record.extra:
+                extra_info = []
+                for key, value in record.extra.items():
+                    if key not in ['timestamp', 'level', 'logger', 'message']:
+                        extra_info.append(f"{key}={value}")
+
+                if extra_info:
+                    base_msg += f" [{', '.join(extra_info)}]"
+        except (ImportError, AttributeError):
+            # 如果添加额外信息失败，返回基本消息
+            pass
         
         return base_msg
 

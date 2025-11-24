@@ -63,6 +63,19 @@ class TaskConfig:
     auto_cleanup: bool = True            # 是否自动清理
     metadata: Dict[str, Any] = field(default_factory=dict)  # 元数据
 
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            "timeout": self.timeout,
+            "retry_count": self.retry_count,
+            "priority": self.priority,
+            "max_concurrent": self.max_concurrent,
+            "thread_safe": self.thread_safe,
+            "allow_pause": self.allow_pause,
+            "auto_cleanup": self.auto_cleanup,
+            "metadata": self.metadata
+        }
+
 
 @dataclass
 class TaskInfo:

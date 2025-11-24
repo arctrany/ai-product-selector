@@ -15,6 +15,10 @@ target/
 .settings/
 .project
 .classpath
+.iflow
+IFLOW.md
+Input
+.qorder
 dist/*
 # OS
 .DS_Store
@@ -155,6 +159,7 @@ application-local.properties
 *.tar.gz
 *.rar
 
+
 # JVM Crash logs
 hs_err_pid*
 
@@ -167,3 +172,5 @@ Icon?
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+logs

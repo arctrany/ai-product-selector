@@ -137,7 +137,7 @@ class TestTaskNotFoundError:
         assert error.message == expected_message
         assert error.task_id == task_id
         assert error.cause is None
-        assert str(error) == expected_message
+        assert str(error) == f"Task {task_id}: {expected_message}"
 
     def test_inheritance(self):
         """测试继承关系"""
@@ -184,7 +184,7 @@ class TestTaskTimeoutError:
         assert error.message == expected_message
         assert error.task_id == task_id
         assert error.cause is None
-        assert str(error) == expected_message
+        assert str(error) == f"Task {task_id}: {expected_message}"
 
     def test_initialization_with_task_id_only(self):
         """测试仅带任务ID的初始化"""
@@ -194,7 +194,7 @@ class TestTaskTimeoutError:
         expected_message = "Task execution timeout"
         assert error.message == expected_message
         assert error.task_id == task_id
-        assert str(error) == expected_message
+        assert str(error) == f"Task {task_id}: {expected_message}"
 
     def test_initialization_without_parameters(self):
         """测试不带参数的初始化"""
@@ -272,7 +272,7 @@ class TestExceptionUsage:
                 function_that_raises_base()
             except TaskManagerError as e:
                 # 重新抛出为更具体的异常
-                raise TaskCreationError(f"Creation failed: {e.message}", task_id=e.task_id) from e
+                raise TaskCreationError(f"Creation failed: {e.message}", task_id=e.task_id, cause=e)
         
         with pytest.raises(TaskCreationError) as exc_info:
             function_that_catches()

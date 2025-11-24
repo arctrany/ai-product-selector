@@ -9,6 +9,10 @@ from typing import Dict, Any, Optional
 from task_manager.controllers import TaskManager
 from task_manager.interfaces import ITaskEventListener, TaskInfo, TaskStatus
 from cli.models import UIConfig, AppState, ui_state_manager, LogLevel
+import os
+import json
+from datetime import datetime
+from enum import Enum
 
 class TaskControllerAdapter(ITaskEventListener):
     """TaskController适配器类"""
@@ -35,35 +39,7 @@ class TaskControllerAdapter(ITaskEventListener):
             def task_function():
                 from good_store_selector import GoodStoreSelector
                 from common.config.base_config import GoodStoreSelectorConfig
-                from cli.task_control import TaskExecutionController
-                
-                # 创建任务执行控制器
-                task_execution_controller = TaskExecutionController()
-                
-                # 设置进度和日志回调
-                def progress_callback(step_name: str, progress_data: Dict[str, Any]):
-                    ui_state_manager.update_progress(
-                        current_step=step_name,
-                        total_stores=progress_data.get('total', 0),
-                        processed_stores=progress_data.get('current', 0),
-                        good_stores=progress_data.get('good_stores', 0),
-                        current_store=progress_data.get('current_store', ''),
-                        percentage=progress_data.get('percentage', 0.0)
-                    )
 
-                def log_callback(level: str, message: str, context: str = None):
-                    log_level = LogLevel.INFO
-                    if level == "ERROR":
-                        log_level = LogLevel.ERROR
-                    elif level == "WARNING":
-                        log_level = LogLevel.WARNING
-                    elif level == "SUCCESS":
-                        log_level = LogLevel.SUCCESS
-                    ui_state_manager.add_log(log_level, message)
-                
-                task_execution_controller.set_progress_callback(progress_callback)
-                task_execution_controller.set_log_callback(log_callback)
-                
                 # 创建选择器实例
                 selector_config = GoodStoreSelectorConfig()
                 selector_config.dryrun = config.dryrun
@@ -72,9 +48,6 @@ class TaskControllerAdapter(ITaskEventListener):
                     profit_calculator_path=config.margin_calculator,
                     config=selector_config
                 )
-                
-                # 设置任务控制器到选择器
-                selector.set_task_controller(task_execution_controller)
                 
                 # 执行选评任务
                 result = selector.process_stores()

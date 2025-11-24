@@ -61,86 +61,100 @@ AI选品自动化系统是一个跨境电商选品工具，专注于OZON等俄�
 - **跨平台兼容**: 支持 Windows、Linux、macOS 三大操作系统
 - **配置驱动**: 所有选择器、关键字、路径通过配置文件管理
 
-### 🏗️ 分层架构原则 (重构后统一架构)
+### 🏗️ 分层架构原则 (重构后统一模块化架构)
 
-#### **工具层 (Utils Layer)**
-**职责**: 提供可复用的工具类和辅助函数
-- **WaitUtils** (`common/utils/wait_utils.py`): 统一时序控制
-  - 显式等待替代硬编码 `time.sleep()`
-  - 元素可见性/可点击性等待
-  - URL变化检测、条件等待
-- **ScrapingUtils** (`common/utils/scraping_utils.py`): 统一数据提取
-  - 价格提取和验证
-  - 文本清理和规范化
-  - URL处理和ID提取
-  - 结构化数据提取
+#### 🎯 **数据模型层 (Data Model Layer)** - **新架构**
+**位置**: `common/models/`  
+**职责**: 标准化数据传输对象和业务实体定义
 
-**设计原则**:
-- 无状态设计，纯函数式工具方法
-- 高度可复用，所有Scraper共享
-- 消除重复逻辑，统一实现标准
-
-#### **抓取层 (Scraping Layer)**
-**职责**: 页面交互和原始数据获取
-- **BaseScraper**: 所有Scraper的基类，提供通用功能
-- **SeerfarScraper**: Seerfar平台店铺和商品数据抓取
-- **OzonScraper**: OZON平台商品价格信息抓取
-- **CompetitorScraper**: 跟卖店铺数据抓取
-- **ErpPluginScraper**: ERP插件区域数据抓取
+**核心组件**:
+- **业务模型** (`business_models.py`): 店铺、商品、价格计算等核心业务实体
+- **抓取模型** (`scraping_models.py`): 统一抓取结果和跟卖检测结果
+- **Excel模型** (`excel_models.py`): Excel处理和验证结果
+- **系统枚举** (`enums.py`): 抓取状态、筛选类型、店铺类型
+- **异常定义** (`exceptions.py`): 抓取异常、验证异常
 
 **设计原则**:
-- 单一职责：每个Scraper专注特定平台或功能
-- 职责分离：只负责数据抓取，不做业务逻辑计算
-- 统一工具：必须使用WaitUtils和ScrapingUtils
-- 标准接口：统一的方法签名和返回格式（ScrapingResult）
+- **类型安全**: 使用dataclass和完整类型注解
+- **标准化**: 所有模块使用统一数据格式
+- **可扩展**: 支持metadata字段和继承扩展
+- **向后兼容**: `__init__.py`保持原有导入接口
 
-#### **服务层 (Service Layer)**
-**职责**: 独立的业务服务和跨Scraper功能
-- **CompetitorDetectionService** (`common/services/`): 独立的跟卖检测服务
-  - 跟卖区域检测
-  - 跟卖数据提取
-  - 价格比较分析
+#### ⚙️ **配置管理层 (Config Layer)** - **新架构**
+**位置**: `common/config/`  
+**职责**: 分层的配置管理体系
+
+**核心组件**:
+- **基础配置** (`base_config.py`): 系统主配置和抓取配置基类
+- **系统配置** (`system_config.py`): 日志、性能等技术配置
+- **业务配置** (`business_config.py`): 筛选、价格等业务配置
+- **平台配置**: OZON、Seerfar、ERP等平台特定选择器配置
 
 **设计原则**:
-- 服务独立性：可被多个Scraper调用
-- 业务封装：封装复杂的业务逻辑
-- 统一接口：返回标准数据模型
+- **配置继承**: 所有配置继承BaseScrapingConfig
+- **职责分离**: 技术配置与业务配置分离
+- **统一接口**: `get_selector()`, `get_selectors()`, `validate()`
+- **集中管理**: 避免配置分散，支持环境特定覆盖
 
-#### **业务层 (Business Layer)**
+#### 🛠️ **工具函数层 (Utils Layer)** - **增强**
+**位置**: `common/utils/`  
+**职责**: 可复用的工具类和辅助函数
+
+**核心组件**:
+- **模型工具** (`model_utils.py` - **新增**): 数据验证、格式化、利润计算
+- **抓取工具** (`scraping_utils.py` - **增强**): 价格提取、文本清理、ID提取
+- **时序工具** (`wait_utils.py`): 显式等待、条件等待、URL变化检测
+
+**设计原则**:
+- **无状态设计**: 纯函数式工具方法
+- **高度复用**: 所有Scraper和业务模块共享
+- **消除重复**: 统一实现标准，避免重复逻辑
+
+#### 🔧 **业务逻辑层 (Business Layer)**
+**位置**: `common/business/`  
 **职责**: 业务规则计算和数据处理
-- **FilterManager** (`business/filter_manager.py`): 店铺和商品过滤
-- **PricingCalculator** (`common/business/pricing_calculator.py`): 价格计算
-- **ProfitEvaluator** (`common/business/profit_evaluator.py`): 利润评估
-- **StoreEvaluator** (`common/business/store_evaluator.py`): 店铺评估
+
+**核心组件**:
+- **价格计算器** (`pricing_calculator.py`): 绿标黑标价格、佣金、汇率转换
+- **利润评估器** (`profit_evaluator.py`): 综合利润计算和分析
+- **店铺评估器** (`store_evaluator.py`): 店铺质量评分和筛选
+- **货源匹配器** (`source_matcher.py`): 货源匹配和价格对比
 
 **设计原则**:
-- 业务逻辑集中管理
-- 与数据抓取层解耦
-- 可独立测试和复用
+- **业务逻辑集中**: 核心计算逻辑统一管理
+- **与抓取解耦**: 独立于数据来源，可独立测试
+- **流程注入**: 通过xp_flow注入到抓取流程
 
-#### **配置层 (Config Layer)**
-**职责**: 统一配置管理
-- **BaseScrapingConfig**: 所有Scraper配置的基类
-- **OzonSelectorsConfig**: OZON选择器配置
-- **SeerfarSelectors**: Seerfar选择器配置
-- **ERPSelectorsConfig**: ERP选择器配置
+#### 🕷️ **数据抓取层 (Scraping Layer)**
+**位置**: `common/scrapers/`  
+**职责**: 平台特定的页面交互和原始数据获取
 
-**设计原则**:
-- 配置继承：所有配置继承BaseScrapingConfig
-- 统一接口：`get_selector()`, `get_selectors()`, `validate()`
-- 集中管理：避免配置分散和重复
-
-#### **数据模型层 (Data Model Layer)**
-**职责**: 标准数据传输对象
-- **ScrapingResult**: 统一抓取结果格式
-- **CompetitorInfo**: 跟卖店铺信息
-- **CompetitorDetectionResult**: 跟卖检测结果
-- **ProductScrapingResult**: 商品抓取结果
+**核心组件**:
+- **Seerfar抓取器**: 店铺和商品信息抓取
+- **OZON抓取器**: 商详信息和价格数据抓取  
+- **竞争对手抓取器**: 跟卖店铺数据抓取
+- **ERP插件抓取器**: 采购价格和供应链信息
+- **选评浏览器服务**: 专用浏览器服务实现
 
 **设计原则**:
-- 类型安全：使用dataclass和类型注解
-- 标准化：所有Scraper使用统一数据格式
-- 可扩展：支持metadata字段扩展
+- **单一职责**: 每个Scraper专注特定平台或功能
+- **职责分离**: 只负责数据抓取，不做业务计算
+- **统一工具**: 必须使用Utils层工具函数
+- **标准接口**: 统一方法签名和返回格式
+
+#### 🤖 **基础设施层 (Infrastructure Layer)**
+**位置**: `rpa/`  
+**职责**: 浏览器自动化和页面操作能力
+
+**核心组件**:
+- **浏览器服务**: 生命周期管理、共享实例、配置管理
+- **抽象接口**: 驱动、分析器、分页器接口定义
+- **具体实现**: Playwright驱动、DOM分析、通用分页
+
+**设计原则**:
+- **接口抽象**: 通过接口实现依赖倒置
+- **实现解耦**: 支持多种浏览器引擎
+- **资源管理**: 浏览器实例复用和内存优化
 
 
 ### 跨平台兼容性规范
@@ -302,8 +316,16 @@ AI选品自动化系统是一个跨境电商选品工具，专注于OZON等俄�
 
 ## 模块架构
 
-### 📁 CLI模块 (`cli/`)
+### 📁 CLI模块 (`cli/`) - **分层架构优化**
 **职责**: 命令行界面和用户交互层
+
+#### 🎛️ **CLI配置层** (`cli/config/`) - **新增**
+**职责**: CLI层专属配置管理
+- **`user_config.py`**: CLI用户配置
+  - `CLIConfig`: CLI特定配置
+  - 用户交互设置和偏好管理
+
+#### 📱 **CLI核心组件**
 - **`main.py`**: CLI应用主入口，命令解析和分发
 - **`models.py`**: UI数据模型和状态管理
   - `AppState`: 应用状态枚举 (IDLE, RUNNING, PAUSED, COMPLETED, ERROR)
@@ -311,11 +333,75 @@ AI选品自动化系统是一个跨境电商选品工具，专注于OZON等俄�
   - `ProgressInfo`: 进度跟踪信息
   - `UIStateManager`: 全局状态管理器，支持事件订阅
 - **`task_controller.py`**: 任务控制器，管理任务生命周期
+- **`task_control.py`**: **迁移**任务执行控制接口 *(从common迁移)*
 - **`preset_manager.py`**: 配置预设管理
 - **`log_manager.py`**: 日志管理和导出功能
 
-### 📁 Common模块 (`common/`)
-**职责**: 核心业务逻辑和数据处理
+#### 🔄 **架构分层优化**
+- **清晰职责分离**: CLI层只负责用户交互，不处理业务逻辑
+- **配置独立管理**: CLI配置与业务配置分离
+- **依赖关系优化**: CLI → Common → RPA 的清晰分层
+
+### 📁 Common模块 (`common/`) - **重构后统一模块化架构**
+**职责**: 核心业务逻辑和数据处理，采用完全模块化设计
+
+#### 🎯 **数据模型层** (`common/models/`) - **新架构**
+**职责**: 统一的数据传输对象和业务实体定义
+- **`enums.py`**: 系统枚举定义
+  - `ScrapingStatus`: 抓取状态 (SUCCESS, FAILED, PARTIAL, TIMEOUT, ERROR)
+  - `FilterType`: 筛选类型
+  - `StoreType`: 店铺类型
+- **`business_models.py`**: 业务领域模型
+  - `StoreInfo`: 店铺基础信息和状态
+  - `CompetitorStore`: 跟卖店铺信息
+  - `ProductInfo`: 商品信息和价格数据
+  - `PriceCalculationResult`: 价格计算结果
+- **`scraping_models.py`**: 抓取相关模型
+  - `ScrapingResult`: 统一抓取结果格式
+  - `CompetitorDetectionResult`: 跟卖检测结果
+  - `ProductScrapingResult`: 商品抓取结果扩展
+- **`excel_models.py`**: Excel处理模型
+  - `ExcelProcessingResult`: Excel处理结果
+  - `ExcelValidationError`: Excel验证错误
+- **`exceptions.py`**: 自定义异常类
+  - `ScrapingException`: 抓取异常基类
+  - `ValidationException`: 数据验证异常
+- **`__init__.py`**: **向后兼容性导出**
+  - 保持原有导入路径的兼容性
+  - 统一模型导出接口
+
+#### ⚙️ **配置管理层** (`common/config/`) - **新架构**
+**职责**: 分层的配置管理体系
+- **`base_config.py`**: 配置基类和主配置
+  - `GoodStoreSelectorConfig`: 主系统配置
+  - `BaseScrapingConfig`: 抓取配置基类
+- **`system_config.py`**: 系统技术配置
+  - `LoggingConfig`: 日志系统配置
+  - `PerformanceConfig`: 性能配置
+- **`business_config.py`**: 业务配置
+  - `FilterConfig`: 筛选条件配置
+  - `PriceConfig`: 价格计算配置
+- **平台选择器配置**:
+  - `ozon_selectors_config.py`: OZON选择器配置
+  - `seerfar_selectors.py`: Seerfar选择器配置
+  - `erp_selectors_config.py`: ERP选择器配置
+- **`__init__.py`**: **向后兼容性导出**
+  - 保持原有配置导入的兼容性
+  - 统一配置接口
+
+#### 🛠️ **工具函数层** (`common/utils/`) - **新架构**
+**职责**: 可复用的工具类和辅助函数
+- **`model_utils.py`**: **新增**模型相关工具
+  - `validate_store_id()`: 店铺ID验证
+  - `validate_price()`: 价格数据验证  
+  - `format_currency()`: 货币格式化
+  - `calculate_profit_rate()`: 利润率计算
+- **`scraping_utils.py`**: **增强**抓取工具函数
+  - `clean_price_string()`: **迁移**价格字符串清理
+  - 统一数据提取和验证功能
+  - URL处理和ID提取
+- **`wait_utils.py`**: 时序控制工具
+- **其他现有工具保持不变**
 
 #### 🔧 业务逻辑子模块 (`common/business/`)
 **职责**: 具体的业务逻辑，包括规则计算、价格计算等，提供各种函数可以通过xp_flow注入到各个数据抓取流程中
@@ -354,16 +440,19 @@ AI选品自动化系统是一个跨境电商选品工具，专注于OZON等俄�
 - **职责分离**: 抓取器不负责业务逻辑计算，只负责数据获取和返回
 - **标准化接口**: 所有抓取器遵循统一的接口规范
 
-#### 📊 数据模型和配置
-- **`models.py`**: 核心数据模型定义
-  - `StoreInfo`: 店铺基础信息和状态
-  - `ProductInfo`: 商品信息和价格数据
-  - `PriceCalculationResult`: 价格计算结果
-  - `CompetitorStore`: 跟卖店铺信息
-  - `BatchProcessingResult`: 批量处理结果
-- **`config.py`**: 系统配置管理
-- **`excel_processor.py`**: Excel文件处理
-- **`task_control.py`**: 任务控制和状态管理
+#### 🚨 **向后兼容性保证**
+- **`logging_config.py`**: **重新创建**兼容性日志模块
+  - 提供原有的 `xuanping_logger`、`setup_logging`、`get_logger` 接口
+  - 内部重定向到新的RPA日志系统
+  - 保持CLI模块的无缝迁移
+- **已废弃的旧文件** (**已安全删除**):
+  - ~~`models.py`~~ → 迁移到 `models/` 目录
+  - ~~`config.py`~~ → 迁移到 `config/` 目录
+  - ~~原 `logging_config.py`~~ → 重新创建兼容版本
+
+#### 📊 其他核心组件
+- **`excel_processor.py`**: Excel文件处理 *(保持不变)*
+- **`task_control.py`**: 任务控制和状态管理 *(保持不变)*
 
 ### 🤖 RPA模块 (`rpa/`)
 **职责**: 浏览器自动化和页面操作
@@ -404,27 +493,80 @@ AI选品自动化系统是一个跨境电商选品工具，专注于OZON等俄�
 - **性能测试**: 关键路径性能验证
 - **真实场景测试**: 基于实际数据的端到端测试
 
-## 模块依赖关系
+## 模块依赖关系 - **重构后清晰分层架构**
 
 ```
-┌─────────────┐    ┌──────────────┐    ┌─────────────┐
-│   CLI模块   │───▶│  Common模块  │───▶│   RPA模块   │
-│             │    │              │    │             │
-│ • 用户界面  │    │ • 业务逻辑   │    │ • 浏览器    │
-│ • 状态管理  │    │ • 数据抓取   │    │ • 页面操作  │
-│ • 任务控制  │    │ • 数据处理   │    │ • 元素分析  │
-└─────────────┘    └──────────────┘    └─────────────┘
-       │                   │                   │
-       └───────────────────┼───────────────────┘
-                           ▼
-                  ┌──────────────┐
-                  │  外部服务    │
-                  │              │
-                  │ • OZON平台   │
-                  │ • Seerfar    │
-                  │ • ERP插件    │
-                  └──────────────┘
+┌─────────────────────────┐
+│       CLI Layer         │ ← **应用层** (用户交互)
+│   ┌─────────────────┐   │
+│   │ CLI Config      │   │ • 命令解析和用户交互
+│   │ Task Control    │   │ • 状态管理和进度跟踪
+│   │ UI State Mgmt   │   │ • 配置预设管理
+│   └─────────────────┘   │
+└──────────┬──────────────┘
+           │ 依赖 ↓
+┌─────────────────────────┐
+│      Common Layer       │ ← **核心业务层** (业务逻辑)
+│                         │
+│ ┌─────────────────────┐ │
+│ │    Data Models      │ │ • 统一数据模型和枚举
+│ │  Business|Scraping  │ │ • 业务实体和抓取结果
+│ │    Excel|Exceptions │ │ • Excel处理和异常定义
+│ └─────────────────────┘ │
+│ ┌─────────────────────┐ │
+│ │   Config Manager    │ │ • 分层配置管理
+│ │ Base|System|Business│ │ • 系统配置和业务配置
+│ │   Platform Configs  │ │ • 平台选择器配置
+│ └─────────────────────┘ │
+│ ┌─────────────────────┐ │
+│ │    Utils & Tools    │ │ • 模型工具和抓取工具
+│ │  Model|Scraping|Wait│ │ • 时序控制和数据处理
+│ └─────────────────────┘ │
+│ ┌─────────────────────┐ │
+│ │  Business Logic     │ │ • 价格计算和利润评估
+│ │ Pricing|Profit|Store│ │ • 店铺评估和货源匹配
+│ └─────────────────────┘ │
+│ ┌─────────────────────┐ │
+│ │     Scrapers        │ │ • 平台特定的数据抓取
+│ │ Seerfar|OZON|ERP    │ │ • 竞争对手和API数据
+│ └─────────────────────┘ │
+└──────────┬──────────────┘
+           │ 依赖 ↓
+┌─────────────────────────┐
+│        RPA Layer        │ ← **基础设施层** (浏览器自动化)
+│                         │
+│ ┌─────────────────────┐ │
+│ │  Browser Service    │ │ • 浏览器生命周期管理
+│ │    Simplified       │ │ • 共享实例和配置管理
+│ └─────────────────────┘ │
+│ ┌─────────────────────┐ │
+│ │    Interfaces       │ │ • 抽象接口定义
+│ │ Driver|Analyzer|    │ │ • 驱动、分析器、分页器
+│ │    Paginator        │ │
+│ └─────────────────────┘ │
+│ ┌─────────────────────┐ │
+│ │  Implementations    │ │ • Playwright驱动实现
+│ │ Playwright|DOM|     │ │ • DOM分析和通用分页
+│ │   Universal         │ │
+│ └─────────────────────┘ │
+└──────────┬──────────────┘
+           │ 通过 ↓
+┌─────────────────────────┐
+│    External Services    │ ← **外部依赖**
+│                         │
+│ • OZON平台 (商品数据)    │
+│ • Seerfar API (销售数据) │
+│ • ERP插件 (采购价格)     │
+│ • 1688平台 (货源匹配)    │
+│ • 汇率API (实时汇率)     │
+└─────────────────────────┘
 ```
+
+### 🔄 **架构优势**
+- **清晰分层**: 应用层 → 业务层 → 基础层 → 外部服务
+- **单向依赖**: 高层模块依赖低层模块，避免循环依赖
+- **职责分离**: 每层专注特定职责，便于维护和扩展
+- **模块化**: 内部模块按功能组织，支持独立开发和测试
 
 ### 数据流向
 1. **CLI层**: 接收用户输入，管理任务状态
@@ -438,6 +580,7 @@ AI选品自动化系统是一个跨境电商选品工具，专注于OZON等俄�
 - **配置驱动**: 通过配置对象管理系统行为
 - **异步优先**: 网络IO和文件操作使用异步模式
 - **错误隔离**: 单点故障不影响整体系统稳定性
+- **避免过度设计**: **MUST** 避免过度设计，无若必要，勿增实体！遵循 YAGNI (You Aren't Gonna Need It) 原则，优先选择简洁明了的实现方案，避免不必要的抽象和复杂性
 
 ## 外部依赖
 - **OZON网站**: 商品价格和跟卖信息的数据源

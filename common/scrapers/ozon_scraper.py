@@ -21,20 +21,20 @@ from ..config.ozon_selectors_config import get_ozon_selectors_config, OzonSelect
 from ..config.currency_config import get_currency_config
 # 延迟导入避免循环依赖
 def get_profit_evaluator():
-    from business.profit_evaluator import ProfitEvaluator
+    from common.business.profit_evaluator import ProfitEvaluator
     return ProfitEvaluator
 
 def get_erp_plugin_scraper():
     from .erp_plugin_scraper import ErpPluginScraper
     return ErpPluginScraper
 from ..services.competitor_detection_service import CompetitorDetectionService
-from ..utils.wait_utils import WaitUtils
+from ..utils.wait_utils   import WaitUtils
 from ..utils.scraping_utils import ScrapingUtils
-from ..interfaces.scraper_interface import IProductScraper, ScrapingMode, StandardScrapingOptions
-from ..exceptions.scraping_exceptions import ScrapingException, NavigationException, DataExtractionException
+from ..services.scraping_orchestrator import ScrapingMode
+# 异常类导入已移除，使用通用异常处理
 
 
-class OzonScraper(BaseScraper, IProductScraper):
+class OzonScraper(BaseScraper):
     """
     OZON平台抓取器 - 基于browser_service架构
 
@@ -100,7 +100,7 @@ class OzonScraper(BaseScraper, IProductScraper):
         """
         try:
             # 解析选项
-            scraping_options = StandardScrapingOptions(**(options or {}))
+            # StandardScrapingOptions类不存在，直接使用options字典
 
             # 如果只需要价格信息，使用优化的价格抓取方法
             if include_prices and not include_reviews:
@@ -109,16 +109,11 @@ class OzonScraper(BaseScraper, IProductScraper):
             # 完整的商品信息抓取（纯商品信息）
             return self._scrape_comprehensive(
                 product_url=product_url,
-                **scraping_options.to_dict()
+                **(options or {})
             )
 
         except Exception as e:
-            raise DataExtractionException(
-                field_name="product_info",
-                message=f"商品信息抓取失败: {str(e)}",
-                context={'product_url': product_url, 'options': options},
-                original_exception=e
-            )
+            raise ValueError(f"商品信息抓取失败: {str(e)}")
 
     def scrape_product_prices(self, product_url: str) -> ScrapingResult:
         """
@@ -164,8 +159,26 @@ class OzonScraper(BaseScraper, IProductScraper):
                     self.logger.error(f"提取价格数据失败: {e}")
                     return {}
 
-            # 使用继承的抓取方法
-            result = self.scrape_page_data(product_url, extract_price_data)
+            # 🔧 调试：增加详细日志来捕获scrape_page_data调用异常
+            self.logger.info(f"🔧 DEBUG: 准备调用 scrape_page_data，URL: {product_url}")
+            self.logger.info(f"🔧 DEBUG: extract_price_data函数: {extract_price_data}")
+
+            try:
+                # 使用继承的抓取方法
+                self.logger.info("🔧 DEBUG: 开始调用 self.scrape_page_data")
+                result = self.scrape_page_data(product_url, extract_price_data)
+                self.logger.info(f"🔧 DEBUG: scrape_page_data调用完成，结果: success={result.success}")
+            except Exception as e:
+                self.logger.error(f"🚨 CRITICAL: scrape_page_data调用失败: {e}")
+                import traceback
+                self.logger.error(f"🚨 异常详情:\n{traceback.format_exc()}")
+                # 返回失败结果
+                return ScrapingResult(
+                    success=False,
+                    data={},
+                    error_message=f"scrape_page_data调用失败: {str(e)}",
+                    execution_time=time.time() - start_time
+                )
 
             if result.success and result.data:
                 return ScrapingResult(
@@ -215,10 +228,10 @@ class OzonScraper(BaseScraper, IProductScraper):
         """
         try:
             # 解析选项
-            scraping_options = StandardScrapingOptions(**(options or {}))
+            # StandardScrapingOptions类不存在，直接使用options字典
 
             # 根据模式选择抓取策略
-            if mode == ScrapingMode.PRODUCT_DATA:
+            if mode == ScrapingMode.PRODUCT_INFO:
                 return self.scrape_product_info(
                     product_url=target,
                     include_prices=True,
@@ -233,12 +246,7 @@ class OzonScraper(BaseScraper, IProductScraper):
                 )
 
         except Exception as e:
-            raise ScrapingException(
-                message=f"抓取失败: {str(e)}",
-                error_code="SCRAPING_FAILED",
-                context={'target': target, 'mode': mode, 'options': options},
-                original_exception=e
-            )
+            raise RuntimeError(f"抓取失败: {str(e)}")
 
     def _scrape_comprehensive(self,
                              product_url: str,

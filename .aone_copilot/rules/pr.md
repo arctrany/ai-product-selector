@@ -1,6 +1,7 @@
 # OpenSpec Instructions
 
-Use Chinese for the whole document creation.
+Use Chinese for the document creation， but for open spec terms any of these like "MUST" "SHALL" "SHOULD" "RECOMMENDED" "MAY",
+do use English.
 
 These instructions are for AI assistants working in this project.
 

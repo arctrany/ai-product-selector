@@ -17,18 +17,19 @@ from typing import Dict, Any, List, Optional, Tuple
 from bs4 import BeautifulSoup
 
 # 🔧 重构后的导入：使用新的数据模型和统一工具类
-from common.models import CompetitorStore, clean_price_string
+from common.models.business_models import CompetitorStore
+from common.utils.scraping_utils import clean_price_string
 from common.models.scraping_result import ScrapingResult
 from common.utils.wait_utils import WaitUtils
 from common.utils.scraping_utils import ScrapingUtils
 from common.services.competitor_detection_service import CompetitorDetectionService
 from ..config.ozon_selectors_config import get_ozon_selectors_config, OzonSelectorsConfig
 from .base_scraper import BaseScraper
-from ..interfaces.scraper_interface import ICompetitorScraper, ScrapingMode, StandardScrapingOptions
-from ..exceptions.scraping_exceptions import ScrapingException, NavigationException, DataExtractionException
+from ..services.scraping_orchestrator import ScrapingMode
+# 异常类导入已移除，使用通用异常处理
 
 
-class CompetitorScraper(BaseScraper, ICompetitorScraper):
+class CompetitorScraper(BaseScraper):
     """
     OZON跟卖店铺抓取器 - 重构版本
 
@@ -44,11 +45,15 @@ class CompetitorScraper(BaseScraper, ICompetitorScraper):
         
         Args:
             selectors_config: 选择器配置
-            browser_service: 浏览器服务实例（可选）
+            browser_service: 浏览器服务实例（可选，默认使用全局单例）
         """
+        from .global_browser_singleton import get_global_browser_service
+
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.selectors_config = selectors_config or get_ozon_selectors_config()
-        self.browser_service = browser_service
+
+        # 🔧 修复：确保强制使用全局浏览器单例
+        self.browser_service = browser_service or get_global_browser_service()
         
         # 🔧 重构：初始化统一工具类
         self.wait_utils = WaitUtils(browser_service, self.logger)
@@ -792,24 +797,19 @@ class CompetitorScraper(BaseScraper, ICompetitorScraper):
 
         try:
             # 解析选项
-            scraping_options = StandardScrapingOptions(**(options or {}))
+            # StandardScrapingOptions类不存在，直接使用options字典
 
             # 使用内部方法处理跟卖抓取
             result = self._scrape_competitor_comprehensive(
                 target_url=target_url,
                 max_competitors=max_competitors,
-                **scraping_options.to_dict()
+                **(options or {})
             )
 
             return result
 
         except Exception as e:
-            raise DataExtractionException(
-                field_name="competitor_data",
-                message=f"跟卖数据抓取失败: {str(e)}",
-                context={'target_url': target_url, 'max_competitors': max_competitors, 'options': options},
-                original_exception=e
-            )
+            raise ValueError(f"跟卖数据抓取失败: {str(e)}")
 
     # 标准scrape接口实现
     def scrape(self,
@@ -834,7 +834,7 @@ class CompetitorScraper(BaseScraper, ICompetitorScraper):
         """
         try:
             # 解析选项
-            scraping_options = StandardScrapingOptions(**(options or {}))
+            # StandardScrapingOptions类不存在，直接使用options字典
 
             # 根据模式选择抓取策略
             if mode == ScrapingMode.COMPETITOR_DATA:
@@ -852,12 +852,7 @@ class CompetitorScraper(BaseScraper, ICompetitorScraper):
                 )
 
         except Exception as e:
-            raise ScrapingException(
-                message=f"抓取失败: {str(e)}",
-                error_code="SCRAPING_FAILED",
-                context={'target': target, 'mode': mode, 'options': options},
-                original_exception=e
-            )
+            raise RuntimeError(f"抓取失败: {str(e)}")
 
     def _scrape_competitor_comprehensive(self,
                                        target_url: str,

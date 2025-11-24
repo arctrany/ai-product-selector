@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 # 延迟导入，避免循环导入
-from common.config import GoodStoreSelectorConfig, get_config
+from common.config.base_config import GoodStoreSelectorConfig, get_config
 
 
 class StoreStatus(str, Enum):

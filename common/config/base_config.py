@@ -15,7 +15,9 @@ from .browser_config import BrowserConfig
 from .business_config import (
     SelectorFilterConfig,
     PriceCalculationConfig,
-    ExcelConfig,
+    ExcelConfig
+)
+from .system_config import (
     LoggingConfig,
     PerformanceConfig
 )
@@ -260,6 +262,22 @@ class GoodStoreSelectorConfig:
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(config_dict, f, indent=2, ensure_ascii=False)
     
+    @property
+    def scraping(self):
+        """向后兼容：scraping 属性已废弃，使用 browser 属性代替"""
+        import warnings
+        warnings.warn("配置属性 'scraping' 已废弃，请使用 'browser' 属性",
+                     DeprecationWarning, stacklevel=2)
+        return self.browser
+
+    @property
+    def store_filter(self):
+        """向后兼容：store_filter 属性已废弃，使用 selector_filter 属性代替"""
+        import warnings
+        warnings.warn("配置属性 'store_filter' 已废弃，请使用 'selector_filter' 属性",
+                     DeprecationWarning, stacklevel=2)
+        return self.selector_filter
+
     def validate(self) -> bool:
         """验证配置的有效性"""
         try:
@@ -283,8 +301,7 @@ class GoodStoreSelectorConfig:
             
             assert 0 < self.excel.max_rows_to_process <= 100000
             
-            assert self.performance.max_concurrent_stores > 0
-            assert self.performance.max_concurrent_products > 0
+
             assert self.performance.cache_ttl > 0
             assert self.performance.batch_size > 0
             

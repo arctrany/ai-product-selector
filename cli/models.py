@@ -94,7 +94,9 @@ class UIConfig:
     g01_item_max_price: int = 1000
     max_products_per_store: int = 50
 
-    # 店铺过滤参数 - 注意：店铺筛选配置已迁移到common/config.py中统一管理
+    # 店铺过滤参数
+    min_store_sales_30days: float = 500000.0  # 店铺过滤：最小销售额
+    min_store_orders_30days: int = 250  # 店铺过滤：最小订单量
 
     # 输出设置
     output_format: str = "xlsx"
@@ -103,7 +105,8 @@ class UIConfig:
     # 界面设置
     remember_settings: bool = False
 
-    # 运行模式 - 注意：dryrun配置已迁移到common/config.py中统一管理
+    # 运行模式
+    dryrun: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式"""
@@ -120,9 +123,17 @@ class UIConfig:
             'item_max_weight': self.item_max_weight,
             'g01_item_min_price': self.g01_item_min_price,
             'g01_item_max_price': self.g01_item_max_price,
+            #可以不填，通过默认值获取
             'max_products_per_store': self.max_products_per_store,
+            #可以不填，通过默认值获取
+            'min_store_sales_30days': self.min_store_sales_30days,
+            #可以不填，通过默认值获取
+            'min_store_orders_30days': self.min_store_orders_30days,
+            #可以不填，通过默认值获取
             'output_format': self.output_format,
+            #可以不填，通过默认值获取
             'output_path': self.output_path,
+            #可以不填，通过默认值获取
             'remember_settings': self.remember_settings
         }
 
@@ -161,7 +172,7 @@ class UIConfig:
     @classmethod
     def create_template(cls, mode: str = 'select-shops', output_path: str = None) -> str:
         """
-        创建配置模板文件
+        创建配置模板文件，只输出必要的字段
 
         Args:
             mode: 选择模式，'select-shops' 或 'select-goods'
@@ -189,10 +200,7 @@ class UIConfig:
             "item_min_weight": 0,
             "item_max_weight": 2000,
             "g01_item_min_price": 10,
-            "g01_item_max_price": 500,
-            "max_products_per_store": 50,
-            "output_format": "xlsx",
-            "output_path": ""
+            "g01_item_max_price": 500
         }
 
         # select-goods 模式需要 item_collect_file

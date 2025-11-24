@@ -13,17 +13,16 @@ import time
 import threading
 from pathlib import Path
 
-# 添加项目根目录到Python路径
-project_root = Path(__file__).parent
-sys.path.insert(0, str(project_root))
-
 from cli.models import UIStateManager, AppState, LogLevel, UIConfig
 from cli.task_controller import TaskController
 from cli.preset_manager import PresetManager
 from cli.log_manager import LogManager
-from common.config import GoodStoreSelectorConfig
-from common.task_control import TaskControlInterface
+from common.config.base_config import GoodStoreSelectorConfig
 from common.logging_config import setup_logging
+from good_store_selector import GoodStoreSelector
+
+# 创建全局任务控制器实例
+task_controller = TaskController()
 
 
 def _handle_interactive_exit():
@@ -83,10 +82,7 @@ def setup_cli_logging(log_level: LogLevel = LogLevel.INFO):
 
     # 使用新的日志配置系统
     logger = setup_logging(
-        log_level=level_map[log_level],
-        max_bytes=100 * 1024 * 1024,  # 100MB
-        backup_count=30,
-        console_output=True
+        level=level_map[log_level]
     )
 
     return logger
@@ -456,26 +452,33 @@ def handle_start_command(args):
 
 def handle_status_command(args):
     """处理status命令"""
-    status_data = TaskControlInterface.get_task_status()
+    status_data = task_controller.get_task_status()
 
-    if status_data.get("status") == "IDLE":
+    # 转换状态数据格式以保持向后兼容
+    if status_data.get("state") == "idle":
         print(f"📊 当前状态: IDLE")
-        print(f"💡 {status_data.get('message', '没有运行中的任务')}")
-    elif status_data.get("status") == "ERROR":
+        print(f"💡 没有运行中的任务")
+    elif status_data.get("state") == "error":
         print(f"📊 当前状态: ERROR")
-        print(f"❌ {status_data.get('message', '获取状态失败')}")
+        print(f"❌ 获取状态失败")
     else:
         # 显示详细状态
-        task_status = status_data.get("status", "UNKNOWN")
-        current_step = status_data.get("current_step", "未知")
+        state_mapping = {
+            "running": "RUNNING",
+            "paused": "PAUSED",
+            "completed": "COMPLETED",
+            "stopping": "STOPPING"
+        }
+        task_status = state_mapping.get(status_data.get("state", "UNKNOWN"), "UNKNOWN")
+        current_step = status_data.get("progress", {}).get("current_step", "未知")
         progress = status_data.get("progress", {})
 
-        print(f"📊 当前状态: {task_status.upper()}")
+        print(f"📊 当前状态: {task_status}")
         print(f"🔄 当前步骤: {current_step}")
 
         if progress:
-            current = progress.get("current", 0)
-            total = progress.get("total", 0)
+            current = progress.get("processed_stores", 0)
+            total = progress.get("total_stores", 0)
             percentage = progress.get("percentage", 0.0)
 
             if total > 0:
@@ -483,20 +486,8 @@ def handle_status_command(args):
 
             # 显示其他进度信息
             for key, value in progress.items():
-                if key not in ["current", "total", "percentage"] and value is not None:
+                if key not in ["processed_stores", "total_stores", "percentage", "current_step"] and value is not None:
                     print(f"   • {key}: {value}")
-
-        # 显示时间信息
-        created_time = status_data.get("created_time")
-        updated_time = status_data.get("updated_time")
-        pause_time = status_data.get("pause_time")
-
-        if created_time:
-            print(f"⏰ 创建时间: {created_time}")
-        if updated_time:
-            print(f"🔄 更新时间: {updated_time}")
-        if pause_time:
-            print(f"⏸️ 暂停时间: {pause_time}")
 
     return 0
 
@@ -505,7 +496,7 @@ def handle_stop_command(args):
     """处理stop命令"""
     print("🛑 停止选评任务...")
 
-    success = TaskControlInterface.stop_task()
+    success = task_controller.stop_task()
     return 0 if success else 1
 
 
@@ -513,7 +504,7 @@ def handle_pause_command(args):
     """处理pause命令"""
     print("⏸️ 暂停选评任务...")
 
-    success = TaskControlInterface.pause_task()
+    success = task_controller.pause_task()
     return 0 if success else 1
 
 
@@ -521,7 +512,7 @@ def handle_resume_command(args):
     """处理resume命令"""
     print("▶️ 恢复选评任务...")
 
-    success = TaskControlInterface.resume_task()
+    success = task_controller.resume_task()
     return 0 if success else 1
 
 

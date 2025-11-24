@@ -138,75 +138,76 @@ def _get_default_js_scripts() -> Dict[str, str]:
     """获取默认的JavaScript脚本"""
     return {
         'extract_products': """
-            const selector = arguments[0];
-            const rows = document.querySelectorAll(selector);
-            const products = [];
+            var selector = arguments[0];
+            var rows = document.querySelectorAll(selector);
+            var products = [];
 
-            // 遍历所有行
-            rows.forEach((row, index) => {
-                let categoryCn = '';
-                let categoryRu = '';
-                let salesVolume = null;
-                let weight = null;
-                let listingDate = '';
-                let shelfDuration = '';
-                let ozonUrl = '';
+            // 遍历所有行 - 使用ES5兼容语法
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var categoryCn = '';
+                var categoryRu = '';
+                var salesVolume = null;
+                var weight = null;
+                var listingDate = '';
+                var shelfDuration = '';
+                var ozonUrl = '';
 
                 try {
                     // 提取 data-index 属性
-                    const dataIndex = row.getAttribute('data-index');
+                    var dataIndex = row.getAttribute('data-index');
                     
                     // 提取类目信息（第3列）
-                    const td3 = row.querySelector('td:nth-child(3)');
+                    var td3 = row.querySelector('td:nth-child(3)');
                     if (td3) {
-                        const categoryCnElement = td3.querySelector('span.category-title');
-                        const categoryRuElement = td3.querySelector('span.text-muted');
+                        var categoryCnElement = td3.querySelector('span.category-title');
+                        var categoryRuElement = td3.querySelector('span.text-muted');
                         categoryCn = categoryCnElement ? categoryCnElement.textContent.trim() : '';
                         categoryRu = categoryRuElement ? categoryRuElement.textContent.trim() : '';
                     }
                     
                     // 提取上架时间（最后一列）
-                    const tdLast = row.querySelector('td:last-child');
+                    var tdLast = row.querySelector('td:last-child');
                     if (tdLast) {
-                        const innerHTML = tdLast.innerHTML;
-                        const dateMatch = innerHTML.match(/(\\d{4}-\\d{2}-\\d{2})/);
+                        var innerHTML = tdLast.innerHTML;
+                        var dateMatch = innerHTML.match(/(\\d{4}-\\d{2}-\\d{2})/);
                         listingDate = dateMatch ? dateMatch[1] : '';
                         
-                        const durationMatch = innerHTML.match(/<span[^>]*>([^<]+)<\\/span>/);
+                        var durationMatch = innerHTML.match(/<span[^>]*>([^<]+)<\\/span>/);
                         shelfDuration = durationMatch ? durationMatch[1].trim() : '';
                     }
                     
                     // 提取销量（第5列）
-                    const td5 = row.querySelector('td:nth-child(5)');
+                    var td5 = row.querySelector('td:nth-child(5)');
                     if (td5) {
-                        const salesText = td5.textContent.trim();
-                        const lines = salesText.split('\\n');
+                        var salesText = td5.textContent.trim();
+                        var lines = salesText.split('\\n');
                         if (lines.length > 0) {
-                            const firstLine = lines[0].trim();
-                            const salesMatch = firstLine.match(/^(\\d+)/);
+                            var firstLine = lines[0].trim();
+                            var salesMatch = firstLine.match(/^(\\d+)/);
                             salesVolume = salesMatch ? parseInt(salesMatch[1]) : null;
                         }
                     }
                     
                     // 提取重量（倒数第二列）
-                    const tdSecondLast = row.querySelector('td:nth-last-child(2)');
+                    var tdSecondLast = row.querySelector('td:nth-last-child(2)');
                     if (tdSecondLast) {
-                        const weightText = tdSecondLast.textContent.trim();
-                        const weightMatch = weightText.match(/([\\d.]+)\\s*(g|kg)/i);
+                        var weightText = tdSecondLast.textContent.trim();
+                        var weightMatch = weightText.match(/([\\d.]+)\\s*(g|kg)/i);
                         if (weightMatch) {
-                            let value = parseFloat(weightMatch[1]);
-                            const unit = weightMatch[2].toLowerCase();
+                            var value = parseFloat(weightMatch[1]);
+                            var unit = weightMatch[2].toLowerCase();
                             weight = unit === 'kg' ? value * 1000 : value;
                         }
                     }
                     
                     // 提取 OZON URL（第3列中的可点击元素）
                     if (td3) {
-                        const clickableElement = td3.querySelector('span[onclick], [onclick]');
+                        var clickableElement = td3.querySelector('span[onclick], [onclick]');
                         if (clickableElement) {
-                            const onclickAttr = clickableElement.getAttribute("onclick");
+                            var onclickAttr = clickableElement.getAttribute("onclick");
                             if (onclickAttr && onclickAttr.includes("window.open")) {
-                                const urlMatch = onclickAttr.match(/window\\.open\\('([^']+)'\\)/);
+                                var urlMatch = onclickAttr.match(/window\\.open\\('([^']+)'\\)/);
                                 ozonUrl = urlMatch ? urlMatch[1] : '';
                             }
                         }
@@ -226,9 +227,148 @@ def _get_default_js_scripts() -> Dict[str, str]:
                 } catch (error) {
                     console.error('Error extracting product data:', error);
                 }
-            });
+            }
 
             return products;
+        """,
+
+        'extract_ozon_url': """
+            // 查找包含onclick的可点击元素 - ES5兼容语法
+            var rowElements = document.querySelectorAll('tr[data-index]');
+            var targetRow = null;
+            
+            // 找到对应的行（通过data-index或位置）
+            for (var i = 0; i < rowElements.length; i++) {
+                var row = rowElements[i];
+                var cells = row.querySelectorAll('td');
+                if (cells.length >= 3) {
+                    var thirdCell = cells[2]; // 第三列
+                    var clickableElements = thirdCell.querySelectorAll('*[onclick*="window.open"]');
+                    if (clickableElements.length > 0) {
+                        var onclick = clickableElements[0].getAttribute('onclick');
+                        if (onclick && onclick.includes('window.open')) {
+                            var urlMatch = onclick.match(/window\\.open\\('([^']+)'\\)/);
+                            if (urlMatch) {
+                                return urlMatch[1]; // 返回URL
+                            }
+                        }
+                    }
+                }
+            }
+            return null;
+        """,
+
+        'extract_category': """
+            var categoryIndex = arguments[0]; // 类目列索引作为参数传入
+            var rows = document.querySelectorAll('tr[data-index]');
+            
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var cells = row.querySelectorAll('td');
+                if (cells.length > categoryIndex) {
+                    var categoryCell = cells[categoryIndex];
+                    var categoryCnEl = categoryCell.querySelector('span.category-title, .category-title');
+                    var categoryRuEl = categoryCell.querySelector('span.text-muted, .text-muted');
+                    
+                    if (categoryCnEl || categoryRuEl) {
+                        return {
+                            category_cn: categoryCnEl ? categoryCnEl.textContent.trim() : null,
+                            category_ru: categoryRuEl ? categoryRuEl.textContent.trim() : null
+                        };
+                    }
+                }
+            }
+            return null;
+        """,
+
+        'extract_listing_date': """
+            var rows = document.querySelectorAll('tr[data-index]');
+            
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var cells = row.querySelectorAll('td');
+                if (cells.length > 0) {
+                    var lastCell = cells[cells.length - 1]; // 最后一个td
+                    var innerHtml = lastCell.innerHTML;
+                    
+                    // 提取日期（匹配 YYYY-MM-DD 格式）
+                    var dateMatch = innerHtml.match(/(\\d{4}-\\d{2}-\\d{2})/);
+                    var date = dateMatch ? dateMatch[1] : null;
+                    
+                    // 提取货架时长（匹配数字+天/月等）
+                    var durationMatch = innerHtml.match(/>\\s*([^<>]*(?:天|月|年|day|month|year)[^<>]*)/i);
+                    var duration = durationMatch ? durationMatch[1].trim() : null;
+                    
+                    if (duration === '') duration = null;
+                    
+                    if (date || duration) {
+                        return {
+                            listing_date: date,
+                            shelf_duration: duration
+                        };
+                    }
+                }
+            }
+            return null;
+        """,
+
+        'extract_sales_volume': """
+            var salesIndex = arguments[0]; // 销量列索引作为参数传入
+            var rows = document.querySelectorAll('tr[data-index]');
+            
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var cells = row.querySelectorAll('td');
+                if (cells.length > salesIndex) {
+                    var salesCell = cells[salesIndex];
+                    var salesText = salesCell.textContent || '';
+                    
+                    if (salesText.trim()) {
+                        // 提取第一行的数字（忽略增长率）
+                        var lines = salesText.trim().split('\\n');
+                        if (lines.length > 0) {
+                            var firstLine = lines[0].trim();
+                            // 提取纯数字
+                            var salesMatch = firstLine.match(/\\d+/);
+                            if (salesMatch) {
+                                return parseInt(salesMatch[0], 10);
+                            }
+                        }
+                    }
+                }
+            }
+            return null;
+        """,
+
+        'extract_weight': """
+            var rows = document.querySelectorAll('tr[data-index]');
+            
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var cells = row.querySelectorAll('td');
+                if (cells.length >= 2) {
+                    var weightCell = cells[cells.length - 2]; // 倒数第二个td
+                    var weightText = weightCell.textContent || '';
+                    
+                    if (weightText.trim()) {
+                        // 提取数字和单位，支持kg和g
+                        var weightMatch = weightText.match(/(\\d+(?:\\.\\d+)?)\\s*(kg|g)/i);
+                        if (weightMatch) {
+                            var value = parseFloat(weightMatch[1]);
+                            var unit = weightMatch[2].toLowerCase();
+                            
+                            // 统一转换为克
+                            var weightGrams = unit === 'kg' ? value * 1000 : value;
+                            return weightGrams;
+                        }
+                    }
+                }
+            }
+            return null;
+        """,
+
+        'get_page_url': """
+            return window.location.href;
         """
     }
 

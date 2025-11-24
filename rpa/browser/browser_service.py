@@ -487,7 +487,61 @@ class SimplifiedBrowserService:
         return self.browser_driver.is_visible_sync(selector, timeout)
 
     def evaluate_sync(self, script: str, timeout: int = 30000):
-        """同步执行 JavaScript（代理方法）"""
+        """
+        同步执行 JavaScript 脚本（代理方法）
+
+        🔧 架构说明：
+        - 此方法是浏览器服务层的代理方法，负责将JavaScript执行请求转发给底层浏览器驱动
+        - 建议通过 scraping_utils.extract_data_with_js() 统一接口使用，而非直接调用
+
+        功能描述：
+        - 在当前页面的浏览器环境中同步执行JavaScript代码
+        - 支持执行任何有效的JavaScript表达式或语句
+        - 可以访问页面的DOM、全局变量和函数
+        - 支持返回JavaScript执行结果到Python环境
+
+        Args:
+            script (str): 要执行的JavaScript代码字符串
+                         支持格式：
+                         - 表达式: "document.title"
+                         - 函数调用: "window.scrollTo(0, 100)"
+                         - 复杂脚本: "var result = []; document.querySelectorAll('a').forEach(..."
+            timeout (int, optional): 脚本执行超时时间，单位毫秒。默认30秒
+
+        Returns:
+            Any: JavaScript执行结果，类型取决于脚本返回值：
+                 - 基本类型: str, int, float, bool, None
+                 - 对象类型: dict (JavaScript对象)
+                 - 数组类型: list (JavaScript数组)
+                 - 执行失败或浏览器未初始化: None
+
+        使用示例:
+            # 获取页面标题
+            title = browser_service.evaluate_sync("document.title")
+
+            # 获取元素数量
+            count = browser_service.evaluate_sync("document.querySelectorAll('.product').length")
+
+            # 执行复杂数据提取
+            data = browser_service.evaluate_sync('''
+                return Array.from(document.querySelectorAll('.item')).map(el => ({
+                    text: el.textContent,
+                    href: el.getAttribute('href')
+                }));
+            ''')
+
+        注意事项:
+            - ⚠️  架构建议：应通过 scraping_utils.extract_data_with_js() 统一调用
+            - 🔒 安全：JavaScript代码在页面环境中执行，注意脚本安全性
+            - ⏱️  性能：复杂脚本可能影响页面响应，建议合理设置timeout
+            - 🔄 同步：此方法会阻塞当前线程直到脚本执行完成或超时
+            - 📋 日志：执行失败时会记录错误日志
+
+        异常处理:
+            - 浏览器驱动未初始化：返回None并记录错误日志
+            - JavaScript语法错误：由底层驱动处理，通常返回None
+            - 执行超时：由底层驱动处理超时逻辑
+        """
         if not self.browser_driver:
             self.logger.error("Browser driver not initialized")
             return None

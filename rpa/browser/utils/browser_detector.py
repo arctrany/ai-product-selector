@@ -51,9 +51,11 @@ class BrowserDetector:
     
     def _get_edge_user_data_dir(self) -> Optional[str]:
         """获取 Edge 浏览器用户数据目录"""
+        import os
         if self.system == "Darwin":  # macOS
             return os.path.expanduser("~/Library/Application Support/Microsoft Edge")
         elif self.system == "Windows":
+            # 🔧 修复：使用Windows风格的路径格式以匹配测试期望
             return os.path.expanduser("~\\AppData\\Local\\Microsoft\\Edge\\User Data")
         elif self.system == "Linux":
             return os.path.expanduser("~/.config/microsoft-edge")

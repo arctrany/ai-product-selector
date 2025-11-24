@@ -16,7 +16,7 @@ from .models import (
     ExcelProcessingError, DataValidationError, PriceCalculationError
 )
 from .config import GoodStoreSelectorConfig, get_config
-from business.excel_calculator import ExcelProfitCalculator, ProfitCalculatorResult
+from common.business.excel_calculator import ExcelProfitCalculator, ProfitCalculatorResult
 
 
 class ExcelStoreProcessor:
