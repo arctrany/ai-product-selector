@@ -1,30 +1,14 @@
 """
-好店筛选系统数据模型
+业务领域数据模型
 
-定义系统中使用的核心数据结构，包括店铺、商品、价格等信息。
-使用Pydantic确保类型安全和数据验证。
+定义与业务逻辑相关的核心数据结构，包括店铺、商品、价格计算等
 """
 
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
-from enum import Enum
 from datetime import datetime
-from pathlib import Path
 
-
-class StoreStatus(str, Enum):
-    """店铺处理状态枚举"""
-    PENDING = "未处理"
-    PROCESSED = "已处理"
-    FAILED = "抓取异常"
-    EMPTY = ""
-
-
-class GoodStoreFlag(str, Enum):
-    """是否为好店标记枚举"""
-    YES = "是"
-    NO = "否"
-    EMPTY = ""
+from .enums import StoreStatus, GoodStoreFlag
 
 
 @dataclass
@@ -167,23 +151,6 @@ class StoreAnalysisResult:
 
 
 @dataclass
-class ExcelStoreData:
-    """Excel中的店铺数据"""
-    row_index: int  # Excel中的行号
-    store_id: str
-    is_good_store: GoodStoreFlag
-    status: StoreStatus
-    
-    def to_store_info(self) -> StoreInfo:
-        """转换为StoreInfo对象"""
-        return StoreInfo(
-            store_id=self.store_id,
-            is_good_store=self.is_good_store,
-            status=self.status
-        )
-
-
-@dataclass
 class BatchProcessingResult:
     """批量处理结果"""
     total_stores: int
@@ -204,143 +171,3 @@ class BatchProcessingResult:
             self.store_results = []
         if self.error_logs is None:
             self.error_logs = []
-
-
-@dataclass
-class ScrapingResult:
-    """网页抓取结果"""
-    success: bool
-    data: Dict[str, Any]
-    error_message: Optional[str] = None
-    execution_time: Optional[float] = None
-
-    def __post_init__(self):
-        """数据验证"""
-        if self.data is None:
-            self.data = {}
-
-
-# 异常类定义
-
-class GoodStoreSelectorError(Exception):
-    """好店筛选系统基础异常"""
-    pass
-
-
-class DataValidationError(GoodStoreSelectorError):
-    """数据验证异常"""
-    pass
-
-
-class ScrapingError(GoodStoreSelectorError):
-    """网页抓取异常"""
-    pass
-
-class CriticalBrowserError(GoodStoreSelectorError):
-    """致命浏览器错误，需要退出程序"""
-    pass
-
-class ExcelProcessingError(GoodStoreSelectorError):
-    """Excel处理异常"""
-    pass
-
-
-class PriceCalculationError(GoodStoreSelectorError):
-    """价格计算异常"""
-    pass
-
-
-class ConfigurationError(GoodStoreSelectorError):
-    """配置异常"""
-    pass
-
-
-# 工具函数
-
-def validate_store_id(store_id: str) -> bool:
-    """验证店铺ID格式"""
-    if not store_id or not isinstance(store_id, str):
-        return False
-    return len(store_id.strip()) > 0
-
-
-def validate_price(price: Optional[float]) -> bool:
-    """验证价格数据"""
-    if price is None:
-        return True  # 允许为空
-    return isinstance(price, (int, float)) and price >= 0
-
-
-def validate_weight(weight: Optional[float]) -> bool:
-    """验证重量数据"""
-    if weight is None:
-        return True  # 允许为空
-    return isinstance(weight, (int, float)) and weight > 0
-
-
-def clean_price_string(price_str: str, selectors_config=None) -> Optional[float]:
-    """
-    清理价格字符串，提取数值
-
-    Args:
-        price_str: 价格字符串
-        selectors_config: 选择器配置对象，包含货币符号等配置
-
-    Returns:
-        Optional[float]: 提取的价格数值，失败返回None
-    """
-    if not price_str or not isinstance(price_str, str):
-        return None
-
-    # 🔧 修复：支持配置化的货币匹配
-    import re
-
-    # 获取配置，如果没有提供则使用默认配置
-    if selectors_config is None:
-        from .config.ozon_selectors_config import get_ozon_selectors_config
-        selectors_config = get_ozon_selectors_config()
-
-    # 处理价格前缀词，移除前缀词
-    prefix_pattern = '|'.join(re.escape(prefix) for prefix in selectors_config.price_prefix_words)
-    if prefix_pattern:
-        text = re.sub(f'^({prefix_pattern})\\s+', '', price_str, flags=re.IGNORECASE)
-    else:
-        text = price_str
-
-    # 移除货币符号和特殊空格字符
-    # 构建货币符号模式
-    currency_pattern = '|'.join(re.escape(symbol) for symbol in selectors_config.currency_symbols)
-
-    # 构建特殊空格字符模式
-    space_chars = ''.join(selectors_config.special_space_chars)
-
-    # 移除货币符号、特殊空格字符和普通空格
-    if currency_pattern:
-        cleaned = re.sub(f'[{re.escape(space_chars)}\\s]|({currency_pattern})', '', text, flags=re.IGNORECASE)
-    else:
-        cleaned = re.sub(f'[{re.escape(space_chars)}\\s]', '', text)
-
-    # 处理千位分隔符（俄语中使用窄空格作为千位分隔符）
-    cleaned = cleaned.replace(',', '.').replace(' ', '').replace(' ', '')
-
-    # 使用正则表达式提取数字
-    # 匹配数字模式：可能包含小数点
-    number_match = re.search(r'(\d+(?:[.,]\d+)?)', cleaned)
-    if number_match:
-        number_str = number_match.group(1).replace(',', '.')
-        try:
-            return float(number_str)
-        except (ValueError, TypeError):
-            return None
-
-    return None
-
-def format_currency(amount: float, currency: str = '¥') -> str:
-    """格式化货币显示"""
-    return f"{currency}{amount:.2f}"
-
-def calculate_profit_rate(profit: float, cost: float) -> float:
-    """计算利润率"""
-    if cost <= 0:
-        return 0.0
-    return (profit / cost) * 100

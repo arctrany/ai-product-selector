@@ -1,174 +1,129 @@
-# Task Manager 任务管理器规范
+# 独立任务管理器规范
 
 ## ADDED Requirements
 
-### Requirement: 任务生命周期管理
-任务管理器SHALL提供完整的任务生命周期管理能力，支持任务的创建、启动、暂停、恢复、停止和销毁。
+### Requirement: 独立任务管理模块架构
+系统 SHALL 创建独立的 `task_manager` 模块，按职责分离原则组织任务管理功能，建立清晰的模块边界和职责定义。
 
-#### Scenario: 创建新任务
-- **WHEN** 调用create_task方法并提供任务函数和配置
-- **THEN** 返回唯一的任务ID
-- **AND** 任务状态为PENDING
+#### Scenario: 模块化目录结构创建
+- **WHEN** 创建 task_manager 模块时
+- **THEN** 按照职责分离原则组织目录结构：models.py（数据模型）、controllers.py（控制逻辑）、interfaces.py（接口定义）、mixins.py（混入类）、exceptions.py（异常处理）、config.py（配置管理）
+- **AND** 每个子模块职责单一且边界清晰
 
-#### Scenario: 启动任务
-- **WHEN** 调用start_task方法并提供有效的任务ID
-- **THEN** 任务状态变更为RUNNING
-- **AND** 开始执行任务函数
+#### Scenario: 职责边界明确定义
+- **WHEN** 设计各子模块时
+- **THEN** models.py 仅负责任务状态和进度数据模型，controllers.py 仅负责任务生命周期管理，interfaces.py 仅负责标准化接口定义
+- **AND** 不同子模块间依赖关系清晰，避免循环依赖
 
-#### Scenario: 暂停运行中的任务
-- **WHEN** 调用pause_task方法并提供运行中任务的ID
-- **THEN** 任务状态变更为PAUSED
-- **AND** 任务执行暂停，等待恢复信号
+### Requirement: 任务状态和数据模型管理
+task_manager.models 模块 SHALL 提供统一的任务状态、进度信息和相关数据模型的定义和管理。
 
-#### Scenario: 恢复暂停的任务
-- **WHEN** 调用resume_task方法并提供暂停任务的ID
-- **THEN** 任务状态变更为RUNNING
-- **AND** 任务从暂停点继续执行
+#### Scenario: 标准化任务状态定义
+- **WHEN** 定义任务状态枚举时
+- **THEN** 提供完整的状态定义：PENDING（待执行）、RUNNING（执行中）、PAUSED（暂停）、STOPPING（停止中）、STOPPED（已停止）、COMPLETED（完成）、FAILED（失败）
+- **AND** 状态转换规则明确且符合任务生命周期逻辑
 
-#### Scenario: 停止任务
-- **WHEN** 调用stop_task方法并提供任务ID
-- **THEN** 任务状态变更为STOPPING，然后变更为STOPPED
-- **AND** 任务执行被中断，资源被清理
+#### Scenario: 任务进度信息模型
+- **WHEN** 定义任务进度数据模型时
+- **THEN** 包含当前进度、总进度、进度百分比、预估剩余时间、当前操作描述等标准字段
+- **AND** 进度信息格式统一，便于不同组件使用
 
-### Requirement: 任务状态管理
-任务管理器SHALL使用状态机管理任务状态，确保状态转换的一致性和可预测性。
+#### Scenario: 任务配置数据模型
+- **WHEN** 定义任务配置模型时
+- **THEN** 支持任务超时设置、重试配置、并发限制、资源限制等配置项
+- **AND** 配置参数具有合理的默认值和验证机制
 
-#### Scenario: 状态机转换验证
-- **WHEN** 尝试进行无效的状态转换（如从STOPPED到PAUSED）
-- **THEN** 抛出InvalidStateTransitionError异常
-- **AND** 任务状态保持不变
+### Requirement: 任务生命周期控制器
+task_manager.controllers 模块 SHALL 提供完整的任务生命周期管理功能，包括任务创建、启动、暂停、恢复、停止等操作。
 
-#### Scenario: 获取任务状态
-- **WHEN** 调用get_task_status方法并提供有效的任务ID
-- **THEN** 返回当前的TaskStatus枚举值
-- **AND** 状态信息准确反映任务当前状态
+#### Scenario: 任务创建和启动管理
+- **WHEN** 创建和启动任务时
+- **THEN** 分配唯一任务ID、设置任务配置、初始化任务状态、创建任务执行上下文
+- **AND** 支持任务执行前的验证和准备工作
 
-#### Scenario: 无效任务ID查询
-- **WHEN** 使用不存在的任务ID查询状态
-- **THEN** 抛出TaskNotFoundError异常
+#### Scenario: 任务暂停和恢复控制
+- **WHEN** 执行任务暂停和恢复操作时
+- **THEN** 正确处理状态转换（RUNNING→PAUSED→RUNNING）、保存任务执行现场、支持优雅的暂停和快速恢复
+- **AND** 多线程环境下暂停恢复操作线程安全
 
-### Requirement: 事件驱动通知
-任务管理器SHALL提供事件驱动的任务状态变化通知机制，支持多个监听器订阅任务事件。
+#### Scenario: 任务停止和清理管理
+- **WHEN** 停止任务时
+- **THEN** 优雅停止正在执行的任务、清理任务相关资源、更新任务最终状态、记录任务执行统计
+- **AND** 支持强制停止和超时保护机制
 
-#### Scenario: 订阅任务事件
-- **WHEN** 调用subscribe_to_events方法并提供事件监听器
-- **THEN** 监听器被成功注册
-- **AND** 后续任务状态变化会通知该监听器
+### Requirement: 标准化任务管理接口
+task_manager.interfaces 模块 SHALL 定义统一的任务管理接口规范，为外部模块提供标准化的任务管理能力。
 
-#### Scenario: 状态变化事件通知
-- **WHEN** 任务状态发生变化
-- **THEN** 所有注册的监听器收到TaskStatusChangedEvent
-- **AND** 事件包含任务ID、旧状态、新状态和时间戳
+#### Scenario: 核心任务管理接口定义
+- **WHEN** 定义核心TaskManager接口时
+- **THEN** 提供 create_task、start_task、pause_task、resume_task、stop_task、get_task_status 等标准方法
+- **AND** 接口方法签名清晰，参数和返回值类型明确
 
-#### Scenario: 进度更新事件通知
-- **WHEN** 任务报告进度更新
-- **THEN** 监听器收到TaskProgressEvent
-- **AND** 事件包含任务ID、进度百分比和描述信息
+#### Scenario: 任务事件监听接口
+- **WHEN** 定义任务事件接口时
+- **THEN** 支持任务状态变化事件、进度更新事件、错误事件的监听和通知
+- **AND** 事件接口支持多个监听器并发注册和注销
 
-### Requirement: 控制点检查机制
-任务管理器SHALL提供控制点检查机制，允许任务在执行过程中响应控制信号。
+#### Scenario: 任务查询和统计接口
+- **WHEN** 定义任务查询接口时
+- **THEN** 支持按状态查询任务、获取任务详细信息、统计任务执行数据
+- **AND** 查询接口性能优化，支持大量任务的高效查询
 
-#### Scenario: 检查控制点
-- **WHEN** 任务执行过程中调用check_control_point方法
-- **THEN** 根据当前控制信号返回相应的ControlResponse
-- **AND** PAUSE信号导致任务暂停等待，STOP信号导致任务中断
+### Requirement: 任务控制混入类
+task_manager.mixins 模块 SHALL 提供TaskControlMixin类，为现有业务类提供无侵入的任务控制能力集成。
 
-#### Scenario: 控制点超时处理
-- **WHEN** 任务在控制点等待超过配置的超时时间
-- **THEN** 自动恢复执行或根据策略处理
-- **AND** 记录超时事件到日志
+#### Scenario: 无侵入任务控制能力集成
+- **WHEN** 业务类继承TaskControlMixin时
+- **THEN** 自动获得任务控制能力，无需修改现有业务逻辑
+- **AND** Mixin提供的方法命名规范统一，不与业务方法冲突
 
-#### Scenario: 批量控制点检查
-- **WHEN** 在循环或批量操作中调用控制点检查
-- **THEN** 支持配置化的检查频率，避免过度检查影响性能
-- **AND** 在关键节点强制检查，确保及时响应
+#### Scenario: 控制点检查机制
+- **WHEN** 调用_check_task_control方法时
+- **THEN** 快速检查当前任务控制状态，响应暂停、恢复、停止等控制信号
+- **AND** 控制点检查性能优化，单次调用耗时不超过1毫秒
 
-### Requirement: 跨进程任务控制
-任务管理器SHALL支持通过文件状态或其他IPC机制实现跨进程的任务控制能力。
+#### Scenario: 进度报告机制
+- **WHEN** 调用_report_task_progress方法时
+- **THEN** 统一格式报告任务进度信息给任务管理器
+- **AND** 进度报告异步处理，不阻塞业务流程执行
 
-#### Scenario: 外部进程控制任务
-- **WHEN** 外部进程通过TaskControlInterface发送停止信号
-- **THEN** 正在运行的任务接收到信号并开始停止流程
-- **AND** 状态文件被更新以反映控制操作
+### Requirement: 异常处理和错误管理
+task_manager.exceptions 模块 SHALL 定义任务管理相关的异常类型，提供完整的错误处理机制。
 
-#### Scenario: 状态文件同步
-- **WHEN** 任务状态发生变化
-- **THEN** 状态信息被写入持久化存储（状态文件）
-- **AND** 其他进程可以读取最新状态
+#### Scenario: 任务管理异常类型定义
+- **WHEN** 定义任务异常类型时
+- **THEN** 包含TaskCreationError、TaskExecutionError、TaskControlError、TaskTimeoutError等专用异常
+- **AND** 异常类型继承关系清晰，便于分层错误处理
 
-#### Scenario: 进程恢复后状态恢复
-- **WHEN** 进程重启后读取状态文件
-- **THEN** 能够恢复之前的任务状态信息
-- **AND** 继续提供任务控制能力
+#### Scenario: 异常信息和错误恢复
+- **WHEN** 处理任务异常时
+- **THEN** 提供详细的错误信息和上下文，支持错误恢复和重试机制
+- **AND** 异常处理不影响其他正常运行的任务
 
-### Requirement: 配置化任务管理
-任务管理器SHALL支持灵活的配置管理，包括超时设置、重试策略、日志级别等。
+### Requirement: 任务管理配置
+task_manager.config 模块 SHALL 提供任务管理相关的配置管理功能，支持灵活的配置定制。
 
-#### Scenario: 加载任务配置
-- **WHEN** 初始化TaskManager时提供配置对象
-- **THEN** 使用配置的参数设置任务管理行为
-- **AND** 未配置的参数使用合理的默认值
+#### Scenario: 默认配置和自定义配置
+- **WHEN** 加载任务管理配置时
+- **THEN** 提供合理的默认配置值，支持通过配置文件或环境变量自定义
+- **AND** 配置参数验证机制确保配置值的合法性
 
-#### Scenario: 运行时配置更新
-- **WHEN** 调用update_config方法提供新的配置
-- **THEN** 配置被动态更新
-- **AND** 正在运行的任务根据新配置调整行为
+#### Scenario: 跨平台兼容配置
+- **WHEN** 在不同平台运行时
+- **THEN** 配置自动适配Windows、Linux、macOS等平台差异
+- **AND** 平台特定配置项通过统一接口访问
 
-#### Scenario: 配置验证
-- **WHEN** 提供无效的配置参数（如负数超时时间）
-- **THEN** 抛出ConfigurationError异常
-- **AND** 任务管理器保持之前的有效配置
+## MODIFIED Requirements
 
-### Requirement: 向后兼容性
-任务管理器SHALL通过适配器模式保持与现有任务控制API的100%兼容性。
+### Requirement: 向后兼容适配器
+系统 SHALL 提供适配器机制确保现有代码的向后兼容性，支持渐进式迁移到新的任务管理架构。
 
-#### Scenario: 现有TaskControlMixin兼容
-- **WHEN** 现有代码使用TaskControlMixin的_check_task_control方法
-- **THEN** 方法正常工作，行为与之前完全一致
-- **AND** 底层使用新的任务管理器实现
-
-#### Scenario: 现有TaskExecutionController兼容
-- **WHEN** 现有代码使用TaskExecutionController的方法
-- **THEN** 所有方法正常工作，API保持不变
-- **AND** 通过适配器转发到新的任务管理器
+#### Scenario: 现有API兼容适配
+- **WHEN** 现有代码调用原TaskController接口时
+- **THEN** 适配器透明地将调用转发到新的TaskManager实现
+- **AND** 现有代码无需任何修改即可正常工作
 
 #### Scenario: 渐进式迁移支持
-- **WHEN** 部分代码迁移到新API，部分代码使用旧API
-- **THEN** 两种API可以同时工作，相互兼容
-- **AND** 任务状态在新旧系统间保持同步
-
-### Requirement: 性能和监控
-任务管理器SHALL提供性能监控能力，并确保任务控制操作的高效执行。
-
-#### Scenario: 任务执行性能监控
-- **WHEN** 任务执行完成
-- **THEN** 记录任务的执行时间、内存使用等性能指标
-- **AND** 通过metrics接口提供监控数据
-
-#### Scenario: 控制点检查性能优化
-- **WHEN** 在高频循环中进行控制点检查
-- **THEN** 检查操作的耗时应小于1毫秒
-- **AND** 支持配置检查频率以平衡响应性和性能
-
-#### Scenario: 内存使用管理
-- **WHEN** 管理大量任务
-- **THEN** 内存使用应保持在合理范围内
-- **AND** 支持自动清理已完成任务的资源
-
-### Requirement: 错误处理和恢复
-任务管理器SHALL提供完善的错误处理机制，确保系统的健壮性。
-
-#### Scenario: 任务执行异常处理
-- **WHEN** 任务执行过程中抛出异常
-- **THEN** 任务状态变更为FAILED
-- **AND** 异常信息被记录，通过事件通知监听器
-
-#### Scenario: 系统资源不足处理
-- **WHEN** 系统资源不足无法创建新任务
-- **THEN** 抛出ResourceExhaustionError异常
-- **AND** 现有任务不受影响，继续正常运行
-
-#### Scenario: 状态文件损坏恢复
-- **WHEN** 检测到状态文件损坏或不可读
-- **THEN** 使用备份状态文件或重建状态信息
-- **AND** 记录恢复操作到错误日志
+- **WHEN** 需要迁移现有代码时
+- **THEN** 支持部分功能使用新接口，部分功能继续使用适配器
+- **AND** 迁移过程中新旧接口可以共存，不影响系统稳定性

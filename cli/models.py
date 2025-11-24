@@ -94,9 +94,7 @@ class UIConfig:
     g01_item_max_price: int = 1000
     max_products_per_store: int = 50
 
-    # 店铺过滤参数
-    min_store_sales_30days: float = 500000.0  # 最小30天销售额（卢布）
-    min_store_orders_30days: int = 250  # 最小30天订单量
+    # 店铺过滤参数 - 注意：店铺筛选配置已迁移到common/config.py中统一管理
 
     # 输出设置
     output_format: str = "xlsx"
@@ -105,8 +103,7 @@ class UIConfig:
     # 界面设置
     remember_settings: bool = False
 
-    # 运行模式
-    dryrun: bool = False
+    # 运行模式 - 注意：dryrun配置已迁移到common/config.py中统一管理
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典格式"""
@@ -124,12 +121,9 @@ class UIConfig:
             'g01_item_min_price': self.g01_item_min_price,
             'g01_item_max_price': self.g01_item_max_price,
             'max_products_per_store': self.max_products_per_store,
-            'min_store_sales_30days': self.min_store_sales_30days,
-            'min_store_orders_30days': self.min_store_orders_30days,
             'output_format': self.output_format,
             'output_path': self.output_path,
-            'remember_settings': self.remember_settings,
-            'dryrun': self.dryrun
+            'remember_settings': self.remember_settings
         }
 
     @classmethod

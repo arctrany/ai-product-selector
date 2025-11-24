@@ -1,158 +1,24 @@
 """
-好店筛选系统配置管理
+基础配置模块
 
-管理系统的所有可调整参数，支持运行时配置和环境变量覆盖。
-遵循配置外部化原则，便于不同环境的部署和参数调优。
+定义配置系统的基础类和工具函数
 """
 
 import os
 import json
-from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, List
-from pathlib import Path
 import logging
+from typing import Dict, Any, Optional
+from pathlib import Path
+from dataclasses import dataclass, field
 
-
-@dataclass
-class SelectorFilterConfig:
-    """选择器过滤配置
-
-    遵循命名规范：
-    - 商品级别过滤：item_**_filter
-    - 店铺级别过滤：store_**_filter
-    """
-    # 店铺级别过滤条件
-    store_min_sales_30days: float = 500000.0  # 店铺最小30天销售额（卢布）
-    store_min_orders_30days: int = 250  # 店铺最小30天销量
-
-    # 好店判定阈值
-    profit_rate_threshold: float = 20.0  # 利润率阈值（百分比）
-    good_store_ratio_threshold: float = 20.0  # 好店判定比例阈值（百分比）
-    max_products_to_check: int = 10  # 每个店铺最多检查的商品数量
-
-    # 商品级别过滤：类目黑名单配置
-    item_category_blacklist: List[str] = field(default_factory=lambda: [
-        "成人用品", "情趣用品", "医疗器械", "处方药", "烟草制品",
-        "危险化学品", "易燃易爆物品", "武器装备", "赌博用具"
-    ])  # 商品类目黑名单列表
-
-
-@dataclass
-class PriceCalculationConfig:
-    """价格计算配置"""
-    # 真实售价计算规则
-    price_adjustment_threshold_1: float = 90.0  # 第一个价格调整阈值（人民币）
-    price_adjustment_threshold_2: float = 120.0  # 第二个价格调整阈值（人民币）
-    price_adjustment_amount: float = 5.0  # 价格调整金额
-    price_multiplier: float = 2.2  # 价格倍数
-    
-    # 商品定价
-    pricing_discount_rate: float = 0.95  # 定价折扣率（95折）
-    
-    # 汇率转换
-    rub_to_cny_rate: float = 0.11  # 卢布转人民币汇率（示例值）
-    
-    # 佣金率计算规则
-    commission_rate_low_threshold: float = 1500.0  # 低价商品阈值（卢布）
-    commission_rate_high_threshold: float = 5000.0  # 高价商品阈值（卢布）
-    commission_rate_default: float = 12.0  # 默认佣金率（百分比）
-
-
-@dataclass
-class BrowserConfig:
-    """浏览器配置
-
-    统一的浏览器配置类，整合所有浏览器相关配置。
-    """
-    # 浏览器配置
-    browser_type: str = "edge"  # 浏览器类型
-    headless: bool = False  # 是否无头模式
-    window_width: int = 1920
-    window_height: int = 1080
-
-    # 超时和重试配置
-    default_timeout_ms: int = 30000  # 默认超时时间（毫秒）
-    page_load_timeout_ms: int = 30000  # 页面加载超时（毫秒）
-    element_wait_timeout_ms: int = 10000  # 元素等待超时（毫秒）
-    max_retries: int = 3  # 最大重试次数
-    retry_delay_ms: int = 2000  # 重试延迟（毫秒）
-
-    # 登录态配置
-    required_login_domains: List[str] = field(default_factory=list)  # 必需登录的域名列表
-
-    # 调试配置
-    debug_port: int = 9222  # CDP 调试端口
-
-    # Seerfar平台配置
-    seerfar_base_url: str = "https://seerfar.cn"
-    seerfar_store_detail_path: str = "/admin/store-detail.html"
-
-    # OZON平台配置
-    ozon_base_url: str = "https://www.ozon.ru"
-
-    # 抓取间隔
-    request_delay: float = 1.0  # 请求间隔（秒）
-    random_delay_range: tuple = (0.5, 2.0)  # 随机延迟范围
-
-@dataclass
-class ScrapingConfig(BrowserConfig):
-    """网页抓取配置
-
-    .. deprecated::
-        ScrapingConfig 已废弃，请使用 BrowserConfig 替代。
-        为保持向后兼容，ScrapingConfig 现在是 BrowserConfig 的别名。
-
-    迁移示例::
-
-        # 旧方式（仍然支持）
-        config.scraping.browser_type
-
-        # 新方式（推荐）
-        config.browser.browser_type
-    """
-    pass
-
-
-@dataclass
-class ExcelConfig:
-    """Excel处理配置"""
-    # 默认Excel文件路径
-    default_excel_path: str = "uploads/store_list.xlsx"
-    profit_calculator_path: str = "uploads/profit_calculator.xlsx"
-    
-    # Excel列配置
-    store_id_column: str = "A"  # 店铺ID列
-    good_store_column: str = "B"  # 是否为好店列
-    status_column: str = "C"  # 状态列
-    
-    # 数据验证
-    max_rows_to_process: int = 10000  # 最大处理行数
-    skip_empty_rows: bool = True  # 跳过空行
-
-
-@dataclass
-class LoggingConfig:
-    """日志配置"""
-    log_level: str = "INFO"
-    log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    log_file: Optional[str] = None  # 日志文件路径，None表示只输出到控制台
-    max_log_file_size: int = 10 * 1024 * 1024  # 最大日志文件大小（字节）
-    backup_count: int = 5  # 日志文件备份数量
-
-
-@dataclass
-class PerformanceConfig:
-    """性能配置"""
-    # 并发配置
-    max_concurrent_stores: int = 5  # 最大并发处理店铺数
-    max_concurrent_products: int = 10  # 最大并发处理商品数
-    
-    # 缓存配置
-    enable_cache: bool = True
-    cache_ttl: int = 3600  # 缓存过期时间（秒）
-    
-    # 批处理配置
-    batch_size: int = 100  # 批处理大小
+from .browser_config import BrowserConfig
+from .business_config import (
+    SelectorFilterConfig,
+    PriceCalculationConfig,
+    ExcelConfig,
+    LoggingConfig,
+    PerformanceConfig
+)
 
 
 @dataclass
@@ -160,8 +26,7 @@ class GoodStoreSelectorConfig:
     """好店筛选系统主配置"""
     selector_filter: SelectorFilterConfig = field(default_factory=SelectorFilterConfig)
     price_calculation: PriceCalculationConfig = field(default_factory=PriceCalculationConfig)
-    browser: BrowserConfig = field(default_factory=BrowserConfig)  # 新字段名（推荐）
-    scraping: ScrapingConfig = field(default_factory=ScrapingConfig)  # 保留向后兼容
+    browser: BrowserConfig = field(default_factory=BrowserConfig)  # 统一使用browser字段
     excel: ExcelConfig = field(default_factory=ExcelConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
@@ -200,7 +65,6 @@ class GoodStoreSelectorConfig:
 
             # 如果使用了旧配置，显示警告
             if filter_config_key == 'store_filter':
-                import logging
                 logging.warning("配置文件使用了已废弃的 'store_filter' 字段，请更新为 'selector_filter'")
         
         if 'price_calculation' in config_dict:
@@ -215,23 +79,19 @@ class GoodStoreSelectorConfig:
             for key, value in config_dict['browser'].items():
                 if hasattr(config.browser, key):
                     setattr(config.browser, key, value)
-                    setattr(config.scraping, key, value)  # 同步到 scraping 保持兼容
             browser_config_loaded = True
 
         if 'scraping' in config_dict:
             if browser_config_loaded:
                 # 如果已经加载了 browser 配置，忽略 scraping 配置并输出信息
-                import logging
                 logging.info("配置文件同时包含 'browser' 和 'scraping' 字段，优先使用 'browser' 配置")
             else:
                 # 使用旧的 scraping 配置（向后兼容）
-                import logging
                 logging.warning("⚠️ 警告：'scraping' 配置字段已废弃，请迁移到 'browser' 字段")
                 logging.warning("迁移方法：将配置文件中的 'scraping' 改为 'browser'")
                 for key, value in config_dict['scraping'].items():
-                    if hasattr(config.scraping, key):
-                        setattr(config.scraping, key, value)
-                        setattr(config.browser, key, value)  # 同步到 browser
+                    if hasattr(config.browser, key):
+                        setattr(config.browser, key, value)
         
         if 'excel' in config_dict:
             for key, value in config_dict['excel'].items():
@@ -436,7 +296,6 @@ class GoodStoreSelectorConfig:
 # 全局配置实例
 _global_config: Optional[GoodStoreSelectorConfig] = None
 
-
 def get_config() -> GoodStoreSelectorConfig:
     """获取全局配置实例"""
     global _global_config
@@ -444,12 +303,10 @@ def get_config() -> GoodStoreSelectorConfig:
         _global_config = load_config()
     return _global_config
 
-
 def set_config(config: GoodStoreSelectorConfig):
     """设置全局配置实例"""
     global _global_config
     _global_config = config
-
 
 def load_config(config_file: Optional[str] = None) -> GoodStoreSelectorConfig:
     """
@@ -469,7 +326,6 @@ def load_config(config_file: Optional[str] = None) -> GoodStoreSelectorConfig:
         config = GoodStoreSelectorConfig()
     
     return config
-
 
 def create_default_config_file(file_path: str = "config/good_store_selector.json"):
     """创建默认配置文件"""
