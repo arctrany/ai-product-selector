@@ -13,20 +13,25 @@ class ERPSelectorsConfig(BaseScrapingConfig):
     
     # ========== ERP容器选择器配置 ==========
     erp_container_selectors: List[str] = field(default_factory=lambda: [
-        '[data-v-efec3aa9]',  # 从HTML中观察到的特征属性
-        '.erp-plugin',
-        '[class*="erp"]',
-        '[id*="erp"]',
-        '[data-widget="erpPlugin"]',
-        '[class*="plugin"]'
+        '#custom-insertion-point',                    # 容器ID - 最准确的选择器
+        '[data-v-efec3aa9]',                         # Vue组件属性 - 主要识别标识
+        '.mz-widget-product',                        # 实际组件类名
+        '[class*="mz-widget"]',                      # 通用匹配模式
+        '#custom-insertion-point [data-v-efec3aa9]', # 嵌套选择器，更精确
+        '.mz-widget-product [data-v-efec3aa9]',      # 备用嵌套选择器
+        'div[data-widget]',                          # 基于OZON实际使用的data-widget模式
+        '[data-widget*="web"]'                       # 基于OZON实际的web组件模式（参考webSellerList）
     ])
     
     # ========== ERP数据选择器配置 ==========
     erp_data_selectors: List[str] = field(default_factory=lambda: [
-        '[data-erp-field]',
-        '.erp-data',
-        '[class*="erp-field"]',
-        '[data-field]'
+        '[data-erp-field]',                          # 原有选择器
+        '.erp-data',                                  # 原有选择器
+        '[class*="erp-field"]',                       # 原有选择器
+        '[data-field]',                               # 原有选择器
+        'span',                                       # 基于OZON实际DOM结构：大部分数据在span中
+        'div',                                        # 基于OZON实际DOM结构：容器div
+        '[data-testid]'                               # 基于OZON实际使用的testid模式
     ])
     
     # ========== ERP状态指示器选择器 ==========

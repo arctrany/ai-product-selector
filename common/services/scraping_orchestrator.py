@@ -45,7 +45,7 @@ from ..models.scraping_result import ScrapingResult
 # from ..scrapers.seerfar_scraper import SeerfarScraper
 # from ..scrapers.competitor_scraper import CompetitorScraper
 # from ..scrapers.erp_plugin_scraper import ErpPluginScraper
-from .competitor_detection_service import CompetitorDetectionService
+# CompetitorDetectionService由CompetitorScraper管理，协调器不直接依赖
 from ..utils.wait_utils import WaitUtils
 from ..utils.scraping_utils import ScrapingUtils
 
@@ -54,9 +54,8 @@ class ScrapingMode(Enum):
     """抓取模式枚举"""
     PRODUCT_INFO = "product_info"  # 纯商品信息抓取
     STORE_ANALYSIS = "store_analysis"  # 店铺分析抓取
-    COMPETITOR_DETECTION = "competitor_detection"  # 跟卖检测
     ERP_DATA = "erp_data"  # ERP数据抓取
-    FULL_ANALYSIS = "full_analysis"  # 全量分析
+    FULL_CHAIN = "full_chain"  # 全量分析
 
 
 @dataclass
@@ -82,29 +81,34 @@ class ScrapingOrchestrator:
     
     def __init__(self, 
                  browser_service=None,
-                 config: Optional[OrchestrationConfig] = None):
+                 config: Optional[OrchestrationConfig] = None,
+                 competitor_detection_service=None):
         """
         初始化服务协调器
-        
+
         Args:
             browser_service: 浏览器服务实例
             config: 协调配置
+            competitor_detection_service: 跟卖检测服务实例（用于测试注入）
         """
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.config = config or OrchestrationConfig()
-        
+
         # 使用传入的浏览器服务或None（各Scraper会使用自己的全局服务）
         self.browser_service = browser_service
-        
+
         # 🔧 初始化统一工具类
         self.wait_utils = WaitUtils(self.browser_service, self.logger)
         self.scraping_utils = ScrapingUtils(self.logger)
-        
+
         # 🎯 初始化四个Scraper系统
         self._initialize_scrapers()
-        
+
         # 🎯 初始化服务层
-        self._initialize_services()
+        if competitor_detection_service:
+            self.competitor_detection_service = competitor_detection_service
+        else:
+            self._initialize_services()
         
         # 📊 初始化监控数据
         self.metrics = {
@@ -153,10 +157,8 @@ class ScrapingOrchestrator:
         try:
             self.logger.info("🔧 初始化服务层...")
             
-            # 跟卖检测服务
-            self.competitor_detection_service = CompetitorDetectionService(
-                browser_service=self.browser_service
-            )
+            # 协调器不直接管理业务服务
+            # CompetitorDetectionService由CompetitorScraper管理
             
             self.logger.info("✅ 服务层初始化完成")
             
@@ -198,12 +200,8 @@ class ScrapingOrchestrator:
                 result = self._orchestrate_product_info_scraping(url, **kwargs)
             elif mode == ScrapingMode.STORE_ANALYSIS:
                 result = self._orchestrate_store_analysis(url, **kwargs)
-            elif mode == ScrapingMode.COMPETITOR_DETECTION:
-                result = self._orchestrate_competitor_detection(url, **kwargs)
-            elif mode == ScrapingMode.ERP_DATA:
-                result = self._orchestrate_erp_data_scraping(url, **kwargs)
-            elif mode == ScrapingMode.FULL_ANALYSIS:
-                result = self._orchestrate_full_analysis(url, **kwargs)
+            elif mode == ScrapingMode.FULL_CHAIN:
+                result = self._orchestrate_product_full_analysis(url, **kwargs)
             else:
                 raise ValueError(f"不支持的抓取模式: {mode}")
             
@@ -285,74 +283,9 @@ class ScrapingOrchestrator:
             self.logger.error(f"店铺分析协调失败: {e}")
             raise
     
-    def _orchestrate_competitor_detection(self, url: str, **kwargs) -> ScrapingResult:
-        """协调跟卖检测"""
-        try:
-            self.logger.info("🔧 执行跟卖检测...")
-            
-            # 先导航到页面
-            success = self.ozon_scraper.navigate_to(url)
-            if not success:
-                return ScrapingResult(
-                    success=False,
-                    data={},
-                    error_message="页面导航失败"
-                )
-            
-            # 获取页面内容用于跟卖检测
-            page_content = ""
-            try:
-                # 如果协调者没有浏览器服务，使用全局浏览器服务
-                if self.browser_service:
-                    page_content = self.browser_service.evaluate_sync("() => document.documentElement.outerHTML")
-                else:
-                    # 使用全局浏览器服务
-                    from ..scrapers.global_browser_singleton import get_global_browser_service
-                    global_browser_service = get_global_browser_service()
-                    page_content = global_browser_service.evaluate_sync("() => document.documentElement.outerHTML")
-            except Exception as e:
-                self.logger.warning(f"获取页面内容失败: {e}，使用空内容进行检测")
-                page_content = ""
 
-            # 使用CompetitorDetectionService进行检测（无论页面内容是否获取成功都要调用）
-            detection_result = self.competitor_detection_service.detect_competitors(page_content)
-
-            if detection_result.has_competitors:
-                # 使用CompetitorScraper进行详细信息抓取
-                try:
-                    current_page = self.browser_service.get_current_page()
-                    competitor_result = self.competitor_scraper.open_competitor_popup_and_extract(current_page)
-
-                    # 合并检测结果和详细信息
-                    combined_data = {
-                        'detection_result': detection_result.__dict__,
-                        'competitor_details': competitor_result
-                    }
-
-                    return ScrapingResult(
-                        success=True,
-                        data=combined_data,
-                        execution_time=0
-                    )
-                except Exception as e:
-                    self.logger.warning(f"抓取跟卖详细信息失败: {e}，仅返回检测结果")
-                    return ScrapingResult(
-                        success=True,
-                        data={'detection_result': detection_result.__dict__},
-                        execution_time=0
-                    )
-            else:
-                return ScrapingResult(
-                    success=True,
-                    data={'detection_result': detection_result.__dict__},
-                    execution_time=0
-                )
-            
-        except Exception as e:
-            self.logger.error(f"跟卖检测协调失败: {e}")
-            raise
     
-    def _orchestrate_erp_data_scraping(self, url: str, **kwargs) -> ScrapingResult:
+    def _orchestrate_product_erp_data_scraping(self, url: str, **kwargs) -> ScrapingResult:
         """协调ERP数据抓取"""
         try:
             self.logger.info("🔧 执行ERP数据抓取...")
@@ -365,116 +298,45 @@ class ScrapingOrchestrator:
         except Exception as e:
             self.logger.error(f"ERP数据抓取协调失败: {e}")
             raise
-    
-    def _orchestrate_full_analysis(self, url: str, **kwargs) -> ScrapingResult:
-        """协调全量分析抓取"""
+
+
+    def _orchestrate_product_full_analysis(self, url: str, **kwargs) -> ScrapingResult:
+        """协调两次商品抓取，第一次是原商品抓取，第二次是competitor数据抓取（若有），最后并合并结果"""
         try:
             self.logger.info("🔧 执行全量分析抓取...")
-            
+
             combined_data = {}
+            context = {}
             errors = []
-            
+
             # 1. 商品信息抓取
             try:
-                product_result = self._orchestrate_product_info_scraping(url, **kwargs)
-                if product_result.success:
-                    combined_data['product_info'] = product_result.data
-                else:
-                    errors.append(f"商品信息抓取失败: {product_result.error_message}")
+                result = self.ozon_scraper.scrape(url, context, **kwargs)
+                # context.update("competitor_cnt", result.data.get("competitor_cnt",0))
+
+
+                self.competitor_scraper.scrape(url, context, **kwargs)
+
             except Exception as e:
                 errors.append(f"商品信息抓取异常: {e}")
-            
-            # 2. ERP数据抓取
-            try:
-                erp_result = self._orchestrate_erp_data_scraping(url, **kwargs)
-                if erp_result.success:
-                    combined_data['erp_data'] = erp_result.data
-                else:
-                    errors.append(f"ERP数据抓取失败: {erp_result.error_message}")
-            except Exception as e:
-                errors.append(f"ERP数据抓取异常: {e}")
-            
-            # 3. 跟卖检测
-            try:
-                competitor_result = self._orchestrate_competitor_detection(url, **kwargs)
-                if competitor_result.success:
-                    combined_data['competitor_analysis'] = competitor_result.data
-                else:
-                    errors.append(f"跟卖检测失败: {competitor_result.error_message}")
-            except Exception as e:
-                errors.append(f"跟卖检测异常: {e}")
-            
-            # 判断总体成功状态
-            has_data = len(combined_data) > 0
-            error_message = "; ".join(errors) if errors else None
-            
-            return ScrapingResult(
-                success=has_data,
-                data=combined_data,
-                error_message=error_message,
-                execution_time=0
-            )
-            
+
+
+            #2. 如果product_result包括了竞争者信息，则竞争者的商品基本信息（注 competitor 不需要再次抓取竞争者信息了）
+
+
+
+
+            # return ScrapingResult(
+            #     success=has_data,
+            #     data=combined_data,
+            #     error_message=error_message,
+            #     execution_time=0
+            # )
+
         except Exception as e:
             self.logger.error(f"全量分析协调失败: {e}")
             raise
-    
-    # def execute_with_retry(self,
-    #                       operation: callable,
-    #                       operation_name: str,
-    #                       *args, **kwargs) -> ScrapingResult:
-    #     """
-    #     带重试机制的操作执行
-    #
-    #     Args:
-    #         operation: 要执行的操作
-    #         operation_name: 操作名称（用于日志）
-    #         *args, **kwargs: 操作参数
-    #
-    #     Returns:
-    #         ScrapingResult: 执行结果
-    #     """
-    #     start_time = time.time()
-    #
-    #     for attempt in range(self.config.max_retries + 1):
-    #         try:
-    #             if attempt > 0:
-    #                 self.logger.info(f"🔄 {operation_name} 重试第 {attempt} 次...")
-    #                 self._update_metrics('retry_count', 1)
-    #                 time.sleep(self.config.retry_delay_seconds)
-    #
-    #             result = operation(*args, **kwargs)
-    #
-    #             if result.success:
-    #                 if attempt > 0:
-    #                     self.logger.info(f"✅ {operation_name} 重试成功")
-    #                 return result
-    #             else:
-    #                 if attempt < self.config.max_retries:
-    #                     self.logger.warning(f"⚠️ {operation_name} 第 {attempt + 1} 次失败，准备重试: {result.error_message}")
-    #                 else:
-    #                     self.logger.error(f"❌ {operation_name} 所有重试失败: {result.error_message}")
-    #                     return result
-    #
-    #         except Exception as e:
-    #             if attempt < self.config.max_retries:
-    #                 self.logger.warning(f"⚠️ {operation_name} 第 {attempt + 1} 次异常，准备重试: {e}")
-    #             else:
-    #                 self.logger.error(f"❌ {operation_name} 所有重试异常: {e}")
-    #                 return ScrapingResult(
-    #                     success=False,
-    #                     data={},
-    #                     error_message=str(e),
-    #                     execution_time=time.time() - start_time
-    #                 )
-    #
-    #     # 理论上不会到达这里，但为了安全性
-    #     return ScrapingResult(
-    #         success=False,
-    #         data={},
-    #         error_message=f"{operation_name}执行失败",
-    #         execution_time=time.time() - start_time
-    #     )
+
     
     def get_scraper_by_type(self, scraper_type: str):
         """
@@ -567,11 +429,8 @@ class ScrapingOrchestrator:
                 else:
                     health_status['scrapers'][name] = 'not_initialized'
             
-            # 检查服务层
-            if self.competitor_detection_service:
-                health_status['services']['competitor_detection'] = 'initialized'
-            else:
-                health_status['services']['competitor_detection'] = 'not_initialized'
+            # 服务层由各个scraper管理
+            health_status['services']['note'] = 'services_managed_by_scrapers'
                 
         except Exception as e:
             health_status['orchestrator'] = f'error: {e}'

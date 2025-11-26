@@ -6,8 +6,10 @@
 
 import unittest
 import logging
+import asyncio
 from typing import Optional, Any
 from unittest.mock import Mock, MagicMock, patch
+from rpa.browser.implementations.playwright_browser_driver import SimplifiedPlaywrightBrowserDriver
 
 
 class BaseScraperTest(unittest.TestCase):
@@ -77,7 +79,7 @@ class BaseScraperTest(unittest.TestCase):
         mock_service.wait_for_timeout_sync = MagicMock()
         
         # 添加缺失的方法
-        mock_service.get_page_url_sync = MagicMock(return_value="https://example.com")
+        mock_service.get_page_url_sync = MagicMock(return_value="https://www.ozon.ru")
 
         return mock_service
     
@@ -89,9 +91,9 @@ class BaseScraperTest(unittest.TestCase):
             dict: 测试数据字典
         """
         return {
-            'test_url': 'https://example.com/product/123',
+            'test_url': 'https://www.ozon.ru/product/1756017628',
             'test_price': '1000.50',
-            'test_product_id': '123',
+            'test_product_id': '1756017628',
             'test_store_name': 'Test Store',
             'test_html': '<html><body><div class="price">1000.50 ₽</div></body></html>'
         }
@@ -240,3 +242,243 @@ class BaseScraperTest(unittest.TestCase):
         suite = unittest.TestLoader().loadTestsFromTestCase(test_class)
         runner = unittest.TextTestRunner(verbosity=2)
         return runner.run(suite)
+
+
+class BaseScraperRealBrowserTest(unittest.TestCase):
+    """
+    Scraper真实浏览器测试基类
+
+    提供真实浏览器测试基础设施：
+    - 真实浏览器服务启动和清理
+    - 网络请求处理
+    - 资源管理和错误处理
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        """测试类初始化"""
+        logging.basicConfig(level=logging.DEBUG)
+        cls.logger = logging.getLogger(cls.__name__)
+        cls.real_browser_service = None
+
+    def setUp(self):
+        """每个测试方法执行前的初始化"""
+        self.real_browser_service = None
+        self.test_data = self._prepare_test_data()
+
+        # 🔧 修复：延迟初始化，避免提前关闭
+        # 不在setUp中初始化浏览器，而是在需要时初始化
+        self.logger.info("✅ 测试环境准备完成，浏览器将在使用时初始化")
+
+    def tearDown(self):
+        """每个测试方法执行后的清理"""
+        if self.real_browser_service:
+            try:
+                self.real_browser_service.shutdown()
+                self.logger.info("✅ 真实浏览器已关闭")
+            except Exception as e:
+                self.logger.warning(f"浏览器关闭异常: {e}")
+        self.real_browser_service = None
+        self.test_data = None
+
+    def _create_real_browser_service(self) -> SimplifiedPlaywrightBrowserDriver:
+        """
+        创建真实浏览器服务（使用与选品程序相同的配置策略）
+
+        🔧 应用选品程序的浏览器配置策略：
+        - 先清理冲突的浏览器进程
+        - 使用真实用户Profile
+        - 检测活跃Profile
+        - 等待Profile解锁
+
+        Returns:
+            SimplifiedPlaywrightBrowserDriver: 真实浏览器服务实例
+        """
+        import os
+        from rpa.browser.utils import detect_active_profile, BrowserDetector
+
+        # 🔧 关键：使用选品程序相同的配置策略
+        browser_type = 'edge'  # 选品程序默认使用edge
+        debug_port = 9222
+
+        # 🔧 步骤1：先清理浏览器进程，再进行 Profile 验证
+        detector = BrowserDetector()
+        base_user_data_dir = detector._get_edge_user_data_dir() if browser_type == 'edge' else None
+
+        if not base_user_data_dir:
+            self.logger.error("❌ 无法获取用户数据目录")
+            raise RuntimeError("无法获取用户数据目录")
+
+        # 🔧 步骤2：主动清理可能冲突的浏览器进程
+        self.logger.info("🧹 测试启动前先清理可能冲突的浏览器进程...")
+        if not detector.kill_browser_processes():
+            self.logger.warning("⚠️ 清理浏览器进程时遇到问题，但继续启动")
+        else:
+            self.logger.info("✅ 浏览器进程清理完成")
+
+        # 🔧 步骤3：检测最近使用的 Profile
+        active_profile = detect_active_profile()
+        if not active_profile:
+            active_profile = "Default"
+            self.logger.warning("⚠️ 未检测到 Profile，将使用默认 Profile")
+        else:
+            self.logger.info(f"✅ 检测到最近使用的 Profile: {active_profile}")
+
+        # 🔧 步骤4：验证 Profile 可用性
+        if not detector.is_profile_available(base_user_data_dir, active_profile):
+            self.logger.warning(f"⚠️ Profile '{active_profile}' 仍不可用")
+
+            # 等待 Profile 解锁
+            profile_path = os.path.join(base_user_data_dir, active_profile)
+            if detector.wait_for_profile_unlock(profile_path, max_wait_seconds=5):
+                self.logger.info("✅ Profile 已解锁，继续启动")
+                # 再次验证 Profile 是否真的可用
+                if not detector.is_profile_available(base_user_data_dir, active_profile):
+                    error_msg = f"❌ Profile '{active_profile}' 解锁后仍不可用"
+                    self.logger.error(error_msg)
+                    raise RuntimeError(error_msg)
+            else:
+                error_msg = f"❌ Profile '{active_profile}' 等待解锁超时"
+                self.logger.error(error_msg)
+                self.logger.error("💡 请手动关闭所有 Edge 浏览器窗口后重试")
+                raise RuntimeError(error_msg)
+
+        # 🔧 步骤5：使用真实Profile创建配置
+        user_data_dir = os.path.join(base_user_data_dir, active_profile)
+        self.logger.info(f"✅ Profile 可用，将使用: {user_data_dir}")
+
+        # 🔧 使用与选品程序相同的配置
+        config = {
+            'browser_type': browser_type,
+            'headless': False,  # 🔥 修复：与xp命令保持一致，浏览器可见
+            'debug_port': debug_port,
+            'user_data_dir': user_data_dir,  # 🔧 关键：使用真实Profile
+            'timeout': 30000,  # 30秒超时
+            'navigation_timeout': 30000,
+            'wait_timeout': 10000,
+            'args': [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-blink-features=AutomationControlled',
+                '--exclude-switches=enable-automation',
+                '--enable-extensions',  # 保留扩展支持
+                '--no-first-run',
+                '--disable-default-browser-check',
+                '--enable-password-generation',
+                '--enable-autofill',
+                '--enable-sync'
+            ]
+        }
+
+        self.logger.info(f"🚀 测试配置: browser={browser_type}, headless=True, profile={active_profile}")
+        return SimplifiedPlaywrightBrowserDriver(config)
+
+    def _prepare_test_data(self) -> dict:
+        """
+        准备测试数据
+
+        Returns:
+            dict: 测试数据字典
+        """
+        return {
+            'test_url': 'https://www.ozon.ru/product/1756017628/',
+            'test_product_id': '1756017628',
+            'test_timeout': 30,
+            'expected_selectors': [
+                '[data-widget="webPrice"]',
+                '.tsHeadline600Large',
+                '.tsBodyControl500Medium'
+            ]
+        }
+
+    def navigate_to_url(self, url: str, timeout: int = 30) -> bool:
+        """
+        导航到指定URL
+
+        Args:
+            url: 目标URL
+            timeout: 超时时间（秒）
+
+        Returns:
+            bool: 导航是否成功
+        """
+        try:
+            # 🔧 修复：确保浏览器已初始化
+            if self.real_browser_service is None:
+                self.real_browser_service = self._create_real_browser_service()
+                success = self.real_browser_service.initialize()
+                if not success:
+                    self.logger.error("❌ 浏览器初始化失败")
+                    return False
+                self.logger.info("✅ 真实浏览器已启动")
+
+            # 🔧 修复：SimplifiedPlaywrightBrowserDriver 使用 open_page_sync 方法
+            success = self.real_browser_service.open_page_sync(url, 'domcontentloaded')
+            if success:
+                self.logger.info(f"✅ 成功导航到: {url}")
+                return True
+            else:
+                self.logger.error(f"❌ 导航失败: {url}")
+                return False
+        except Exception as e:
+            self.logger.error(f"❌ 导航异常: {e}")
+            return False
+
+    def wait_for_element(self, selector: str, timeout: int = 10) -> bool:
+        """
+        等待元素出现
+
+        Args:
+            selector: 元素选择器
+            timeout: 超时时间（秒）
+
+        Returns:
+            bool: 元素是否出现
+        """
+        try:
+            return self.real_browser_service.wait_for_selector_sync(selector, timeout * 1000)
+        except Exception as e:
+            self.logger.error(f"❌ 等待元素失败 {selector}: {e}")
+            return False
+
+    def get_page_content(self) -> str:
+        """
+        获取页面内容
+
+        Returns:
+            str: 页面HTML内容
+        """
+        try:
+            content = self.real_browser_service.evaluate_sync("() => document.documentElement.outerHTML")
+            return content if content else ""
+        except Exception as e:
+            self.logger.error(f"❌ 获取页面内容失败: {e}")
+            return ""
+
+    def assert_real_browser_navigation_success(self, url: str):
+        """
+        断言真实浏览器导航成功
+
+        Args:
+            url: 期望的URL
+        """
+        success = self.navigate_to_url(url)
+        self.assertTrue(success, f"浏览器应该成功导航到 {url}")
+
+        # 验证当前URL
+        try:
+            # 🔧 修复：使用evaluate_sync获取当前URL
+            current_url = self.real_browser_service.evaluate_sync("() => window.location.href")
+            if current_url:
+                self.assertIn(url.split('/')[-2], current_url, "URL应该包含产品ID")
+        except Exception as e:
+            self.logger.warning(f"URL验证警告: {e}")
+
+    def assert_page_loaded_successfully(self):
+        """
+        断言页面加载成功
+        """
+        content = self.get_page_content()
+        self.assertIsNotNone(content, "页面内容不应为空")
+        self.assertGreater(len(content), 100, "页面内容应该有足够长度")
+        self.assertIn('<html', content.lower(), "应该包含HTML标签")

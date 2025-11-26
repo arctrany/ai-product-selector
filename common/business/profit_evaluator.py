@@ -264,12 +264,12 @@ class ProfitEvaluator:
         Returns:
             list[Dict[str, Any]]: 评估结果列表
         """
-        results = []
-        source_prices = source_prices or {}
+        results: list[Dict[str, Any]] = []
+        source_prices_dict: Dict[str, float] = source_prices or {}
 
         for product in products:
             try:
-                source_price = source_prices.get(product.product_id)
+                source_price = source_prices_dict.get(product.product_id)
                 result = self.evaluate_product_profit(product, source_price)
                 results.append(result)
 

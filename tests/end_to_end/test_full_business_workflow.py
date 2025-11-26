@@ -100,7 +100,7 @@ class TestFullBusinessWorkflow(unittest.TestCase):
         # Mock OzonScraper
         mock_ozon_scraper = MagicMock()
         mock_ozon_scraper_class.return_value = mock_ozon_scraper
-        mock_ozon_scraper.scrape_product_prices.return_value = ScrapingResult(
+        mock_ozon_scraper.scrape_product_basics.return_value = ScrapingResult(
             success=True,
             data={'green_price': 1000.0, 'black_price': 1200.0},
             execution_time=0.1

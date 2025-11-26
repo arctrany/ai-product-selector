@@ -154,7 +154,7 @@ class TestPerformanceBenchmark(BaseScraperTest):
             for price, expected in test_cases:
                 start_time = time.time()
                 try:
-                    result = scraping_utils.validate_price(price)
+                    result = validate_price(price)
                     if result == expected:
                         success_count += 1
                     elapsed = time.time() - start_time
@@ -196,7 +196,7 @@ class TestPerformanceBenchmark(BaseScraperTest):
             for text in test_texts:
                 start_time = time.time()
                 try:
-                    cleaned = scraping_utils.clean_text(text)
+                    cleaned = clean_text(text)
                     elapsed = time.time() - start_time
                     total_time += elapsed
                 except Exception as e:

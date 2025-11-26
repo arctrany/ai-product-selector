@@ -7,7 +7,7 @@ The current `OzonScraper` implementation contains redundant wrapper methods that
 - **Remove redundant image extraction wrappers**: Eliminate `_extract_product_image_from_content_sync()` and `_extract_product_image_from_content()` methods
 - **Remove redundant price extraction wrapper**: Eliminate `_extract_price_data_from_content_sync()` method
 - **Simplify method calls**: Update callers to use core methods directly
-- **Clean up unused parameters**: Remove `is_async` parameter from `_extract_price_data_core()`
+- **Clean up unused parameters**: Remove `is_async` parameter from `_extract_basic_data_core()`
 
 ## Impact
 - Affected specs: ozon-scraper

@@ -136,7 +136,7 @@ def test_click_first_competitor():
         logger.info("🔍 查找第一个跟卖店铺...")
 
         # 使用配置系统中的选择器查找店铺卡片
-        card_selectors = selectors_config.competitor_container_selectors
+        card_selectors = selectors_config.competitor_area_selectors
 
         all_cards = None
         card_count = 0

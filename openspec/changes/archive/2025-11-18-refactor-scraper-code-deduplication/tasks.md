@@ -54,10 +54,10 @@
 - [x] 在 `_extract_competitor_price_value` 方法中使用 `_validate_price` 验证跟卖价格
 
 ### 2.3 统一错误处理
-- [x] 在 `_extract_price_data_core` 方法中使用 `_handle_extraction_error`
+- [x] 在 `_extract_basic_data_core` 方法中使用 `_handle_extraction_error`
 - [x] 在 `_extract_basic_prices` 方法中使用 `_handle_extraction_error`
 - [x] 在 `_extract_competitor_price_value` 方法中使用 `_handle_extraction_error`
-- [x] 在 `_extract_product_image_core` 方法中使用 `_handle_extraction_error`
+- [x] 在 `_extract_product_image` 方法中使用 `_handle_extraction_error`
 
 ### 2.4 清理和优化
 - [x] 删除所有注释掉的实验性代码

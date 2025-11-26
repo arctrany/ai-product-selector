@@ -17,18 +17,18 @@ The `OzonScraper` class contains several redundant wrapper methods that simply c
 
 ### Decision 1: Remove Image Extraction Wrappers
 **What**: Remove `_extract_product_image_from_content_sync()` and `_extract_product_image_from_content()` methods
-**Why**: Both methods simply call `_extract_product_image_core()` without adding any logic
+**Why**: Both methods simply call `_extract_product_image()` without adding any logic
 **Alternatives considered**: 
 - Keep wrappers for consistency → Rejected as they serve no purpose
 
 ### Decision 2: Remove Price Extraction Wrapper
 **What**: Remove `_extract_price_data_from_content_sync()` method
-**Why**: Method only creates BeautifulSoup and calls `_extract_price_data_core()` - this can be done directly
+**Why**: Method only creates BeautifulSoup and calls `_extract_basic_data_core()` - this can be done directly
 **Alternatives considered**:
 - Keep wrapper for abstraction → Rejected as abstraction adds no value here
 
 ### Decision 3: Remove Unused Parameters
-**What**: Remove `is_async` parameter from `_extract_price_data_core()`
+**What**: Remove `is_async` parameter from `_extract_basic_data_core()`
 **Why**: Parameter is not used anywhere in the method logic
 **Alternatives considered**:
 - Keep parameter for future use → Rejected following YAGNI principle

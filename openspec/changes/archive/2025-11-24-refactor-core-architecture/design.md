@@ -255,7 +255,7 @@ class GoodStoreSelector:
         self.profit_calculator_path = profit_calculator_path
         self.config = config or GoodStoreSelectorConfig()
     
-    def _scrape_product_prices(self, product_info: Dict[str, Any]):
+    def _scrape_product_basics(self, product_info: Dict[str, Any]):
         """通过协调器抓取商品价格"""
         try:
             # 检查任务控制点

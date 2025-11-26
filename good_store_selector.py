@@ -13,6 +13,7 @@ from pathlib import Path
 from common.models.excel_models import ExcelStoreData
 from common.models.business_models import StoreInfo, ProductInfo, BatchProcessingResult, StoreAnalysisResult, CompetitorStore
 from common.models.enums import GoodStoreFlag, StoreStatus
+from common.models.scraping_result import ScrapingResult
 from common.config.base_config import GoodStoreSelectorConfig, get_config
 from common.excel_processor import ExcelStoreProcessor
 from common.services.scraping_orchestrator import ScrapingOrchestrator, ScrapingMode, get_global_scraping_orchestrator
@@ -249,13 +250,45 @@ class GoodStoreSelector(TaskControlMixin):
             self.logger.error(f"select-goods 模式加载店铺失败: {e}")
             raise
     
+    def _scrape_store_data(self, store_data: ExcelStoreData, filter_manager: FilterManager) -> tuple[ScrapingResult, Optional[Dict[str, Any]]]:
+        """
+        统一处理店铺数据抓取
+
+        Args:
+            store_data: 店铺数据
+            filter_manager: 过滤管理器
+
+        Returns:
+            tuple[ScrapingResult, Optional[Dict[str, Any]]]: 抓取结果和销售数据
+        """
+        # 根据模式决定是否应用店铺过滤
+        store_filter_func = None
+        if self.config.selection_mode != 'select-goods':
+            store_filter_func = filter_manager.get_store_filter_func()
+
+        # 统一的抓取调用
+        result = self.scraping_orchestrator.scrape_with_orchestration(
+            mode=ScrapingMode.STORE_ANALYSIS,
+            store_id=store_data.store_id,
+            max_products=self.config.selector_filter.max_products_to_check,
+            product_filter_func=filter_manager.get_product_filter_func(),
+            store_filter_func=store_filter_func
+        )
+
+        # 提取销售数据（仅在select-shops模式下可用）
+        sales_data = None
+        if self.config.selection_mode != 'select-goods' and result.success:
+            sales_data = result.data.get('sales_data', {})
+
+        return result, sales_data
+
     def _process_single_store(self, store_data: ExcelStoreData) -> StoreAnalysisResult:
         """
         处理单个店铺
-        
+
         Args:
             store_data: 店铺数据
-            
+
         Returns:
             StoreAnalysisResult: 店铺分析结果
         """
@@ -263,22 +296,13 @@ class GoodStoreSelector(TaskControlMixin):
             # 使用过滤器管理器
             filter_manager = FilterManager(self.config)
 
-            # 根据选择模式决定是否进行店铺过滤
+            # 统一的店铺数据抓取
+            result, sales_data = self._scrape_store_data(store_data, filter_manager)
+
+            # 根据选择模式处理结果
             if self.config.selection_mode == 'select-goods':
                 # select-goods 模式：跳过店铺过滤，直接抓取商品
                 self.logger.info(f"select-goods 模式：跳过店铺 {store_data.store_id} 的过滤，直接进行商品选品")
-
-                # 🎯 使用ScrapingOrchestrator进行统一抓取管理
-                # 注意：ScrapingOrchestrator会从store_id构建正确的URL，不需要我们硬编码URL
-                result = self.scraping_orchestrator.scrape_with_orchestration(
-                    mode=ScrapingMode.STORE_ANALYSIS,
-                    url="",  # 空URL，让协调器处理
-                    store_id=store_data.store_id,
-                    include_products=True,
-                    max_products=self.config.selector_filter.max_products_to_check,
-                    product_filter_func=filter_manager.get_product_filter_func(),
-                    store_filter_func=None  # select-goods 模式不过滤店铺
-                )
 
                 # 创建 store_info（无销售数据）
                 store_info = StoreInfo(
@@ -287,32 +311,19 @@ class GoodStoreSelector(TaskControlMixin):
                     status=store_data.status
                 )
             else:
-                # select-shops 模式：🎯 使用ScrapingOrchestrator进行统一抓取管理
-                # 注意：ScrapingOrchestrator会从store_id构建正确的URL，不需要我们硬编码URL
-                result = self.scraping_orchestrator.scrape_with_orchestration(
-                    mode=ScrapingMode.STORE_ANALYSIS,
-                    url="",  # 空URL，让协调器处理
-                    store_id=store_data.store_id,
-                    include_products=True,
-                    max_products=self.config.selector_filter.max_products_to_check,
-                    product_filter_func=filter_manager.get_product_filter_func(),
-                    store_filter_func=filter_manager.get_store_filter_func()
-                )
-
-                # 检查店铺数据获取是否成功
+                # select-shops 模式：检查店铺数据获取是否成功
                 if not result.success:
                     self.logger.warning(f"店铺{store_data.store_id}数据获取失败或不符合筛选条件，跳过后续商品处理")
                     return self.error_factory.create_failed_store_result(store_data.store_id)
 
                 # 创建 store_info（包含销售数据）
-                sales_data = result.data.get('sales_data', {})
                 store_info = StoreInfo(
                     store_id=store_data.store_id,
                     is_good_store=store_data.is_good_store,
                     status=store_data.status,
-                    sold_30days=sales_data.get('sold_30days'),
-                    sold_count_30days=sales_data.get('sold_count_30days'),
-                    daily_avg_sold=sales_data.get('daily_avg_sold')
+                    sold_30days=sales_data.get('sold_30days') if sales_data else None,
+                    sold_count_30days=sales_data.get('sold_count_30days') if sales_data else None,
+                    daily_avg_sold=sales_data.get('daily_avg_sold') if sales_data else None
                 )
 
             # 检查抓取结果
@@ -328,10 +339,17 @@ class GoodStoreSelector(TaskControlMixin):
 
             # 转换为 ProductInfo 对象
             products = []
-            for product_data in products_data:
+            for i, product_data in enumerate(products_data):
+                # 获取并验证product_url
+                ozon_url = product_data.get('ozonUrl')
+                if not ozon_url:
+                    self.logger.warning(
+                        f"商品数据[{i+1}]缺少ozonUrl字段，原始数据: {product_data}"
+                    )
+
                 product = ProductInfo(
                     product_id=product_data.get('product_id', ''),
-                    image_url=product_data.get('image_url'),
+                    product_url=ozon_url,  # 修复：添加product_url字段
                     brand_name=product_data.get('brand_name'),
                     sku=product_data.get('sku')
                 )
@@ -339,6 +357,8 @@ class GoodStoreSelector(TaskControlMixin):
 
             # 处理商品（抓取价格、ERP数据、货源匹配、利润计算）
             product_evaluations = self._process_products(products)
+
+            # TODO: 1688orAI
 
             # 检查商品处理是否成功
             if not product_evaluations:
@@ -349,8 +369,8 @@ class GoodStoreSelector(TaskControlMixin):
             store_result = self.store_evaluator.evaluate_store(store_info, product_evaluations)
 
             # 如果是好店，抓取跟卖店铺信息
-            if store_result.store_info.is_good_store == GoodStoreFlag.YES:
-                self._collect_competitor_stores(store_result)
+            # if store_result.store_info.is_good_store == GoodStoreFlag.YES:
+            #     self._collect_competitor_stores(store_result)
 
             return store_result
 
@@ -378,121 +398,31 @@ class GoodStoreSelector(TaskControlMixin):
                     self.logger.info("任务被用户停止")
                     break
 
-                # 验证商品数据完整性
-                if not product.image_url:
-                    self.logger.warning(f"商品{product.product_id}缺少图片URL，跳过处理")
+                scraping_result = self.scraping_orchestrator.scrape_with_orchestration(ScrapingMode.FULL_CHAIN,url=product.product_url)
+                if not scraping_result.success:
+                    self.logger.error(f"商品{product.product_id}抓取失败: {scraping_result.error_message}")
                     continue
+                #TODO: 处理抓取信息，并计算利润
 
-                # 1. 抓取OZON价格信息
-                self._scrape_product_prices(product)
 
-                # 检查任务控制点 - 价格抓取后
-                if not self._check_task_control(f"商品价格抓取完成_{product.product_id}"):
-                    self.logger.info("任务被用户停止")
-                    break
 
-                # 2. 抓取ERP插件数据
-                self._scrape_erp_data(product)
 
-                # 检查任务控制点 - ERP数据抓取后
-                if not self._check_task_control(f"商品ERP数据抓取完成_{product.product_id}"):
-                    self.logger.info("任务被用户停止")
-                    break
-                
-                # 3. 货源匹配
-                # source_result = self.source_matcher.match_source(product)
-                # source_price = source_result.get('source_price') if source_result.get('matched') else None
-                
-                # 4. 利润评估
-                # evaluation = self.profit_evaluator.evaluate_product_profit(product, source_price)
-                # product_evaluations.append(evaluation)
+                # # 检查任务控制点 - 价格抓取后
+                # if not self._check_task_control(f"商品价格抓取完成_{product.product_id}"):
+                #     self.logger.info("任务被用户停止")
+                #     break
+                #
+                # # 检查任务控制点 - ERP数据抓取后
+                # if not self._check_task_control(f"商品ERP数据抓取完成_{product.product_id}"):
+                #     self.logger.info("任务被用户停止")
+                #     break
                 
             except Exception as e:
                 self.logger.error(f"处理商品{product.product_id}失败: {e}")
                 continue
         
         return product_evaluations
-    
-    def _scrape_product_prices(self, product: ProductInfo):
-        """抓取商品价格信息"""
-        try:
-            # 🔧 用户反馈：直接使用产品URL，移除不必要的图片URL转换
-            if not product.product_url:
-                self.logger.warning(f"商品{product.product_id}缺少产品URL，跳过价格抓取")
-                return
 
-            # 🎯 使用ScrapingOrchestrator进行商品价格抓取
-            result = self.scraping_orchestrator.scrape_with_orchestration(
-                mode=ScrapingMode.PRODUCT_INFO,
-                url=product.product_url
-            )
-
-            if result.success:
-                price_data = result.data
-                product.green_price = price_data.get('green_price')
-                product.black_price = price_data.get('black_price')
-
-        except Exception as e:
-            self.logger.warning(f"抓取商品{product.product_id}价格失败: {e}")
-
-    def _scrape_erp_data(self, product: ProductInfo):
-        """抓取ERP插件数据"""
-        try:
-            # 🔧 用户反馈：直接使用产品URL，移除不必要的图片URL转换
-            if not product.product_url:
-                self.logger.warning(f"商品{product.product_id}缺少产品URL，跳过ERP数据抓取")
-                return
-
-            # 🎯 使用ScrapingOrchestrator进行ERP数据抓取
-            result = self.scraping_orchestrator.scrape_with_orchestration(
-                mode=ScrapingMode.ERP_DATA,
-                url=product.product_url,
-                price=product.green_price
-            )
-
-            if result.success:
-                attributes = result.data
-                product.commission_rate = attributes.get('commission_rate')
-                product.weight = attributes.get('weight')
-                product.length = attributes.get('length')
-                product.width = attributes.get('width')
-                product.height = attributes.get('height')
-                    
-        except Exception as e:
-            self.logger.warning(f"抓取商品{product.product_id}ERP数据失败: {e}")
-    
-    def _collect_competitor_stores(self, store_result: StoreAnalysisResult):
-        """收集跟卖店铺信息"""
-        try:
-            for product_result in store_result.products:
-                # 判断是否需要采集跟卖信息
-                if (product_result.price_calculation and 
-                    product_result.price_calculation.is_profitable and
-                    product_result.product_info.image_url):
-                    
-                    try:
-                        # 🎯 使用ScrapingOrchestrator进行跟卖检测
-                        competitor_result = self.scraping_orchestrator.scrape_with_orchestration(
-                            mode=ScrapingMode.COMPETITOR_DETECTION,
-                            url=product_result.product_info.image_url
-                        )
-
-                        if competitor_result.success:
-                            competitors_data = competitor_result.data.get('competitors', [])
-                            for comp_data in competitors_data:
-                                competitor = CompetitorStore(
-                                    store_id=comp_data.get('store_id', ''),
-                                    store_name=comp_data.get('store_name'),
-                                    price=comp_data.get('price'),
-                                    ranking=comp_data.get('ranking')
-                                )
-                                product_result.competitor_stores.append(competitor)
-                                    
-                    except Exception as e:
-                        self.logger.warning(f"收集商品{product_result.product_info.product_id}跟卖信息失败: {e}")
-                        
-        except Exception as e:
-            self.logger.error(f"收集店铺{store_result.store_info.store_id}跟卖信息失败: {e}")
     
     def _update_excel_results(self, pending_stores: List[ExcelStoreData], 
                             store_results: List[StoreAnalysisResult]):

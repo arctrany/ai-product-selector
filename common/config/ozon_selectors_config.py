@@ -100,16 +100,14 @@ class OzonSelectorsConfig(BaseScrapingConfig):
     # ========== 跟卖价格选择器配置 ==========
     competitor_price_selector: str = "span.q6b3_0_4-a1, [data-widget='webCompetitors'] span[class*='price'], div.pdp_b1k span, div.pdp_kb1 span, [class*='competitor'] [class*='price']"
     
-    # ========== 跟卖区域选择器配置 ==========
+    # ========== 跟卖区域选择器配置（固定页面区域） ==========
     competitor_area_selectors: List[str] = field(default_factory=lambda: [
-        "div.pdp_bk3",
-        "div.pdp_kb2",
-        "[data-widget='webSellerList']",
-        "[class*='competitor']",
-        "#seller-list",
-        "[class*='pdp_t']"
+        "div.pdp_bi8",                    # 跟卖区域最外层容器 - 最高优先级
+        "[data-widget='webBestSeller']",  # 跟卖区域组件容器 - 高优先级
+        ".pdp_a2e",                       # 跟卖区域具体容器类名
+        "[class*='pdp_t']"                # 通用跟卖区域类名
     ])
-    
+
     # ========== 跟卖展开按钮选择器 ==========
     @property
     def expand_selectors(self) -> List[str]:
@@ -128,15 +126,16 @@ class OzonSelectorsConfig(BaseScrapingConfig):
         text_selectors = [f"button:has-text('{text}')" for text in expand_texts]
 
         return base_selectors + text_selectors
-    
-    # ========== 跟卖容器选择器 ==========
-    competitor_container_selectors: List[str] = field(default_factory=lambda: [
-        "div.pdp_bk3",
-        "div.pdp_kb2", 
-        "#seller-list",
-        "[data-widget='webSellerList']",
-        "[class*='competitor-list']",
-        "[class*='pdp_t']"
+
+    # ========== 跟卖浮层选择器（点击弹出的详细列表） ==========
+    competitor_popup_selectors: List[str] = field(default_factory=lambda: [
+        "#seller-list",                   # 浮层容器ID - 最高优先级
+        "div.pdp_b2k",                    # 浮层容器类名 - 高优先级
+        "h3.pdp_kb2",                     # 浮层标题选择器
+        "div.pdp_k2b",                    # 卖家列表容器
+        "div.pdp_bk3",                    # 单个卖家项目容器
+        "[data-widget='webSellerList']",  # Web卖家列表组件
+        "[class*='competitor-list']"      # 通用竞争者列表类名
     ])
     
     # ========== 跟卖元素选择器 ==========
@@ -222,7 +221,7 @@ class OzonSelectorsConfig(BaseScrapingConfig):
             'store_price': dict(enumerate(self.store_price_selectors)),
             'store_link': dict(enumerate(self.store_link_selectors)),
             'competitor_count': dict(enumerate(self.competitor_count_selectors)),
-            'competitor_container': dict(enumerate(self.competitor_container_selectors)),
+            'competitor_container': dict(enumerate(self.competitor_area_selectors)),
             'competitor_click': dict(enumerate(self.competitor_click_selectors))
         }
 
@@ -252,7 +251,7 @@ class OzonSelectorsConfig(BaseScrapingConfig):
             'store_price': dict(enumerate(self.store_price_selectors)),
             'store_link': dict(enumerate(self.store_link_selectors)),
             'competitor_count': dict(enumerate(self.competitor_count_selectors)),
-            'competitor_container': dict(enumerate(self.competitor_container_selectors)),
+            'competitor_container': dict(enumerate(self.competitor_area_selectors)),
             'competitor_click': dict(enumerate(self.competitor_click_selectors))
         }
 
@@ -283,7 +282,7 @@ class OzonSelectorsConfig(BaseScrapingConfig):
             return False
         if not self.competitor_count_selectors:
             return False
-        if not self.competitor_container_selectors:
+        if not self.competitor_area_selectors:
             return False
         if not self.competitor_click_selectors:
             return False
@@ -309,7 +308,7 @@ class OzonSelectorsConfig(BaseScrapingConfig):
             self.store_price_selectors +
             self.store_link_selectors +
             self.competitor_count_selectors +
-            self.competitor_container_selectors +
+            self.competitor_area_selectors +
             self.competitor_click_selectors
         )
 
@@ -322,6 +321,56 @@ class OzonSelectorsConfig(BaseScrapingConfig):
             return False
 
         return True
+
+    def get_price_selectors_for_type(self, price_type: str = "default") -> List[str]:
+        """
+        获取指定类型的价格选择器列表，按优先级排序
+
+        Args:
+            price_type: 价格类型（"green", "black", "general", "default", "store"）
+
+        Returns:
+            List[str]: 按优先级排序的选择器列表
+        """
+        selectors = []
+
+        # 如果请求店铺价格选择器
+        if price_type == "store":
+            return list(self.store_price_selectors)
+
+        # 如果指定了特定价格类型，优先使用配置文件中该类型的选择器
+        if price_type in ["green", "black", "general"]:
+            # 收集指定类型的选择器并按优先级排序
+            type_selectors = [(selector, priority) for selector, p_type, priority in self.price_selectors
+                             if p_type == price_type]
+            type_selectors.sort(key=lambda x: x[1])  # 按优先级排序
+            selectors.extend([selector for selector, _ in type_selectors])
+
+        # 如果没有找到特定类型的选择器或使用默认类型，添加通用选择器
+        if not selectors or price_type == "default":
+            # 添加通用价格选择器
+            general_selectors = [(selector, priority) for selector, p_type, priority in self.price_selectors
+                               if p_type == "general"]
+            general_selectors.sort(key=lambda x: x[1])  # 按优先级排序
+            selectors.extend([selector for selector, _ in general_selectors])
+
+            # 如果还是没有选择器，添加所有价格选择器作为后备
+            if not selectors:
+                all_selectors = [(selector, priority) for selector, p_type, priority in self.price_selectors]
+                all_selectors.sort(key=lambda x: x[2])  # 按优先级排序
+                selectors.extend([selector for selector, _, _ in all_selectors])
+
+            # 添加后备通用选择器
+            fallback_selectors = [
+                '[class*="price"]',
+                '[data-testid*="price"]',
+                '.price',
+                '[class*="cost"]',
+                '[class*="amount"]'
+            ]
+            selectors.extend(fallback_selectors)
+
+        return selectors
 
 
 # 全局默认配置实例

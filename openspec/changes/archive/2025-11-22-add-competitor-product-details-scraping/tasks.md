@@ -26,7 +26,7 @@
 /  - 确保失败不影响主流程
 
 ## 3. Product ID 提取实现
-- [x] 3.1 在 `scrape_product_prices()` 或 `scrape()` 中从 URL 提取 `product_id`
+- [x] 3.1 在 `scrape_product_basics()` 或 `scrape()` 中从 URL 提取 `product_id`
   - 使用正则表达式从 URL 中提取商品 ID
   - 处理不同格式的 URL（/product/xxx-12345/, /seller/xxx/product/12345/ 等）
 - [x] 3.2 将 `product_id` 添加到返回结果中

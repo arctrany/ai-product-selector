@@ -110,6 +110,7 @@ class StoreEvaluator:
         # 实际实现中可能需要传递原始的ProductInfo对象
         return ProductInfo(
             product_id=evaluation.get('product_id', 'unknown'),
+            product_url=evaluation.get('product_url'),  # 修复：添加product_url字段
             green_price=evaluation.get('pricing_calculation', {}).get('calculation_details', {}).get('green_price_cny'),
             black_price=evaluation.get('pricing_calculation', {}).get('calculation_details', {}).get('black_price_cny'),
             commission_rate=evaluation.get('commission_rate'),

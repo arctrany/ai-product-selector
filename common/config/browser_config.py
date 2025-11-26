@@ -21,11 +21,11 @@ class BrowserConfig:
     window_height: int = 1080
 
     # 超时和重试配置
-    default_timeout_ms: int = 30000  # 默认超时时间（毫秒）
-    page_load_timeout_ms: int = 30000  # 页面加载超时（毫秒）
-    element_wait_timeout_ms: int = 10000  # 元素等待超时（毫秒）
-    max_retries: int = 3  # 最大重试次数
-    retry_delay_ms: int = 2000  # 重试延迟（毫秒）
+    default_timeout_ms: int = 45000  # 默认超时时间（毫秒）
+    page_load_timeout_ms: int = 45000  # 页面加载超时（毫秒）
+    element_wait_timeout_ms: int = 15000  # 元素等待超时（毫秒）
+    max_retries: int = 5  # 最大重试次数
+    retry_delay_ms: int = 3000  # 重试延迟（毫秒）
 
     # 登录态配置
     required_login_domains: List[str] = field(default_factory=list)  # 必需登录的域名列表

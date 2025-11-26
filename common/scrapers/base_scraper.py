@@ -21,7 +21,6 @@ Scraper 基类
 import time
 import logging
 import threading
-import signal
 from typing import Any, Callable, Optional, Dict, List
 from ..models import ScrapingResult
 from ..services.scraping_orchestrator import ScrapingMode
@@ -48,13 +47,13 @@ class BaseScraper(ABC):
         
         # 分层超时配置 - 根据操作复杂度设定合理时间
         self.timeouts = {
-            'page_navigation': 45.0,     # 页面导航超时 (增加到45秒，网络慢时更安全)
-            'element_wait': 15.0,        # 元素查找超时 (增加到15秒，处理动态加载)
-            'data_extraction': 60.0,     # 数据提取超时 (增加到60秒，复杂页面需要更多时间)
+            'page_navigation': 30.0,     # 页面导航超时
+            'element_wait': 15.0,        # 元素查找超时
+            'data_extraction': 30.0,     # 数据提取超时
             'browser_operation': 20.0,   # 单个浏览器操作超时
             'network_request': 30.0,     # 网络请求超时
-            'competitor_analysis': 120.0, # 跟卖分析超时 (复杂操作需要更多时间)
-            'total_operation': 600.0     # 总操作超时（10分钟，适应复杂抓取场景）
+            'competitor_analysis': 120.0, # 跟卖分析超时
+            'total_operation': 1000.0     # 总操作超时
         }
 
         # 操作进度监控
@@ -286,63 +285,21 @@ class BaseScraper(ABC):
         Returns:
             bool: 是否成功
         """
-        # 🔧 增强日志：记录导航开始
-        self.logger.info(f"📋 步骤 1: 页面导航")
-        self.logger.info(f"🚀 开始导航到: {url}")
-
-        # 🔧 增强验证：记录当前页面状态
-        try:
-            if self.browser_service and hasattr(self.browser_service, 'get_page_url_sync'):
-                current_url = self.browser_service.get_page_url_sync()
-                self.logger.info(f"📍 当前页面: {current_url}")
-            else:
-                self.logger.warning("⚠️ 无法获取当前页面URL")
-        except Exception as e:
-            self.logger.debug(f"获取当前URL失败: {e}")
-
         def _navigate():
             if not self.browser_service:
                 raise RuntimeError("browser_service 未初始化")
-
-            # 🔧 增强日志：调用底层导航方法
-            self.logger.info(f"🔗 调用 browser_service.navigate_to_sync({url}, {wait_until})")
-            result = self.browser_service.navigate_to_sync(url, wait_until)
-            self.logger.info(f"🔍 navigate_to_sync返回值: {result}")
-
-            # 🔧 增强验证：检查导航后的页面URL
-            if result:
-                try:
-                    final_url = self.browser_service.get_page_url_sync()
-                    self.logger.info(f"✅ 导航成功，最终页面: {final_url}")
-
-                    # 🔧 关键验证：确保导航到了正确的域名
-                    if url and final_url:
-                        import re
-                        # 提取域名进行验证
-                        target_domain = re.search(r'https?://([^/]+)', url)
-                        final_domain = re.search(r'https?://([^/]+)', final_url)
-
-                        if target_domain and final_domain:
-                            target_host = target_domain.group(1)
-                            final_host = final_domain.group(1)
-
-                            if target_host.lower() == final_host.lower():
-                                self.logger.info(f"✅ 域名验证通过: {final_host}")
-                            else:
-                                self.logger.warning(f"⚠️ 域名不匹配 - 目标: {target_host}, 实际: {final_host}")
-                                return False
-                        else:
-                            self.logger.warning(f"⚠️ 无法解析域名 - 目标URL: {url}, 最终URL: {final_url}")
-
-                except Exception as e:
-                    self.logger.warning(f"验证导航结果时出错: {e}")
+            # 🔧 修复：根据浏览器服务类型使用正确的方法名
+            if hasattr(self.browser_service, 'navigate_to_sync'):
+                result = self.browser_service.navigate_to_sync(url, wait_until)
+            elif hasattr(self.browser_service, 'open_page_sync'):
+                result = self.browser_service.open_page_sync(url, wait_until)
             else:
-                self.logger.error(f"❌ navigate_to_sync 返回 False，导航失败")
-
+                raise RuntimeError(f"浏览器服务 {type(self.browser_service).__name__} 不支持同步导航方法")
+            self.logger.info(f"🔍 navigate_to_sync返回值: {result}")
             return result
 
         try:
-            success = self.retry_operation(
+            return self.retry_operation(
                 lambda: self.execute_with_smart_timeout(
                     _navigate,
                     "navigation",
@@ -352,78 +309,100 @@ class BaseScraper(ABC):
                 retry_delay=2.0,
                 operation_name=f"导航到{url}"
             )
-
-            if success:
-                self.logger.info(f"🎉 页面导航完成: {url}")
-            else:
-                self.logger.error(f"❌ 页面导航最终失败: {url}")
-
-            return success
-
         except Exception as e:
-            self.logger.error(f"❌ 导航过程异常: {e}")
-            # 🔧 增强错误报告：提供详细的异常信息
-            import traceback
-            self.logger.debug(f"导航异常详情:\n{traceback.format_exc()}")
+            self.logger.error(f"❌ 导航失败: {e}")
             return False
 
-    def wait_for_element(self, selector: str, timeout: Optional[float] = None) -> bool:
+    def check_and_navi(self, target_url: str) -> bool:
         """
-        等待元素出现 - 使用智能超时
+        智能检查并导航 - 简化版本
 
         Args:
-            selector: 元素选择器
-            timeout: 超时时间，默认使用智能配置值
+            target_url: 目标页面URL
 
         Returns:
-            bool: 元素是否出现
+            bool: 是否执行了导航操作
         """
-        if timeout is None:
-            timeout = self.get_timeout_for_operation('element')
-
-        def _wait():
-            if not self.browser_service:
-                raise RuntimeError("browser_service 未初始化")
-            return self.browser_service.wait_for_selector_sync(selector, 'visible', int(timeout * 1000))
-
-        try:
-            return self.execute_with_timeout(
-                _wait,
-                timeout,
-                f"等待元素 {selector}"
-            )
-        except Exception as e:
-            self.logger.warning(f"⚠️ 等待元素失败: {e}")
+        if not target_url:
             return False
 
-    def get_text_content(self, selector: str, timeout: Optional[float] = None) -> Optional[str]:
-        """
-        获取元素文本内容 - 使用智能超时
+        # 初始化浏览器服务
+        if not self.browser_service:
+            from .global_browser_singleton import get_global_browser_service
+            self.browser_service = get_global_browser_service()
+            return self.navigate_to(target_url)
 
-        Args:
-            selector: 元素选择器
-            timeout: 超时时间，默认使用智能配置值
-
-        Returns:
-            Optional[str]: 文本内容，失败返回None
-        """
-        if timeout is None:
-            timeout = self.get_timeout_for_operation('element')
-
-        def _get_text():
-            if not self.browser_service:
-                raise RuntimeError("browser_service 未初始化")
-            return self.browser_service.text_content_sync(selector, int(timeout * 1000))
-
+        # 检查当前URL是否与目标URL相同
         try:
-            return self.execute_with_timeout(
-                _get_text,
-                timeout,
-                f"获取文本 {selector}"
-            )
-        except Exception as e:
-            self.logger.warning(f"⚠️ 获取文本内容失败: {e}")
-            return None
+            current_url = self.browser_service.get_page_url_sync()
+            if current_url:
+                current_clean = current_url.rstrip('/').split('?')[0]
+                target_clean = target_url.rstrip('/').split('?')[0]
+                if current_clean == target_clean:
+                    return False  # 无需导航
+        except Exception:
+            pass  # 如果获取失败，继续导航
+
+        # 执行导航
+        return self.navigate_to(target_url)
+
+    # def wait_for_element(self, selector: str, timeout: Optional[float] = None) -> bool:
+    #     """
+    #     等待元素出现 - 使用智能超时
+    #
+    #     Args:
+    #         selector: 元素选择器
+    #         timeout: 超时时间，默认使用智能配置值
+    #
+    #     Returns:
+    #         bool: 元素是否出现
+    #     """
+    #     if timeout is None:
+    #         timeout = self.get_timeout_for_operation('element')
+    #
+    #     def _wait():
+    #         if not self.browser_service:
+    #             raise RuntimeError("browser_service 未初始化")
+    #         return self.browser_service.wait_for_selector_sync(selector, 'visible', int(timeout * 1000))
+    #
+    #     try:
+    #         return self.execute_with_timeout(
+    #             _wait,
+    #             timeout,
+    #             f"等待元素 {selector}"
+    #         )
+    #     except Exception as e:
+    #         self.logger.warning(f"⚠️ 等待元素失败: {e}")
+    #         return False
+
+    # def get_text_content(self, selector: str, timeout: Optional[float] = None) -> Optional[str]:
+    #     """
+    #     获取元素文本内容 - 使用智能超时
+    #
+    #     Args:
+    #         selector: 元素选择器
+    #         timeout: 超时时间，默认使用智能配置值
+    #
+    #     Returns:
+    #         Optional[str]: 文本内容，失败返回None
+    #     """
+    #     if timeout is None:
+    #         timeout = self.get_timeout_for_operation('element')
+    #
+    #     def _get_text():
+    #         if not self.browser_service:
+    #             raise RuntimeError("browser_service 未初始化")
+    #         return self.browser_service.text_content_sync(selector, int(timeout * 1000))
+    #
+    #     try:
+    #         return self.execute_with_timeout(
+    #             _get_text,
+    #             timeout,
+    #             f"获取文本 {selector}"
+    #         )
+    #     except Exception as e:
+    #         self.logger.warning(f"⚠️ 获取文本内容失败: {e}")
+    #         return None
 
     def wait(self, seconds: float):
         """
@@ -635,28 +614,7 @@ class BaseScraper(ABC):
             # 其他异常，为安全起见假设不是全局单例
             self.logger.debug(f"🔍 检查全局单例时出错，假设使用私有实例: {e}")
             return False
-    
-    def configure_timeouts(self, **timeouts):
-        """
-        配置超时时间
-        
-        Args:
-            **timeouts: 超时配置，支持的键：
-                - page_navigation: 页面导航超时
-                - element_wait: 元素等待超时
-                - data_extraction: 数据提取超时
-                - total_operation: 总操作超时
-        """
-        for key, value in timeouts.items():
-            if key in self.timeouts:
-                self.timeouts[key] = float(value)
-                self.logger.info(f"更新超时配置 {key}: {value}秒")
-            else:
-                self.logger.warning(f"未知的超时配置项: {key}")
-    
-    def get_timeout_config(self) -> Dict[str, float]:
-        """获取当前超时配置"""
-        return self.timeouts.copy()
+
     
     def __del__(self):
         """
@@ -701,22 +659,6 @@ class BaseScraper(ABC):
             error_message="未实现 scrape 方法"
         )
 
-    def extract_data(self,
-                    selectors: Optional[Dict[str, str]] = None,
-                    options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """
-        从当前页面提取数据（抽象方法实现）
-
-        Args:
-            selectors: 选择器映射
-            options: 提取选项
-
-        Returns:
-            Dict[str, Any]: 提取的数据
-        """
-        # 默认实现，子类应该重写此方法
-        return {}
-
     def validate_data(self, data: Dict[str, Any],
                      filters: Optional[List[Callable]] = None) -> bool:
         """
@@ -731,16 +673,3 @@ class BaseScraper(ABC):
         """
         # 默认实现，子类应该重写此方法
         return bool(data)
-
-    def get_health_status(self) -> Dict[str, Any]:
-        """
-        获取Scraper健康状态（抽象方法实现）
-
-        Returns:
-            Dict[str, Any]: 健康状态信息
-        """
-        # 默认实现，子类应该重写此方法
-        return {
-            'status': 'unknown',
-            'message': '未实现健康状态检查'
-        }

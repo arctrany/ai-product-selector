@@ -89,7 +89,7 @@ def test_selector_matching():
     
     # 测试容器选择器
     print(f"\n📦 测试容器选择器:")
-    for selector in config.competitor_container_selectors:
+    for selector in config.competitor_area_selectors:
         try:
             container = soup.select_one(selector)
             if container:
@@ -102,7 +102,7 @@ def test_selector_matching():
     print(f"\n🏪 测试店铺元素选择器:")
     # 使用配置系统中的容器选择器
     container = None
-    for container_selector in config.competitor_container_selectors:
+    for container_selector in config.competitor_area_selectors:
         container = soup.select_one(container_selector)
         if container:
             print(f"✅ 使用容器选择器: {container_selector}")
@@ -207,7 +207,7 @@ class TestCompetitorScraperDebug(BaseScraperTest):
         
         # 测试容器选择器
         container = None
-        for selector in config.competitor_container_selectors:
+        for selector in config.competitor_area_selectors:
             container = soup.select_one(selector)
             if container:
                 break

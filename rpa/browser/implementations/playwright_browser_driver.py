@@ -344,7 +344,7 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
 
             return False
 
-    def open_page_sync(self, url: str, wait_until: str = 'domcontentloaded', timeout: int = 10000) -> bool:
+    def open_page_sync(self, url: str, wait_until: str = 'domcontentloaded', timeout: int = 45000) -> bool:
         """
         同步打开页面方法 - 使用专用后台事件循环
 
@@ -353,7 +353,7 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
         Args:
             url: 目标URL
             wait_until: 等待条件，默认 "domcontentloaded"（只等待DOM加载）
-            timeout: 超时时间（毫秒），默认10秒（快速发现问题）
+            timeout: 超时时间（毫秒），默认45秒（适应复杂页面加载）
         """
         try:
             if not self._initialized or not self.page:
@@ -389,6 +389,22 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             elapsed = time.time() - start_time if 'start_time' in locals() else 0
             self._logger.error(f"❌ Failed to open page after {elapsed:.2f}s: {url} - Error: {str(e)}")
             return False
+
+    def navigate_to_sync(self, url: str, wait_until: str = 'domcontentloaded', timeout: int = 45000) -> bool:
+        """
+        同步导航到指定URL - 与SimplifiedBrowserService接口保持一致
+
+        🔧 修复：这是open_page_sync方法的别名，用于兼容期望使用navigate_to_sync方法的代码
+
+        Args:
+            url: 目标URL
+            wait_until: 等待条件，默认 "domcontentloaded"
+            timeout: 超时时间（毫秒），默认45秒（适应复杂页面加载）
+
+        Returns:
+            bool: 导航是否成功
+        """
+        return self.open_page_sync(url, wait_until, timeout)
 
     async def get_page_title_async(self) -> Optional[str]:
         """获取页面标题"""

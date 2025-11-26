@@ -17,12 +17,10 @@ from typing import Dict, Any, List, Optional, Tuple
 from bs4 import BeautifulSoup
 
 # 🔧 重构后的导入：使用新的数据模型和统一工具类
-from common.models.business_models import CompetitorStore
 from common.utils.scraping_utils import clean_price_string
 from common.models.scraping_result import ScrapingResult
 from common.utils.wait_utils import WaitUtils
 from common.utils.scraping_utils import ScrapingUtils
-from common.services.competitor_detection_service import CompetitorDetectionService
 from ..config.ozon_selectors_config import get_ozon_selectors_config, OzonSelectorsConfig
 from .base_scraper import BaseScraper
 from ..services.scraping_orchestrator import ScrapingMode
@@ -59,55 +57,8 @@ class CompetitorScraper(BaseScraper):
         self.wait_utils = WaitUtils(browser_service, self.logger)
         self.scraping_utils = ScrapingUtils(self.logger)
 
-    def _find_element_by_selectors(self, page_or_element, selectors: List[str],
-                                         timeout: int = 2000) -> Tuple[Optional[Any], Optional[str]]:
-        """
-        通用选择器查找方法，避免重复代码
 
-        Args:
-            page_or_element: Playwright页面对象或元素
-            selectors: 选择器列表
-            timeout: 超时时间（毫秒）
-
-        Returns:
-            Tuple[element, used_selector]: 找到的元素和使用的选择器
-        """
-        for selector in selectors:
-            try:
-                element = page_or_element.query_selector(selector)
-                if element and element.is_visible():
-                    return element, selector
-            except:
-                continue
-        return None, None
-
-    def _find_elements_by_selectors(self, page_or_element, selectors: List[str]) -> Tuple[
-        List[Any], Optional[str]]:
-        """
-        通用多元素选择器查找方法
-
-        Args:
-            page_or_element: Playwright页面对象或元素
-            selectors: 选择器列表
-
-        Returns:
-            Tuple[elements, used_selector]: 找到的元素列表和使用的选择器
-        """
-        best_elements = []
-        best_selector = None
-
-        for selector in selectors:
-            try:
-                elements = page_or_element.query_selector_all(selector)
-                if elements and len(elements) > len(best_elements):
-                    best_elements = elements
-                    best_selector = selector
-            except:
-                continue
-
-        return best_elements, best_selector
-
-    async def open_competitor_popup(self, page) -> Dict[str, Any]:
+    def open_competitor_popup(self, page) -> Dict[str, Any]:
         """
         检测并打开跟卖浮层
 
@@ -119,21 +70,6 @@ class CompetitorScraper(BaseScraper):
         """
         try:
             self.logger.info("🔍 使用CompetitorDetectionService检测跟卖区域...")
-
-            # 🔧 重构：使用CompetitorDetectionService进行跟卖检测
-            detection_result = self.competitor_detection_service.detect_competitors(page)
-
-            if not detection_result.has_competitors:
-                self.logger.info("✅ 无跟卖区域")
-                return {'success': True, 'has_competitors': False, 'popup_opened': False, 'error_message': None}
-
-            # 🔧 重构：使用CompetitorDetectionService的点击功能
-            click_success = self.competitor_detection_service.click_competitor_area(page)
-            if not click_success:
-                self.logger.error("❌ 点击跟卖区域失败")
-                return {'success': False, 'has_competitors': True, 'popup_opened': False, 'error_message': '点击跟卖区域失败'}
-
-            self.logger.info("✅ 点击跟卖区域")
 
             # 🔧 时序修复：等待浮层完全加载
             popup_opened = self._wait_for_popup_with_retry(page, max_wait_seconds=10)
@@ -166,11 +102,11 @@ class CompetitorScraper(BaseScraper):
             self.logger.info(f"🔍 等待跟卖浮层加载（最多{max_wait_seconds}秒）...")
 
             # 🔧 使用显式等待，检查浮层指示器
-            for attempt in range(max_wait_seconds * 2):  # 每0.5秒检查一次
+            for attempt in range(max_wait_seconds * 2):  # 每15秒检查一次
                 try:
                     # 🎯 关键修复：严格验证浮层结构，确保真实店铺数据存在
                     # 使用配置系统中的选择器，而不是硬编码
-                    container_selectors = self.selectors_config.competitor_container_selectors
+                    container_selectors = self.selectors_config.competitor_area_selectors
                     popup_container = None
                     for selector in container_selectors:
                         popup_container = page.query_selector(selector)
@@ -246,27 +182,6 @@ class CompetitorScraper(BaseScraper):
         """
         try:
             self.logger.info("🎯 开始智能检测跟卖数量，决定是否需要展开...")
-
-            # 🎯 第一步：智能检测跟卖数量
-            competitor_count = self._get_competitor_count(page)
-
-            if competitor_count is None:
-                # 🔧 失败处理：无法获取数量时直接结束，不尝试展开
-                self.logger.warning("❌ 无法获取跟卖数量，结束跟卖获取逻辑")
-                return False
-
-            # 🎯 第二步：基于数量阈值智能决策
-            threshold = self.selectors_config.competitor_count_threshold
-            self.logger.info(f"🔍 检测到跟卖数量: {competitor_count}, 阈值: {threshold}")
-
-            if competitor_count <= threshold:
-                # 🔧 数量不超过阈值，无需展开
-                self.logger.info(f"✅ 跟卖数量({competitor_count}) <= 阈值({threshold})，无需展开，直接提取当前店铺")
-                return True
-
-            # 🎯 第三步：数量超过阈值，需要展开获取更多店铺
-            self.logger.info(f"🎯 跟卖数量({competitor_count}) > 阈值({threshold})，需要展开获取更多店铺")
-
             self.wait_utils.smart_wait(0.5)
 
             # 使用配置的展开按钮选择器
@@ -310,14 +225,9 @@ class CompetitorScraper(BaseScraper):
 
                             try:
                                 current_element.scroll_into_view_if_needed()
-                                self.wait_utils.smart_wait(self.timing_config.timeout.short_wait_s)
-
-                                click_timeout = self.timing_config.timeout.get_timeout_ms('element_wait')
-                                current_element.click(timeout=click_timeout)
+                                current_element.click(timeout=1000)
                                 expanded_count += 1
                                 self.logger.info(f"✅ 成功点击展开按钮 (第{expanded_count}次)")
-
-                                self.wait_utils.smart_wait(self.timing_config.timeout.medium_wait_s)
 
                             except Exception as click_error:
                                 self.logger.warning(f"⚠️ 点击展开按钮失败: {click_error}")
@@ -326,7 +236,6 @@ class CompetitorScraper(BaseScraper):
                                     page.evaluate(f'document.querySelector("{used_selector}").click()')
                                     expanded_count += 1
                                     self.logger.info(f"✅ 通过JavaScript成功点击展开按钮 (第{expanded_count}次)")
-                                    self.wait_utils.smart_wait(self.timing_config.timeout.long_wait_s)
                                 except Exception as js_error:
                                     self.logger.error(f"❌ JavaScript点击也失败: {js_error}")
                                     break
@@ -346,7 +255,6 @@ class CompetitorScraper(BaseScraper):
                 return True
             else:
                 # 🔧 未找到展开按钮，但数量超过阈值，可能页面结构有变化
-                self.logger.warning(f"⚠️ 跟卖数量({competitor_count})超过阈值但未找到展开按钮，继续提取当前显示的店铺")
                 return True
 
         except Exception as e:
@@ -398,7 +306,7 @@ class CompetitorScraper(BaseScraper):
 
     def _find_container_in_soup(self, soup: BeautifulSoup):
         """在BeautifulSoup中查找跟卖店铺容器"""
-        for selector in self.selectors_config.competitor_container_selectors:
+        for selector in self.selectors_config.competitor_area_selectors:
             try:
                 container = soup.select_one(selector)
                 if container:
@@ -558,74 +466,21 @@ class CompetitorScraper(BaseScraper):
                 continue
         return None
 
-    def _extract_price_from_element(self, element) -> Optional[float]:
-        """从元素中提取价格"""
-        # 首先尝试具体选择器
-        for selector in self.selectors_config.store_price_selectors:
-            try:
-                price_element = element.select_one(selector)
-                if price_element:
-                    price_text = price_element.get_text(strip=True)
-                    price = clean_price_string(price_text, self.selectors_config)
-                    if price and price > 0:
-                        return price
-            except:
-                continue
-
-        # 尝试查找包含₽符号的文本
-        try:
-            price_elements = element.find_all(text=lambda text: text and '₽' in text)
-            for price_text in price_elements:
-                price = clean_price_string(str(price_text).strip(), self.selectors_config)
-                if price and price > 0:
-                    return price
-        except:
-            pass
-
-        # 🔧 增加更多备用方案：查找所有可能包含价格的元素
-        try:
-            # 查找所有div和span元素，检查是否包含价格符号
-            all_elements = element.find_all(['div', 'span'])
-            for el in all_elements:
-                text = el.get_text(strip=True)
-                if text and self.currency_config.is_currency_symbol(text):
-                    price = clean_price_string(text, self.selectors_config)
-                    if price and price > 0:
-                        return price
-        except:
-            pass
-
-        return None
 
     def _extract_store_id_from_url(self, href: str) -> Optional[str]:
-        """从URL中提取店铺ID"""
-        try:
-            patterns = [
-                r'/seller/[^/]+-(\d+)/?$',  # /seller/name-123619/
-                r'/seller/(\d+)/?$',  # /seller/123619/
-                r'seller[/_](\d+)',  # seller/123619 或 seller_123619
-                r'sellerId=(\d+)',  # sellerId=123619
-                r'/shop/(\d+)',  # /shop/123619
-                r'/store/(\d+)'  # /store/123619
-            ]
+        """
+        从URL中提取店铺ID
 
-            for pattern in patterns:
-                match = re.search(pattern, href)
-                if match:
-                    return match.group(1)
+        注意：此方法已重构为委托给 scraping_utils 中的通用方法，
+        建议直接使用 self.scraping_utils.extract_store_id_from_url()
+        """
+        return self.scraping_utils.extract_store_id_from_url(href)
 
-            return None
-
-        except Exception as e:
-            self.logger.warning(f"提取店铺ID失败: {e}")
-            return None
-
+    #FIXME: 点击第一个即可
     def click_competitor_to_product_page(self, page, ranking: int) -> bool:
         """点击跟卖列表中的指定排名店铺，跳转到商品详情页面"""
         try:
             self.logger.info(f"🔍 点击第{ranking}个跟卖店铺...")
-            self.wait_utils.smart_wait(self.timing_config.timeout.short_wait_s)
-
             # 构建点击选择器
             click_selectors = []
             for template in self.selectors_config.competitor_click_selectors:
@@ -685,137 +540,10 @@ class CompetitorScraper(BaseScraper):
             self.logger.error(f"点击跟卖店铺失败: {e}")
             return False
 
-    def _count_visible_competitors(self, page) -> int:
-        """统计当前页面可见的跟卖店铺数量"""
-        try:
-            max_count = 0
-
-            for container_selector in self.selectors_config.competitor_container_selectors:
-                try:
-                    container = page.query_selector(container_selector)
-                    if container:
-                        elements, _ = self._find_elements_by_selectors(
-                            container, self.selectors_config.competitor_element_selectors
-                        )
-                        if elements and len(elements) > max_count:
-                            max_count = len(elements)
-                except:
-                    continue
-
-            return max_count
-
-        except Exception as e:
-            self.logger.debug(f"统计跟卖店铺数量失败: {e}")
-            return 0
-
-    def _wait_for_popup_content_stable(self, page, max_wait_seconds: int = 3) -> bool:
-        """
-        🔧 时序修复：等待浮层内容稳定加载
-
-        Args:
-            page: Playwright页面对象
-            max_wait_seconds: 最大等待时间（秒）
-
-        Returns:
-            bool: 内容是否稳定
-        """
-        try:
-            self.logger.debug("🔍 等待浮层内容稳定...")
-
-            # 等待一小段时间让内容开始加载
-            self.wait_utils.smart_wait(0.5)
-
-            # 检查是否有基本的浮层内容
-            for attempt in range(max_wait_seconds * 2):
-                try:
-                    # 查找浮层容器
-                    container_found = False
-                    for container_selector in self.selectors_config.competitor_container_selectors:
-                        container = page.query_selector(container_selector)
-                        if container:
-                            container_found = True
-                            break
-
-                    if container_found:
-                        self.logger.debug("✅ 浮层内容已稳定")
-                        return True
-
-                    self.wait_utils.smart_wait(0.5)
-
-                except Exception as e:
-                    self.logger.debug(f"等待内容稳定第{attempt + 1}次失败: {e}")
-                    self.wait_utils.smart_wait(0.5)
-                    continue
-
-            self.logger.debug("⚠️ 浮层内容可能未完全稳定，但继续执行")
-            return True
-
-        except Exception as e:
-            self.logger.debug(f"等待浮层内容稳定失败: {e}")
-            return True
-
-    def _get_competitor_count(self, page) -> Optional[int]:
-        """
-        🔧 重构：使用CompetitorDetectionService获取跟卖数量
-
-        Args:
-            page: Playwright页面对象
-
-        Returns:
-            Optional[int]: 跟卖数量，如果无法检测则返回None
-        """
-        try:
-            self.logger.info("🔍 使用CompetitorDetectionService检测跟卖数量...")
-
-            # 🔧 重构：委托给CompetitorDetectionService
-            return self.competitor_detection_service.get_competitor_count(page)
-
-        except Exception as e:
-            self.logger.error(f"检测跟卖数量失败: {e}")
-            return None
-
-    def scrape_competitor_data(self,
-                              target_url: str,
-                              max_competitors: int = 10,
-                              options: Optional[Dict[str, Any]] = None) -> ScrapingResult:
-        """
-        抓取跟卖数据（标准接口实现）
-
-        Args:
-            target_url: 目标商品URL
-            max_competitors: 最大跟卖数量
-            options: 抓取选项
-
-        Returns:
-            ScrapingResult: 跟卖数据抓取结果
-
-        Raises:
-            NavigationException: 页面导航失败
-            DataExtractionException: 数据提取失败
-        """
-        start_time = time.time()
-
-        try:
-            # 解析选项
-            # StandardScrapingOptions类不存在，直接使用options字典
-
-            # 使用内部方法处理跟卖抓取
-            result = self._scrape_competitor_comprehensive(
-                target_url=target_url,
-                max_competitors=max_competitors,
-                **(options or {})
-            )
-
-            return result
-
-        except Exception as e:
-            raise ValueError(f"跟卖数据抓取失败: {str(e)}")
-
     # 标准scrape接口实现
     def scrape(self,
-               target: str,
-               mode: Optional[ScrapingMode] = None,
-               options: Optional[Dict[str, Any]] = None,
+               url: str,
+               context: Optional[Dict[str, Any]] = None,
                **kwargs) -> ScrapingResult:
         """
         统一的抓取接口（标准接口实现）
@@ -831,31 +559,29 @@ class CompetitorScraper(BaseScraper):
 
         Raises:
             ScrapingException: 抓取异常
+            :param url:
+            :param target:
+            :param mode:
+            :param context:
         """
         try:
-            # 解析选项
-            # StandardScrapingOptions类不存在，直接使用options字典
-
-            # 根据模式选择抓取策略
-            if mode == ScrapingMode.COMPETITOR_DATA:
-                return self.scrape_competitor_data(
-                    target_url=target,
-                    max_competitors=kwargs.get('max_competitors', 10),
-                    options=options
-                )
-            else:
-                # 默认使用跟卖数据抓取
-                return self._scrape_competitor_comprehensive(
-                    target_url=target,
-                    max_competitors=kwargs.get('max_competitors', 10),
-                    **kwargs
-                )
+         # 默认使用跟卖数据抓取
+           return self._scrape(
+             target_url=url,
+             max_competitors=kwargs.get('max_competitors', 10),
+             **kwargs
+         )
 
         except Exception as e:
             raise RuntimeError(f"抓取失败: {str(e)}")
 
-    def _scrape_competitor_comprehensive(self,
+
+
+
+
+    def _scrape(self,
                                        target_url: str,
+                                       soup: Optional[BeautifulSoup] = None,
                                        max_competitors: int = 10,
                                        **kwargs) -> ScrapingResult:
         """
@@ -884,6 +610,8 @@ class CompetitorScraper(BaseScraper):
             }
 
             # 如果有具体的抓取逻辑，可以在这里实现
+
+
             # 目前返回基本结构以保持接口一致性
 
             return ScrapingResult(
@@ -901,173 +629,3 @@ class CompetitorScraper(BaseScraper):
                 execution_time=time.time() - start_time
             )
 
-    def detect_competitors(self,
-                          product_url: str,
-                          options: Optional[Dict[str, Any]] = None) -> ScrapingResult:
-        """
-        检测商品跟卖情况
-
-        Args:
-            product_url: 商品URL
-            options: 检测选项
-
-        Returns:
-            ScrapingResult: 跟卖检测结果
-        """
-        start_time = time.time()
-
-        try:
-            # 如果没有浏览器服务，返回空结果
-            if not self.browser_service:
-                return ScrapingResult(
-                    success=False,
-                    data={},
-                    error_message="浏览器服务未初始化",
-                    execution_time=time.time() - start_time
-                )
-
-            # 导航到商品页面
-            if not self.navigate_to(product_url):
-                return ScrapingResult(
-                    success=False,
-                    data={},
-                    error_message=f"无法导航到商品页面: {product_url}",
-                    execution_time=time.time() - start_time
-                )
-
-            # 等待页面加载
-            self.wait_utils.smart_wait(2.0)
-
-            # 打开跟卖浮层
-            popup_result = self.open_competitor_popup(self.browser_service.get_current_page())
-
-            if not popup_result.get('success', False):
-                return ScrapingResult(
-                    success=False,
-                    data={},
-                    error_message="无法打开跟卖浮层",
-                    execution_time=time.time() - start_time
-                )
-
-            # 检测跟卖数量
-            competitor_count = self._get_competitor_count(self.browser_service.get_current_page())
-
-            # 准备返回数据
-            result_data = {
-                'has_competitors': competitor_count is not None and competitor_count > 0,
-                'competitor_count': competitor_count or 0,
-                'product_url': product_url,
-                'popup_opened': popup_result.get('popup_opened', False)
-            }
-
-            return ScrapingResult(
-                success=True,
-                data=result_data,
-                execution_time=time.time() - start_time
-            )
-
-        except Exception as e:
-            self.logger.error(f"检测跟卖情况失败: {e}")
-            return ScrapingResult(
-                success=False,
-                data={},
-                error_message=str(e),
-                execution_time=time.time() - start_time
-            )
-
-    def extract_competitor_info(self,
-                               competitors: List[Dict[str, Any]],
-                               options: Optional[Dict[str, Any]] = None) -> ScrapingResult:
-        """
-        提取跟卖商家详细信息
-
-        Args:
-            competitors: 跟卖商家列表
-            options: 提取选项
-
-        Returns:
-            ScrapingResult: 跟卖信息抓取结果
-        """
-        start_time = time.time()
-
-        try:
-            # 验证输入参数
-            if not competitors or not isinstance(competitors, list):
-                return ScrapingResult(
-                    success=False,
-                    data={},
-                    error_message="无效的跟卖商家列表",
-                    execution_time=time.time() - start_time
-                )
-
-            # 如果没有浏览器服务，尝试从已有数据中提取信息
-            if not self.browser_service:
-                # 直接返回已有的竞争对手信息
-                return ScrapingResult(
-                    success=True,
-                    data={
-                        'competitors': competitors,
-                        'total_count': len(competitors),
-                        'extracted_at': time.time()
-                    },
-                    execution_time=time.time() - start_time
-                )
-
-            # 获取当前页面内容
-            page_content = self.browser_service.evaluate_sync("() => document.documentElement.outerHTML")
-
-            # 从页面内容中提取跟卖店铺信息
-            extracted_competitors = self.extract_competitors_from_content(
-                page_content,
-                max_competitors=options.get('max_competitors', 10) if options else 10
-            )
-
-            # 合并传入的竞争对手信息和提取的信息
-            merged_competitors = []
-            for competitor in competitors:
-                # 查找是否有匹配的提取信息
-                matched = False
-                for extracted in extracted_competitors:
-                    if (competitor.get('store_id') == extracted.get('store_id') or
-                        competitor.get('store_name') == extracted.get('store_name')):
-                        # 合并信息
-                        merged = {**competitor, **extracted}
-                        merged_competitors.append(merged)
-                        matched = True
-                        break
-
-                if not matched:
-                    merged_competitors.append(competitor)
-
-            # 添加未匹配的提取信息
-            for extracted in extracted_competitors:
-                matched = False
-                for competitor in merged_competitors:
-                    if (competitor.get('store_id') == extracted.get('store_id') or
-                        competitor.get('store_name') == extracted.get('store_name')):
-                        matched = True
-                        break
-
-                if not matched:
-                    merged_competitors.append(extracted)
-
-            result_data = {
-                'competitors': merged_competitors,
-                'total_count': len(merged_competitors),
-                'extracted_at': time.time()
-            }
-
-            return ScrapingResult(
-                success=True,
-                data=result_data,
-                execution_time=time.time() - start_time
-            )
-
-        except Exception as e:
-            self.logger.error(f"提取跟卖商家信息失败: {e}")
-            return ScrapingResult(
-                success=False,
-                data={},
-                error_message=str(e),
-                execution_time=time.time() - start_time
-            )

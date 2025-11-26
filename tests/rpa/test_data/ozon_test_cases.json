@@ -1,0 +1,89 @@
+{
+  "scenario_1_no_competitors": {
+    "name": "无跟卖情况测试",
+    "url": "https://www.ozon.ru/product/test-no-competitors-123456/",
+    "expected_competitors": 0,
+    "expected_result": {
+      "has_competitors": false,
+      "competitor_count": 0,
+      "competitors": []
+    }
+  },
+  "scenario_2_with_competitors": {
+    "name": "有跟卖情况测试",
+    "url": "https://www.ozon.ru/product/test-with-competitors-789012/",
+    "expected_competitors": 3,
+    "expected_result": {
+      "has_competitors": true,
+      "competitor_count": 3,
+      "competitors": [
+        {
+          "store_name": "测试店铺1",
+          "price": 1500.0,
+          "ranking": 1
+        },
+        {
+          "store_name": "测试店铺2",
+          "price": 1600.0,
+          "ranking": 2
+        },
+        {
+          "store_name": "测试店铺3",
+          "price": 1700.0,
+          "ranking": 3
+        }
+      ]
+    }
+  },
+  "scenario_3_many_competitors": {
+    "name": "大量跟卖情况测试",
+    "url": "https://www.ozon.ru/product/test-many-competitors-345678/",
+    "expected_competitors": 8,
+    "expected_result": {
+      "has_competitors": true,
+      "competitor_count": 8,
+      "competitors": [
+        {
+          "store_name": "大量测试店铺1",
+          "price": 1200.0,
+          "ranking": 1
+        },
+        {
+          "store_name": "大量测试店铺2",
+          "price": 1300.0,
+          "ranking": 2
+        },
+        {
+          "store_name": "大量测试店铺3",
+          "price": 1400.0,
+          "ranking": 3
+        },
+        {
+          "store_name": "大量测试店铺4",
+          "price": 1500.0,
+          "ranking": 4
+        },
+        {
+          "store_name": "大量测试店铺5",
+          "price": 1600.0,
+          "ranking": 5
+        },
+        {
+          "store_name": "大量测试店铺6",
+          "price": 1700.0,
+          "ranking": 6
+        },
+        {
+          "store_name": "大量测试店铺7",
+          "price": 1800.0,
+          "ranking": 7
+        },
+        {
+          "store_name": "大量测试店铺8",
+          "price": 1900.0,
+          "ranking": 8
+        }
+      ]
+    }
+  }
+}

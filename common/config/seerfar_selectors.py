@@ -201,15 +201,49 @@ def _get_default_js_scripts() -> Dict[str, str]:
                         }
                     }
                     
-                    // 提取 OZON URL（第3列中的可点击元素）
+                    // 提取 OZON URL（第3列中的可点击元素） - 增强调试版本
                     if (td3) {
-                        var clickableElement = td3.querySelector('span[onclick], [onclick]');
+                        console.log('DEBUG: td3找到了，innerHTML:', td3.innerHTML.substring(0, 200));
+                        
+                        // 尝试多种选择器
+                        var clickableElement = td3.querySelector('span[onclick]') || 
+                                             td3.querySelector('[onclick]') || 
+                                             td3.querySelector('a[href*="ozon.ru"]') || 
+                                             td3.querySelector('img[onclick]') || 
+                                             td3.querySelector('.cursor-pointer');
+                        
+                        console.log('DEBUG: clickableElement找到了:', !!clickableElement);
+                        
                         if (clickableElement) {
                             var onclickAttr = clickableElement.getAttribute("onclick");
+                            console.log('DEBUG: onclick属性:', onclickAttr);
+                            
                             if (onclickAttr && onclickAttr.includes("window.open")) {
                                 var urlMatch = onclickAttr.match(/window\\.open\\('([^']+)'\\)/);
                                 ozonUrl = urlMatch ? urlMatch[1] : '';
+                                console.log('DEBUG: 提取到的URL:', ozonUrl);
                             }
+                            
+                            // 备用提取方法：直接从href属性
+                            if (!ozonUrl && clickableElement.href) {
+                                ozonUrl = clickableElement.href;
+                                console.log('DEBUG: 从href提取到的URL:', ozonUrl);
+                            }
+                            
+                            // 备用提取方法：从其他属性中查找URL
+                            if (!ozonUrl) {
+                                var allAttrs = clickableElement.attributes;
+                                for (var j = 0; j < allAttrs.length; j++) {
+                                    var attr = allAttrs[j];
+                                    if (attr.value && attr.value.includes('ozon.ru')) {
+                                        ozonUrl = attr.value;
+                                        console.log('DEBUG: 从属性' + attr.name + '提取到的URL:', ozonUrl);
+                                        break;
+                                    }
+                                }
+                            }
+                        } else {
+                            console.log('DEBUG: 未找到可点击元素，td3的完整HTML:', td3.outerHTML);
                         }
                     }
                     
@@ -250,6 +284,12 @@ def _get_default_js_scripts() -> Dict[str, str]:
                             var urlMatch = onclick.match(/window\\.open\\('([^']+)'\\)/);
                             if (urlMatch) {
                                 return urlMatch[1]; // 返回URL
+                            }
+                            
+                            // 备用提取方式：尝试其他URL格式
+                            var altUrlMatch = onclick.match(/['"](https?://[^'"]+)['"]/);
+                            if (altUrlMatch) {
+                                return altUrlMatch[1];
                             }
                         }
                     }
