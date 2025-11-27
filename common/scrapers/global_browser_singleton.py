@@ -54,8 +54,8 @@ def get_global_browser_service(config: Optional[Dict[str, Any]] = None) -> 'Simp
             headless = browser_config_dict.get('headless', False)
             
             # 🔧 关键修复：先清理浏览器进程，再进行 Profile 验证
-            detector = BrowserDetector()
             base_user_data_dir = detector._get_edge_user_data_dir() if browser_type == 'edge' else None
+
 
             if not base_user_data_dir:
                 logger.error("❌ 无法获取用户数据目录")
