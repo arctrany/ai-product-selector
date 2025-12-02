@@ -1,7 +1,7 @@
 # 1688跨境相似商品搜索API接入SOP
 
 > **API**: `alibaba.cross.similar.offer.search`  
-> **技术栈**: Java 17 + Spring Boot 3.x + Maven  
+> **技术栈**: Java 21 + Spring Boot 3.x + Maven  
 > **部署环境**: 阿里云ECS (无域名)
 
 ---
@@ -40,7 +40,7 @@
 ssh root@your-ecs-ip
 
 # 安装Java 17
-yum install -y java-17-openjdk java-17-openjdk-devel
+yum install -y java-21-openjdk java-21-openjdk-devel
 java -version
 ```
 

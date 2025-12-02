@@ -12,17 +12,27 @@ from pathlib import Path
 project_root = Path.cwd()
 
 # 数据文件和资源文件配置
-datas = [
-    # 配置文件
-    ('config.json', '.'),
-    ('example_config.json', '.'),
-    ('common/config.py', 'common/'),
-    ('common/config/ozon_selectors_default.json', 'common/config/'),
-    
-    # 文档和规范
-    ('docs', 'docs'),
-    ('openspec', 'openspec'),
+datas = []
+
+# 只包含运行时必需的配置文件
+config_files = [
+    'config.json',
+    'example_config.json',
+    'common/config/ozon_selectors_default.json'
 ]
+
+for config_file in config_files:
+    config_path = project_root / config_file
+    if config_path.exists():
+        if config_file.startswith('common/'):
+            datas.append((config_file, os.path.dirname(config_file)))
+        else:
+            datas.append((config_file, '.'))
+
+# CI环境可能需要的版本信息文件
+version_file = project_root / 'version.py'
+if version_file.exists():
+    datas.append(('version.py', '.'))
 
 # 隐藏导入 - 确保所有必需模块被包含
 hiddenimports = [

@@ -33,7 +33,7 @@ detect_macos() {
     
     # Extract user data directories
     echo -e "\n${YELLOW}User Data Directories:${NC}"
-    USER_DATA_DIRS=$(ps -ax -o args | grep "Google Chrome" | grep -v grep | grep -oE '--user-data-dir[= ][^ ]+' | sed 's/--user-data-dir[= ]//g' | sort | uniq)
+    USER_DATA_DIRS=$(ps -ax -o args | grep "Google Chrome" | grep -v grep | grep -oE '\-\-user\-data\-dir[= ][^ ]*' | sed -E 's/\-\-user\-data\-dir[= ]//g' | sort | uniq)
     
     if [ -n "$USER_DATA_DIRS" ]; then
         echo "$USER_DATA_DIRS"

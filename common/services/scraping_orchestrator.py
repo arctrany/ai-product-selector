@@ -313,8 +313,6 @@ class ScrapingOrchestrator:
             try:
                 result = self.ozon_scraper.scrape(url, context, **kwargs)
                 # context.update("competitor_cnt", result.data.get("competitor_cnt",0))
-
-
                 self.competitor_scraper.scrape(url, context, **kwargs)
 
             except Exception as e:

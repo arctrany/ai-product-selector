@@ -1,0 +1,276 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本号 (如: v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            arch: x64
+            executable: ai-product-selector.exe
+            package_ext: zip
+          - os: macos-latest
+            platform: macos
+            arch: x64
+            executable: AI Product Selector.app
+            package_ext: tar.gz
+          - os: macos-14
+            platform: macos
+            arch: arm64
+            executable: AI Product Selector.app
+            package_ext: tar.gz
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        cache: 'pip'
+
+    - name: Install system dependencies (Linux)
+      if: matrix.platform == 'linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-dev gcc libc6-dev
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Install Playwright browsers
+      run: |
+        python -m playwright install chromium
+        python -m playwright install-deps chromium
+
+    - name: Create version info
+      shell: bash
+      run: |
+        VERSION="${GITHUB_REF#refs/tags/}"
+        if [ "$VERSION" = "$GITHUB_REF" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+        echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+        
+        # 创建版本信息文件
+        cat > version.py << EOF
+        VERSION = "${VERSION#v}"
+        BUILD = ${{ github.run_number }}
+        RELEASE_DATE = "${{ env.BUILD_DATE }}"
+        DESCRIPTION = "AI选品自动化系统"
+        
+        def get_version_string():
+            return f"{VERSION}.{BUILD}"
+        
+        def get_full_version_info():
+            return {
+                "version": VERSION,
+                "build": BUILD,
+                "release_date": RELEASE_DATE,
+                "description": DESCRIPTION,
+                "full_version": get_version_string()
+            }
+        EOF
+
+    - name: Build with PyInstaller
+      run: |
+        python -m PyInstaller build.spec --clean --noconfirm
+
+    - name: Create distribution package
+      shell: bash
+      run: |
+        # 确定平台标签
+        if [ "${{ matrix.platform }}" = "macos" ]; then
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            PLATFORM_TAG="macos-arm64"
+          else
+            PLATFORM_TAG="macos-x64"
+          fi
+        elif [ "${{ matrix.platform }}" = "windows" ]; then
+          PLATFORM_TAG="win-x64"
+        else
+          PLATFORM_TAG="linux-x64"
+        fi
+        
+        DIST_NAME="ai-product-selector-$PLATFORM_TAG"
+        DIST_DIR="dist/$DIST_NAME"
+        
+        echo "PLATFORM_TAG=$PLATFORM_TAG" >> $GITHUB_ENV
+        echo "DIST_NAME=$DIST_NAME" >> $GITHUB_ENV
+        echo "DIST_DIR=$DIST_DIR" >> $GITHUB_ENV
+        
+        # 创建分发目录
+        mkdir -p "$DIST_DIR"
+        
+        # 复制可执行文件
+        if [ "${{ matrix.platform }}" = "macos" ]; then
+          cp -R "dist/${{ matrix.executable }}" "$DIST_DIR/"
+        elif [ "${{ matrix.platform }}" = "windows" ]; then
+          cp "dist/${{ matrix.executable }}" "$DIST_DIR/"
+        else
+          cp "dist/${{ matrix.executable }}" "$DIST_DIR/"
+          chmod +x "$DIST_DIR/${{ matrix.executable }}"
+        fi
+        
+        # 复制配置文件
+        if [ -f "config.json" ]; then
+          cp "config.json" "$DIST_DIR/"
+        fi
+        if [ -f "example_config.json" ]; then
+          cp "example_config.json" "$DIST_DIR/"
+        fi
+        
+        # 创建README
+        cat > "$DIST_DIR/README.txt" << EOF
+        # AI选品自动化系统 - ${{ matrix.platform }} 版本
+        
+        ## 版本信息
+        - 版本: ${{ env.VERSION }}
+        - 构建: ${{ github.run_number }}
+        - 平台: $PLATFORM_TAG
+        - 构建时间: ${{ env.BUILD_DATE }}
+        
+        ## 使用方法
+        1. 复制 example_config.json 为 user_config.json
+        2. 根据需要修改配置
+        3. 运行程序开始使用
+        
+        ## 系统要求
+        - ${{ matrix.platform }} 系统
+        - 无需安装 Python 环境
+        EOF
+
+    - name: Create archive
+      shell: bash
+      run: |
+        cd dist
+        if [ "${{ matrix.package_ext }}" = "zip" ]; then
+          # Windows 使用 zip
+          powershell -command "Compress-Archive -Path '${{ env.DIST_NAME }}' -DestinationPath '${{ env.DIST_NAME }}.zip'"
+          echo "ARCHIVE_NAME=${{ env.DIST_NAME }}.zip" >> $GITHUB_ENV
+        else
+          # Linux/macOS 使用 tar.gz
+          tar -czf "${{ env.DIST_NAME }}.tar.gz" "${{ env.DIST_NAME }}"
+          echo "ARCHIVE_NAME=${{ env.DIST_NAME }}.tar.gz" >> $GITHUB_ENV
+        fi
+
+    - name: Calculate checksums
+      shell: bash
+      run: |
+        cd dist
+        if command -v sha256sum >/dev/null 2>&1; then
+          sha256sum "${{ env.ARCHIVE_NAME }}" > "${{ env.ARCHIVE_NAME }}.sha256"
+        elif command -v shasum >/dev/null 2>&1; then
+          shasum -a 256 "${{ env.ARCHIVE_NAME }}" > "${{ env.ARCHIVE_NAME }}.sha256"
+        else
+          echo "Warning: No SHA256 tool available"
+        fi
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ env.DIST_NAME }}
+        path: |
+          dist/${{ env.ARCHIVE_NAME }}
+          dist/${{ env.ARCHIVE_NAME }}.sha256
+        retention-days: 30
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: ./artifacts
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p ./release-assets
+        find ./artifacts -name "*.tar.gz" -o -name "*.zip" -o -name "*.sha256" | while read file; do
+          cp "$file" ./release-assets/
+        done
+        ls -la ./release-assets/
+
+    - name: Generate release notes
+      run: |
+        VERSION="${GITHUB_REF#refs/tags/}"
+        if [ "$VERSION" = "$GITHUB_REF" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        fi
+        
+        cat > release-notes.md << EOF
+        # AI选品自动化系统 ${VERSION}
+        
+        ## 🚀 新版本发布
+        
+        ### 📦 下载链接
+        
+        | 平台 | 架构 | 下载链接 |
+        |------|------|----------|
+        | Windows | x64 | [ai-product-selector-win-x64.zip](https://github.com/${{ github.repository }}/releases/download/${VERSION}/ai-product-selector-win-x64.zip) |
+        | macOS | Intel | [ai-product-selector-macos-x64.tar.gz](https://github.com/${{ github.repository }}/releases/download/${VERSION}/ai-product-selector-macos-x64.tar.gz) |
+        | macOS | Apple Silicon | [ai-product-selector-macos-arm64.tar.gz](https://github.com/${{ github.repository }}/releases/download/${VERSION}/ai-product-selector-macos-arm64.tar.gz) |
+        
+        ### 📋 版本信息
+        - **版本号**: ${VERSION}
+        - **构建号**: ${{ github.run_number }}
+        - **发布日期**: $(date -u +%Y-%m-%d)
+        - **提交**: ${{ github.sha }}
+        
+        ### 🛠 技术规格
+        - **Python 版本**: 3.9+
+        - **打包工具**: PyInstaller
+        - **浏览器引擎**: Playwright Chromium
+        - **支持平台**: Windows 10+, macOS 10.15+
+        
+        ### 📖 使用方法
+        1. 下载对应平台的压缩包
+        2. 解压到任意目录
+        3. 复制 `example_config.json` 为 `user_config.json`
+        4. 根据需要修改配置文件
+        5. 运行可执行文件开始使用
+        
+        ### 🔒 文件校验
+        每个下载包都提供 SHA256 校验和文件，请验证文件完整性。
+        
+        ### 🐛 问题反馈
+        如遇到问题，请在 [Issues](https://github.com/${{ github.repository }}/issues) 中反馈。
+        EOF
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: AI选品自动化系统 ${{ github.ref_name }}
+        body_path: release-notes.md
+        draft: false
+        prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
+        files: |
+          ./release-assets/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

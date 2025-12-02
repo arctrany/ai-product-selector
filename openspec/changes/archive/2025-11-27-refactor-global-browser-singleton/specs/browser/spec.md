@@ -52,7 +52,7 @@ SimplifiedBrowserService SHALL integrate browser detection and configuration log
 - **THEN** explicit configuration takes precedence over environment variables
 - **AND** browser detection and validation still occurs
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Service Lifecycle Management
 SimplifiedBrowserService SHALL manage the complete lifecycle of browser service instances including global singleton state.
