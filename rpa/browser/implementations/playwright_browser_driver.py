@@ -1429,6 +1429,38 @@ class SimplifiedPlaywrightBrowserDriver(IBrowserDriver):
             self._logger.error(f"Failed to get text content of selector {selector}: {e}")
             return None
 
+    def get_page_content_sync(self, timeout: int = 10) -> Optional[str]:
+        """
+        同步获取页面完整HTML内容
+
+        Args:
+            timeout: 超时时间（秒）
+
+        Returns:
+            页面HTML内容，失败返回 None
+        """
+        try:
+            if not self.page:
+                self._logger.error("Page not available")
+                return None
+
+            if not self._event_loop or not self._event_loop.is_running():
+                self._logger.error("Event loop is not running")
+                return None
+
+            async def get_content():
+                return await self.page.content()
+
+            future = asyncio.run_coroutine_threadsafe(get_content(), self._event_loop)
+            return future.result(timeout=timeout)
+
+        except TimeoutError:
+            self._logger.error(f"⏱️ Timeout getting page content")
+            return None
+        except Exception as e:
+            self._logger.error(f"Failed to get page content: {e}")
+            return None
+
     def get_attribute_sync(self, selector: str, name: str, timeout: int = 30000) -> Optional[str]:
         """
         同步获取元素属性值

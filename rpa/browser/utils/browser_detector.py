@@ -62,6 +62,18 @@ class BrowserDetector:
         else:
             return None
     
+    def _get_chrome_user_data_dir(self) -> Optional[str]:
+        """获取 Chrome 浏览器用户数据目录"""
+        import os
+        if self.system == "Darwin":  # macOS
+            return os.path.expanduser("~/Library/Application Support/Google/Chrome")
+        elif self.system == "Windows":
+            return os.path.expanduser("~\\AppData\\Local\\Google\\Chrome\\User Data")
+        elif self.system == "Linux":
+            return os.path.expanduser("~/.config/google-chrome")
+        else:
+            return None
+
     def _list_profiles(self, user_data_dir: str) -> List[str]:
         """列出所有 Profile"""
         profiles = []

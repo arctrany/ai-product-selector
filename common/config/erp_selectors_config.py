@@ -12,15 +12,17 @@ class ERPSelectorsConfig(BaseScrapingConfig):
     """ERP插件选择器配置"""
     
     # ========== ERP容器选择器配置 ==========
+    # 性能优化：重新排序选择器，按实际命中率和性能排序
     erp_container_selectors: List[str] = field(default_factory=lambda: [
-        '#custom-insertion-point',                    # 容器ID - 最准确的选择器
-        '[data-v-efec3aa9]',                         # Vue组件属性 - 主要识别标识
-        '.mz-widget-product',                        # 实际组件类名
-        '[class*="mz-widget"]',                      # 通用匹配模式
-        '#custom-insertion-point [data-v-efec3aa9]', # 嵌套选择器，更精确
-        '.mz-widget-product [data-v-efec3aa9]',      # 备用嵌套选择器
-        'div[data-widget]',                          # 基于OZON实际使用的data-widget模式
-        '[data-widget*="web"]'                       # 基于OZON实际的web组件模式（参考webSellerList）
+        '.mz-widget-product',                        # 🚀 实际组件类名 - 最可能存在，排第一
+        'div[data-widget]',                          # 🚀 OZON通用data-widget - 第二选择
+        'div[data-widget*="web"]',                   # 🚀 Web组件变体 - 第三选择
+        '[data-v-efec3aa9]'                          # ⚠️ Vue组件 - 可能不稳定，排最后
+        # 🚫 完全移除无效选择器以提升性能：
+        # '#custom-insertion-point'                  # 已确认不存在，移除避免浪费时间
+        # 移除其他低效选择器：
+        # '[class*="mz-widget"]', '#custom-insertion-point [data-v-efec3aa9]',
+        # '.mz-widget-product [data-v-efec3aa9]'
     ])
     
     # ========== ERP数据选择器配置 ==========

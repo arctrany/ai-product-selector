@@ -12,6 +12,7 @@
 import asyncio
 import logging
 import sys
+import threading
 from typing import Dict, Any, Optional
 
 from .core.config.config import (
@@ -31,6 +32,9 @@ from .implementations.playwright_browser_driver import SimplifiedPlaywrightBrows
 from .implementations.dom_page_analyzer import SimplifiedDOMPageAnalyzer, AnalysisConfig
 from .implementations.universal_paginator import UniversalPaginator
 
+# 导入浏览器检测工具
+from .utils import detect_active_profile, BrowserDetector
+
 
 class SimplifiedBrowserService:
     """
@@ -41,7 +45,13 @@ class SimplifiedBrowserService:
     2. 配置管理统一化
     3. 组件初始化简化
     4. 清晰的职责分离
+    5. 集成全局单例管理功能
     """
+
+    # ==================== 全局单例管理类属性 ====================
+    _global_instance: Optional['SimplifiedBrowserService'] = None
+    _global_instance_initialized: bool = False
+    _global_lock: threading.Lock = threading.Lock()
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
@@ -112,13 +122,9 @@ class SimplifiedBrowserService:
                 raise
 
             self._initialized = True
-            # 🔧 通知全局单例模块浏览器服务已初始化完成
-            try:
-                from common.scrapers.global_browser_singleton import set_browser_service_initialized
-                set_browser_service_initialized()
-            except ImportError:
-                # 如果不使用全局单例，忽略
-                pass
+            # 🔧 更新全局单例状态
+            if self.__class__._global_instance is self:
+                self.__class__.set_global_instance_initialized(True)
             self.logger.info("✅ 浏览器服务初始化完成")
             return True
 
@@ -130,14 +136,11 @@ class SimplifiedBrowserService:
             self._initialized = False
             self._browser_started = False
 
-            # 🔧 关键修复：通知全局单例重置（如果使用全局单例）
-            try:
-                from common.scrapers.global_browser_singleton import reset_global_browser_on_failure
-                reset_global_browser_on_failure()
+            # 🔧 关键修复：重置全局单例状态
+            if self.__class__._global_instance is self:
+                self.__class__._global_instance = None
+                self.__class__._global_instance_initialized = False
                 self.logger.info("🔄 已重置全局浏览器单例")
-            except ImportError:
-                # 如果不使用全局单例，忽略
-                pass
 
             # 🔧 用户要求：浏览器启动失败时直接终结程序，避免打开空白页
             self.logger.critical(f"💀 浏览器初始化失败，程序即将退出")
@@ -190,7 +193,7 @@ class SimplifiedBrowserService:
             import sys
             sys.exit(1)
 
-    async def navigate_to(self, url: str, wait_until: str = "load") -> bool:
+    async def navigate_to(self, url: str, wait_until: str = "domcontentloaded") -> bool:
         """导航到指定URL"""
         try:
             if not self._browser_started:
@@ -291,14 +294,261 @@ class SimplifiedBrowserService:
             if self.browser_driver:
                 await self.browser_driver.shutdown()
 
+            # 清理状态
             self._initialized = False
             self._browser_started = False
+
+            # 🔧 更新全局单例状态
+            if self.__class__._global_instance is self:
+                self.__class__.set_global_instance_initialized(False)
+
             self.logger.info("✅ 浏览器服务已关闭")
             return True
 
         except Exception as e:
             self.logger.error(f"❌ 关闭浏览器服务失败: {e}")
+            # 即使关闭失败，也要清理状态，避免资源泄露
+            try:
+                self._initialized = False
+                self._browser_started = False
+
+                # 🔧 更新全局单例状态（即使关闭失败也要更新）
+                if self.__class__._global_instance is self:
+                    self.__class__.set_global_instance_initialized(False)
+            except:
+                pass
             return False
+
+    # ==================== 全局单例管理方法 ====================
+
+    @classmethod
+    def get_global_instance(cls, config: Optional[Dict[str, Any]] = None) -> 'SimplifiedBrowserService':
+        """
+        获取全局浏览器服务实例（单例模式）
+
+        🔧 设计说明：
+        - 类级别的全局单例，确保整个进程只有一个浏览器实例
+        - 使用线程锁确保线程安全
+        - 第一次调用时创建，后续调用直接返回现有实例
+        - 支持配置传递（仅在第一次创建时使用）
+
+        Args:
+            config: 浏览器配置（仅第一次调用时使用，后续调用忽略此参数）
+
+        Returns:
+            SimplifiedBrowserService: 全局浏览器服务实例
+
+        Thread Safety:
+            此方法是线程安全的，可以在多线程环境中安全调用
+        """
+        with cls._global_lock:
+            if cls._global_instance is None:
+                logger = logging.getLogger(__name__)
+                logger.info("🆕 创建全局浏览器服务实例")
+
+                # 如果没有提供config，使用环境变量和浏览器检测创建默认配置
+                if config is None:
+                    config = cls._create_default_global_config()
+
+                cls._global_instance = cls(config)
+                cls._global_instance_initialized = False
+                logger.info("✅ 全局浏览器服务实例创建完成")
+            else:
+                logger = logging.getLogger(__name__)
+                logger.debug("♻️ 复用现有的全局浏览器服务实例")
+
+                # 如果浏览器服务已经初始化完成，同步状态
+                if (cls._global_instance and
+                    cls._global_instance._initialized and
+                    not cls._global_instance_initialized):
+                    cls._global_instance_initialized = True
+                    logger.debug("🔧 同步全局实例初始化状态")
+
+        return cls._global_instance
+
+    @classmethod
+    def has_global_instance(cls) -> bool:
+        """
+        检查是否存在全局浏览器服务实例
+
+        Returns:
+            bool: True表示存在全局实例，False表示不存在
+
+        Thread Safety:
+            此方法是线程安全的
+        """
+        with cls._global_lock:
+            return cls._global_instance is not None
+
+    @classmethod
+    def reset_global_instance(cls) -> bool:
+        """
+        重置全局浏览器服务实例
+
+        🔧 设计说明：
+        - 清除当前的全局实例
+        - 如果实例正在运行，会先尝试关闭
+        - 重置后，下次调用get_global_instance将创建新实例
+
+        Returns:
+            bool: True表示重置成功，False表示重置过程中出现错误
+
+        Thread Safety:
+            此方法是线程安全的
+        """
+        with cls._global_lock:
+            if cls._global_instance is not None:
+                logger = logging.getLogger(__name__)
+                logger.info("🔄 重置全局浏览器服务实例")
+
+                try:
+                    # 尝试关闭现有实例
+                    if cls._global_instance._browser_started:
+                        # 使用同步关闭方法
+                        if hasattr(cls._global_instance, 'close_sync'):
+                            success = cls._global_instance.close_sync()
+                        else:
+                            success = asyncio.run(cls._global_instance.close())
+                        if not success:
+                            logger.warning("⚠️ 关闭现有全局实例时出现问题")
+                except Exception as e:
+                    logger.error(f"❌ 关闭现有全局实例时发生异常: {e}")
+                    # 继续重置，即使关闭失败
+
+                # 清除全局状态
+                cls._global_instance = None
+                cls._global_instance_initialized = False
+                logger.info("✅ 全局浏览器服务实例已重置")
+                return True
+            else:
+                return True  # 没有实例需要重置，算作成功
+
+    @classmethod
+    def is_global_instance_initialized(cls) -> bool:
+        """
+        检查全局浏览器服务实例是否已初始化
+
+        Returns:
+            bool: True表示已初始化，False表示未初始化或不存在全局实例
+
+        Thread Safety:
+            此方法是线程安全的
+        """
+        with cls._global_lock:
+            if cls._global_instance is None:
+                return False
+            # 只检查全局初始化标志，兼容测试期望
+            return cls._global_instance_initialized
+
+    @classmethod
+    def set_global_instance_initialized(cls, value: bool) -> None:
+        """
+        设置全局浏览器服务实例的初始化状态
+
+        🔧 内部使用：
+        此方法主要供内部使用，用于同步全局实例的初始化状态
+
+        Args:
+            value: 初始化状态
+
+        Thread Safety:
+            此方法是线程安全的
+        """
+        with cls._global_lock:
+            if cls._global_instance is not None:
+                cls._global_instance_initialized = value
+
+    @classmethod
+    def _create_default_global_config(cls) -> Dict[str, Any]:
+        """
+        创建默认的全局配置
+
+        🔧 设计说明：
+        - 整合来自global_browser_singleton的配置逻辑
+        - 从环境变量读取配置
+        - 执行浏览器检测和Profile验证
+
+        Returns:
+            Dict[str, Any]: 浏览器服务配置字典
+        """
+        import os
+        from .core.models.browser_config import BrowserConfig, BrowserType
+        from .core.config.config import BrowserServiceConfig
+
+        logger = logging.getLogger(__name__)
+
+        try:
+            # 从环境变量获取配置
+            browser_type = os.environ.get('PREFERRED_BROWSER', 'edge').lower()
+            debug_port = os.environ.get('BROWSER_DEBUG_PORT', '9222')
+            headless = os.environ.get('BROWSER_HEADLESS', 'false').lower() == 'true'
+
+            # 创建浏览器检测器
+            detector = BrowserDetector()
+            base_user_data_dir = (detector._get_edge_user_data_dir()
+                                if browser_type == 'edge'
+                                else detector._get_chrome_user_data_dir())
+
+            if not base_user_data_dir:
+                logger.error("❌ 无法获取用户数据目录")
+                raise RuntimeError("无法获取用户数据目录")
+
+            # 先清理浏览器进程
+            logger.info("🧹 启动前先清理可能冲突的浏览器进程...")
+            if not detector.kill_browser_processes():
+                logger.warning("⚠️ 清理浏览器进程时遇到问题，但继续启动")
+            else:
+                logger.info("✅ 浏览器进程清理完成")
+
+            # 检测最近使用的Profile
+            active_profile = detect_active_profile()
+            if not active_profile:
+                active_profile = "Default"
+                logger.warning("⚠️ 未检测到 Profile，将使用默认 Profile")
+            else:
+                logger.info(f"✅ 检测到最近使用的 Profile: {active_profile}")
+
+            # 验证Profile可用性
+            if not detector.is_profile_available(base_user_data_dir, active_profile):
+                logger.warning(f"⚠️ Profile '{active_profile}' 不可用")
+
+                # 等待Profile解锁
+                profile_path = os.path.join(base_user_data_dir, active_profile)
+                if detector.wait_for_profile_unlock(profile_path, max_wait_seconds=5):
+                    logger.info("✅ Profile 已解锁，继续启动")
+                    if not detector.is_profile_available(base_user_data_dir, active_profile):
+                        error_msg = f"❌ Profile '{active_profile}' 解锁后仍不可用"
+                        logger.error(error_msg)
+                        raise RuntimeError(error_msg)
+                else:
+                    error_msg = f"❌ Profile '{active_profile}' 等待解锁超时"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
+
+            # 使用完整的用户数据目录路径
+            user_data_dir = os.path.join(base_user_data_dir, active_profile)
+
+            logger.info(f"✅ Profile 可用，将使用: {user_data_dir}")
+            logger.info(f"🚀 配置: browser={browser_type}, headless={headless}")
+
+            # 创建浏览器配置
+            browser_cfg = BrowserConfig(
+                browser_type=BrowserType.EDGE if browser_type == 'edge' else BrowserType.CHROME,
+                headless=headless,
+                debug_port=int(debug_port),
+                user_data_dir=user_data_dir
+            )
+
+            service_config = BrowserServiceConfig(
+                browser_config=browser_cfg,
+                debug_mode=True
+            )
+
+            return service_config.to_dict()
+
+        except Exception as e:
+            logger.error(f"❌ 创建默认全局配置失败: {e}")
+            raise
 
     def close_sync(self) -> bool:
         """
@@ -372,13 +622,9 @@ class SimplifiedBrowserService:
             self._initialized = False
             self._browser_started = False
 
-            # 🔧 通知全局单例模块浏览器服务已关闭
-            try:
-                from common.scrapers.global_browser_singleton import set_browser_service_closed
-                set_browser_service_closed()
-            except ImportError:
-                # 如果不使用全局单例，忽略
-                pass
+            # 🔧 更新全局单例状态
+            if self.__class__._global_instance is self:
+                self.__class__.set_global_instance_initialized(False)
 
             self.logger.info("✅ 浏览器服务已同步关闭")
             return True
@@ -391,13 +637,9 @@ class SimplifiedBrowserService:
                 self._browser_started = False
                 self.browser_driver = None
 
-                # 🔧 通知全局单例模块浏览器服务已关闭（即使关闭失败也要通知）
-                try:
-                    from common.scrapers.global_browser_singleton import set_browser_service_closed
-                    set_browser_service_closed()
-                except ImportError:
-                    # 如果不使用全局单例，忽略
-                    pass
+                # 🔧 更新全局单例状态（即使关闭失败也要更新）
+                if self.__class__._global_instance is self:
+                    self.__class__.set_global_instance_initialized(False)
             except:
                 pass
             return False
@@ -472,6 +714,13 @@ class SimplifiedBrowserService:
             return None
         return self.browser_driver.text_content_sync(selector, timeout)
 
+    def get_page_content_sync(self, timeout: int = 10):
+        """同步获取页面完整HTML内容（代理方法）"""
+        if not self.browser_driver:
+            self.logger.error("Browser driver not initialized")
+            return None
+        return self.browser_driver.get_page_content_sync(timeout)
+
     def get_attribute_sync(self, selector: str, name: str, timeout: int = 30000):
         """同步获取元素属性（代理方法）"""
         if not self.browser_driver:
@@ -485,6 +734,13 @@ class SimplifiedBrowserService:
             self.logger.error("Browser driver not initialized")
             return False
         return self.browser_driver.is_visible_sync(selector, timeout)
+
+    def get_page_content_sync(self, timeout: int = 10) -> Optional[str]:
+        """同步获取页面完整HTML内容（代理方法）"""
+        if not self.browser_driver:
+            self.logger.error("Browser driver not initialized")
+            return None
+        return self.browser_driver.get_page_content_sync(timeout)
 
     def evaluate_sync(self, script: str, timeout: int = 30000):
         """
@@ -644,13 +900,13 @@ class SimplifiedBrowserService:
         try:
             if url:
                 await self.navigate_to(url)
-            
+
             analyzer = await self.get_page_analyzer()
             if not analyzer:
                 raise BrowserError("页面分析器未初始化")
-            
+
             return await analyzer.analyze_page()
-            
+
         except Exception as e:
             self.logger.error(f"❌ 页面分析失败: {e}")
             return {}
@@ -693,6 +949,233 @@ class SimplifiedBrowserService:
         except Exception as e:
             elapsed = time.time() - start_time if 'start_time' in locals() else 0
 
+            raise
+
+    # ==================== 全局单例管理方法 ====================
+
+    @classmethod
+    def get_global_instance(cls, config: Optional[Dict[str, Any]] = None) -> 'SimplifiedBrowserService':
+        """
+        获取全局浏览器服务实例（单例模式）
+
+        🔧 设计说明：
+        - 类级别的全局单例，确保整个进程只有一个浏览器实例
+        - 使用线程锁确保线程安全
+        - 第一次调用时创建，后续调用直接返回现有实例
+        - 支持配置传递（仅在第一次创建时使用）
+
+        Args:
+            config: 浏览器配置（仅第一次调用时使用，后续调用忽略此参数）
+
+        Returns:
+            SimplifiedBrowserService: 全局浏览器服务实例
+
+        Thread Safety:
+            此方法是线程安全的，可以在多线程环境中安全调用
+        """
+        with cls._global_lock:
+            if cls._global_instance is None:
+                logger = logging.getLogger(__name__)
+                logger.info("🆕 创建全局浏览器服务实例")
+
+                # 如果没有提供config，使用环境变量和浏览器检测创建默认配置
+                if config is None:
+                    config = cls._create_default_global_config()
+
+                cls._global_instance = cls(config)
+                cls._global_instance_initialized = False
+                logger.info("✅ 全局浏览器服务实例创建完成")
+            else:
+                logger = logging.getLogger(__name__)
+                logger.debug("♻️ 复用现有的全局浏览器服务实例")
+
+                # 如果浏览器服务已经初始化完成，同步状态
+                if (cls._global_instance and
+                    cls._global_instance._initialized and
+                    not cls._global_instance_initialized):
+                    cls._global_instance_initialized = True
+                    logger.debug("🔧 同步全局实例初始化状态")
+
+        return cls._global_instance
+
+    @classmethod
+    def has_global_instance(cls) -> bool:
+        """
+        检查是否存在全局浏览器服务实例
+
+        Returns:
+            bool: True表示存在全局实例，False表示不存在
+
+        Thread Safety:
+            此方法是线程安全的
+        """
+        with cls._global_lock:
+            return cls._global_instance is not None
+
+    @classmethod
+    def reset_global_instance(cls) -> bool:
+        """
+        重置全局浏览器服务实例
+
+        🔧 设计说明：
+        - 清除当前的全局实例
+        - 如果实例正在运行，会先尝试关闭
+        - 重置后，下次调用get_global_instance将创建新实例
+
+        Returns:
+            bool: True表示重置成功，False表示重置过程中出现错误
+
+        Thread Safety:
+            此方法是线程安全的
+        """
+        with cls._global_lock:
+            if cls._global_instance is not None:
+                logger = logging.getLogger(__name__)
+                logger.info("🔄 重置全局浏览器服务实例")
+
+                try:
+                    # 尝试关闭现有实例
+                    if cls._global_instance._browser_started:
+                        success = cls._global_instance.close_sync()
+                        if not success:
+                            logger.warning("⚠️ 关闭现有全局实例时出现问题")
+                except Exception as e:
+                    logger.error(f"❌ 关闭现有全局实例时发生异常: {e}")
+                    # 继续重置，即使关闭失败
+
+                # 清除全局状态
+                cls._global_instance = None
+                cls._global_instance_initialized = False
+                logger.info("✅ 全局浏览器服务实例已重置")
+                return True
+            else:
+                return True  # 没有实例需要重置，算作成功
+
+    @classmethod
+    def is_global_instance_initialized(cls) -> bool:
+        """
+        检查全局浏览器服务实例是否已初始化
+
+        Returns:
+            bool: True表示已初始化，False表示未初始化或不存在全局实例
+
+        Thread Safety:
+            此方法是线程安全的
+        """
+        with cls._global_lock:
+            if cls._global_instance is None:
+                return False
+            # 只检查全局初始化标志，兼容测试期望
+            return cls._global_instance_initialized
+
+    @classmethod
+    def set_global_instance_initialized(cls, value: bool) -> None:
+        """
+        设置全局浏览器服务实例的初始化状态
+
+        🔧 内部使用：
+        此方法主要供内部使用，用于同步全局实例的初始化状态
+
+        Args:
+            value: 初始化状态
+
+        Thread Safety:
+            此方法是线程安全的
+        """
+        with cls._global_lock:
+            if cls._global_instance is not None:
+                cls._global_instance_initialized = value
+
+    @classmethod
+    def _create_default_global_config(cls) -> Dict[str, Any]:
+        """
+        创建默认的全局配置
+
+        🔧 设计说明：
+        - 整合来自global_browser_singleton的配置逻辑
+        - 从环境变量读取配置
+        - 执行浏览器检测和Profile验证
+
+        Returns:
+            Dict[str, Any]: 浏览器服务配置字典
+        """
+        import os
+        from .core.models.browser_config import BrowserConfig, BrowserType
+        from .core.config.config import BrowserServiceConfig
+
+        logger = logging.getLogger(__name__)
+
+        try:
+            # 从环境变量获取配置
+            browser_type = os.environ.get('PREFERRED_BROWSER', 'edge').lower()
+            debug_port = os.environ.get('BROWSER_DEBUG_PORT', '9222')
+            headless = os.environ.get('BROWSER_HEADLESS', 'false').lower() == 'true'
+
+            # 创建浏览器检测器
+            detector = BrowserDetector()
+            base_user_data_dir = (detector._get_edge_user_data_dir()
+                                if browser_type == 'edge'
+                                else detector._get_chrome_user_data_dir())
+
+            if not base_user_data_dir:
+                logger.error("❌ 无法获取用户数据目录")
+                raise RuntimeError("无法获取用户数据目录")
+
+            # 先清理浏览器进程
+            logger.info("🧹 启动前先清理可能冲突的浏览器进程...")
+            if not detector.kill_browser_processes():
+                logger.warning("⚠️ 清理浏览器进程时遇到问题，但继续启动")
+            else:
+                logger.info("✅ 浏览器进程清理完成")
+
+            # 检测最近使用的Profile
+            active_profile = detect_active_profile()
+            if not active_profile:
+                active_profile = "Default"
+                logger.warning("⚠️ 未检测到 Profile，将使用默认 Profile")
+            else:
+                logger.info(f"✅ 检测到最近使用的 Profile: {active_profile}")
+
+            # 验证Profile可用性
+            if not detector.is_profile_available(base_user_data_dir, active_profile):
+                logger.warning(f"⚠️ Profile '{active_profile}' 不可用")
+
+                # 等待Profile解锁
+                profile_path = os.path.join(base_user_data_dir, active_profile)
+                if detector.wait_for_profile_unlock(profile_path, max_wait_seconds=5):
+                    logger.info("✅ Profile 已解锁，继续启动")
+                    if not detector.is_profile_available(base_user_data_dir, active_profile):
+                        error_msg = f"❌ Profile '{active_profile}' 解锁后仍不可用"
+                        logger.error(error_msg)
+                        raise RuntimeError(error_msg)
+                else:
+                    error_msg = f"❌ Profile '{active_profile}' 等待解锁超时"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
+
+            # 使用完整的用户数据目录路径
+            user_data_dir = os.path.join(base_user_data_dir, active_profile)
+
+            logger.info(f"✅ Profile 可用，将使用: {user_data_dir}")
+            logger.info(f"🚀 配置: browser={browser_type}, headless={headless}")
+
+            # 创建浏览器配置
+            browser_cfg = BrowserConfig(
+                browser_type=BrowserType.EDGE if browser_type == 'edge' else BrowserType.CHROME,
+                headless=headless,
+                debug_port=int(debug_port),
+                user_data_dir=user_data_dir
+            )
+
+            service_config = BrowserServiceConfig(
+                browser_config=browser_cfg,
+                debug_mode=True
+            )
+
+            return service_config.to_dict()
+
+        except Exception as e:
+            logger.error(f"❌ 创建默认全局配置失败: {e}")
             raise
 
     # ==================== 内部方法 ====================
@@ -753,5 +1236,6 @@ __all__ = [
     'create_simplified_browser_service',
     'create_shared_browser_service',
     'create_headless_browser_service',
-    'create_debug_browser_service'
+    'create_debug_browser_service',
+
 ]

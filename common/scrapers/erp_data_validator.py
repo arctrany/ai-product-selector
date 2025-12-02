@@ -19,37 +19,65 @@ class ErpDataValidator:
     - 完整状态：有实际数据值（如"类目：汽车用品/汽车内饰地垫"）
     """
     
-    def __init__(self, logger: Optional[logging.Logger] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, logger: Optional[logging.Logger] = None):
         """
         初始化ERP数据验证器
-        
+
         Args:
+            config: 字段配置字典（从scraper获取），包含所有字段定义
             logger: 日志记录器
         """
         self.logger = logger or logging.getLogger(__name__)
-        
-        # ERP关键字段标签（中文）
-        self.erp_field_labels = {
-            '类目', '品牌', 'SKU', '月销量', '月销售额', 
-            '日销量', '日销售额', '价格', '重量', '尺寸',
-            '上架时间', 'rFBS佣金', '佣金率'
-        }
-        
-        # 无效值标识符
-        self.invalid_values = {
-            '-', '--', '无数据', 'N/A', '', '无', '暂无', 
-            'null', 'undefined', '待更新', '加载中', '...'
-        }
-        
-        # 数据格式验证规则
-        self.validation_patterns = {
-            'category': r'^[^：:]+/[^：:]+',  # 类目应包含层级结构，如"汽车用品/汽车内饰地垫"
-            'sku': r'^\d+$',  # SKU应为纯数字
-            'monthly_sales_volume': r'^\d+$',  # 月销量应为数字
-            'monthly_sales_amount': r'^\d+',  # 月销售额应以数字开头
-            'brand_name': r'^[^：:]+$',  # 品牌名不应包含冒号
-            'price': r'^\d+(\.\d+)?',  # 价格应为数字格式
-            'weight': r'^\d+(\.\d+)?',  # 重量应为数字格式
+
+        # 使用传入的配置或默认配置
+        if config is None:
+            config = self._get_default_config()
+
+        # 从配置中获取字段定义
+        self.required_field_labels = config.get('required_field_labels', {'SKU', '重量', '尺寸', 'rFBS佣金'})
+        self.dimension_labels = config.get('dimension_labels', {'尺寸', '长', '宽', '高', '长宽高'})
+        self.invalid_values = config.get('invalid_values', {'-', '--', '无数据', 'N/A', '', '无', '暂无', 'null', 'undefined'})
+        self.validation_patterns = config.get('validation_patterns', {})
+        self.label_only_patterns = config.get('label_only_patterns', [])
+        self.required_field_patterns = config.get('required_field_patterns', {})
+        self.reasonable_patterns = config.get('reasonable_patterns', [r'\d+', r'[a-zA-Z\u4e00-\u9fa5]+/[a-zA-Z\u4e00-\u9fa5]+', r'[a-zA-Z\u4e00-\u9fa5]{2,}'])
+        self.analysis_field_patterns = config.get('analysis_field_patterns', self.required_field_patterns)
+
+    def _get_default_config(self) -> Dict[str, Any]:
+        """
+        获取默认配置（用于向后兼容）
+
+        Returns:
+            Dict[str, Any]: 默认配置字典
+        """
+        return {
+            'required_field_labels': {'SKU', '重量', '尺寸', 'rFBS佣金'},
+            'dimension_labels': {'尺寸', '长', '宽', '高', '长宽高'},
+            'invalid_values': {'-', '--', '无数据', 'N/A', '', '无', '暂无', 'null', 'undefined'},
+            'validation_patterns': {
+                'sku': r'^\d+$',
+                'weight': r'^\d+(\.\d+)?(g|kg|克|公斤)?',
+                'dimensions': r'\d+(\.\d+)?',
+                'rfbs_commission': r'\d+(\.\d+)?%?',
+            },
+            'label_only_patterns': [
+                r'SKU：\s*重\s*量：',
+                r'重\s*量：\s*尺寸：',
+                r'SKU：\s*长\s*[：:]\s*宽\s*[：:]',
+                r'rFBS佣金：\s*重\s*量：',
+            ],
+            'required_field_patterns': {
+                'sku': r'SKU：\s*(\d+)',
+                'weight': r'重\s*量：\s*([0-9.]+(?:g|kg|克|公斤)?)',
+                'dimensions': [
+                    r'尺寸：\s*([^：\n]+)',
+                    r'长\s*[：:]\s*([0-9.]+)',
+                    r'宽\s*[：:]\s*([0-9.]+)',
+                    r'高\s*[：:]\s*([0-9.]+)',
+                    r'([0-9.]+\s*[x×]\s*[0-9.]+\s*[x×]\s*[0-9.]+)',
+                ],
+                'rfbs_commission': r'rFBS佣金：\s*([0-9.,\s%]+)',
+            }
         }
     
     def validate_elements(self, elements: List[Union[Tag, str]]) -> bool:
@@ -84,8 +112,8 @@ class ErpDataValidator:
             # 2. 检查是否有有效的数据值
             valid_data_count = self._count_valid_data_fields(all_text)
             
-            if valid_data_count < 2:  # 至少需要2个有效数据字段
-                self.logger.debug(f"❌ ERP验证失败：有效数据字段数量不足 ({valid_data_count} < 2)")
+            if valid_data_count < 1:  # 修复商品ID 1176594312问题：降低验证要求至少1个有效数据字段
+                self.logger.debug(f"❌ ERP验证失败：有效数据字段数量不足 ({valid_data_count} < 1)")
                 return False
             
             # 3. 验证数据格式的合理性
@@ -157,14 +185,8 @@ class ErpDataValidator:
         if label_count >= 3 and data_value_count <= 1:
             return True
         
-        # 检查是否包含典型的"只有标签"模式
-        label_only_patterns = [
-            r'类目：\s*品牌：',  # "类目： 品牌："
-            r'SKU：\s*月销量：',  # "SKU： 月销量："
-            r'品牌：\s*SKU：\s*月销量：',  # "品牌： SKU： 月销量："
-        ]
-        
-        for pattern in label_only_patterns:
+        # 检查是否包含典型的"只有必需字段标签"模式
+        for pattern in self.label_only_patterns:
             if re.search(pattern, text):
                 return True
         
@@ -172,35 +194,44 @@ class ErpDataValidator:
     
     def _count_valid_data_fields(self, text: str) -> int:
         """
-        统计有效数据字段的数量
-        
+        统计必需字段的有效数据数量
+
         Args:
             text: 要分析的文本
-            
+
         Returns:
-            int: 有效数据字段数量
+            int: 有效的必需字段数量
         """
         valid_count = 0
-        
-        # 检查每个关键字段是否有有效数据
-        field_patterns = {
-            'category': r'类目：\s*([^：\s]+(?:/[^：\s]+)*)',  # 类目：汽车用品/汽车内饰地垫
-            'brand_name': r'品牌：\s*([^：\s]+)',  # 品牌：COZYCAR
-            'sku': r'SKU：\s*(\d+)',  # SKU：1756017628
-            'monthly_sales_volume': r'月销量：\s*(\d+)',  # 月销量：123
-            'monthly_sales_amount': r'月销售额：\s*([0-9,]+)',  # 月销售额：12,345
-            'price': r'价格：\s*(\d+)',  # 价格：199
-        }
-        
-        for field_name, pattern in field_patterns.items():
-            matches = re.findall(pattern, text)
-            if matches:
-                # 验证匹配的值是否有效
-                for match in matches:
-                    if self._is_valid_data_value(match):
-                        valid_count += 1
-                        self.logger.debug(f"✅ 发现有效字段 {field_name}: {match}")
-                        break  # 每个字段只计算一次
+
+        # 检查每个必需字段是否有有效数据
+        for field_name, patterns in self.required_field_patterns.items():
+            field_found = False
+
+            # 处理尺寸字段的多种模式
+            if field_name == 'dimensions':
+                for pattern in patterns:
+                    matches = re.findall(pattern, text, re.IGNORECASE)
+                    if matches:
+                        for match in matches:
+                            if self._is_valid_data_value(match):
+                                valid_count += 1
+                                field_found = True
+                                self.logger.debug(f"✅ 发现有效字段 {field_name}: {match}")
+                                break
+                        if field_found:
+                            break
+            else:
+                # 处理其他字段
+                if isinstance(patterns, str):
+                    matches = re.findall(patterns, text, re.IGNORECASE)
+                    if matches:
+                        for match in matches:
+                            if self._is_valid_data_value(match):
+                                valid_count += 1
+                                field_found = True
+                                self.logger.debug(f"✅ 发现有效字段 {field_name}: {match}")
+                                break
         
         return valid_count
     
@@ -219,14 +250,8 @@ class ErpDataValidator:
             return False
         
         # 检查是否包含合理的数据格式
-        reasonable_patterns = [
-            r'\d+',  # 包含数字
-            r'[a-zA-Z\u4e00-\u9fa5]+/[a-zA-Z\u4e00-\u9fa5]+',  # 包含层级结构（如类目）
-            r'[a-zA-Z\u4e00-\u9fa5]{2,}',  # 包含有意义的文字（非单字符）
-        ]
-        
         pattern_matches = 0
-        for pattern in reasonable_patterns:
+        for pattern in self.reasonable_patterns:
             if re.search(pattern, text):
                 pattern_matches += 1
         
@@ -317,14 +342,8 @@ class ErpDataValidator:
                 'details': {}
             }
             
-            # 详细分析各个字段
-            field_patterns = {
-                'category': r'类目：\s*([^：\s]+(?:/[^：\s]+)*)',
-                'brand_name': r'品牌：\s*([^：\s]+)',
-                'sku': r'SKU：\s*(\d+)',
-                'monthly_sales_volume': r'月销量：\s*(\d+)',
-                'monthly_sales_amount': r'月销售额：\s*([0-9,]+)',
-            }
+            # 详细分析必需字段
+            field_patterns = self.analysis_field_patterns
             
             for field_name, pattern in field_patterns.items():
                 matches = re.findall(pattern, all_text)
@@ -353,16 +372,23 @@ class ErpDataValidator:
 # 全局实例管理
 _erp_validator_instance = None
 
-def get_erp_data_validator(logger: Optional[logging.Logger] = None) -> ErpDataValidator:
+def get_erp_data_validator(logger: Optional[logging.Logger] = None, scraper_instance: Optional[Any] = None) -> ErpDataValidator:
     """
-    获取ERP数据验证器的全局实例
-    
+    获取ERP数据验证器实例
+
     Args:
         logger: 日志记录器
-        
+        scraper_instance: ErpPluginScraper实例，用于获取字段配置
+
     Returns:
         ErpDataValidator: ERP数据验证器实例
     """
+    # 如果提供了scraper实例，从中获取配置并创建新实例
+    if scraper_instance and hasattr(scraper_instance, 'get_required_fields_config'):
+        config = scraper_instance.get_required_fields_config()
+        return ErpDataValidator(config=config, logger=logger)
+
+    # 否则使用全局实例（向后兼容）
     global _erp_validator_instance
     
     if _erp_validator_instance is None:

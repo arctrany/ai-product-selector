@@ -67,10 +67,10 @@ class WaitUtils:
                 self.logger.error("Browser service not initialized")
                 return False
             
-            # 使用浏览器服务等待元素可见
+            # 🚀 性能优化：使用attached状态，元素存在于DOM即可
             result = self.browser_service.wait_for_selector_sync(
-                selector, 
-                state='visible', 
+                selector,
+                state='attached',
                 timeout=int(timeout * 1000)
             )
             return result
@@ -274,7 +274,7 @@ def _wait_for_content_with_browser_native(soup=None, selectors=None, content_val
     Returns:
         dict | False:
             - 成功时返回 {'soup': BeautifulSoup对象, 'content': 找到的内容元素列表}
-            - 失败时返回 False
+            - 失败时返回 {'soup': soup, 'content': None} 或 False（保持一致性）
 
     **逻辑流程**：
     1. 前置校验 browser_service 和 soup 不能同时为空
@@ -307,15 +307,20 @@ def _wait_for_content_with_browser_native(soup=None, selectors=None, content_val
         }
 
     # 🚀 步骤2：静态未找到，使用动态重试
-    dynamic_result = _wait_with_browser_native_retry(
-        selectors, content_validator, max_wait_seconds, browser_service, max_retries
-    )
+    if browser_service is not None:
+        dynamic_result = _wait_with_browser_native_retry(
+            selectors, content_validator, max_wait_seconds, browser_service, max_retries
+        )
 
-    if dynamic_result:
-        return dynamic_result
+        if dynamic_result:
+            return dynamic_result
 
-    # ❌ 超过重试阈值，返回 False
-    return False
+    # ❌ 超过重试阈值或 browser_service 为 None，返回一致的数据结构
+    # 修复：总是返回一个字典以保持API的一致性
+    return {
+        'soup': soup,
+        'content': None
+    }
 
 
 def _wait_with_browser_native(selectors, content_validator, max_wait_seconds, browser_service):
@@ -331,8 +336,7 @@ def _wait_with_browser_native(selectors, content_validator, max_wait_seconds, br
 
     for selector in selectors:
         try:
-            # 🎯 关键优化：使用原生等待机制替代轮询
-            if browser_service.wait_for_selector_sync(selector, state='visible', timeout=timeout_ms):
+            if browser_service.wait_for_selector_sync(selector, state='attached', timeout=timeout_ms):
 
                 # 如果需要内容验证，获取元素内容进行验证
                 if content_validator:
@@ -387,7 +391,7 @@ def _check_static_soup_with_content(soup, selectors, content_validator):
         return None
 
 
-def _wait_with_browser_native_retry(selectors, content_validator, max_wait_seconds, browser_service, max_retries=3):
+def _wait_with_browser_native_retry(selectors, content_validator, max_wait_seconds, browser_service, max_retries=2):
     """
     🚀 使用浏览器原生等待机制，带重试功能，返回内容对象
 
@@ -411,8 +415,10 @@ def _wait_with_browser_native_retry(selectors, content_validator, max_wait_secon
             # 🎯 尝试等待页面内容加载
             for selector in selectors:
                 try:
-                    # 使用原生等待机制
-                    if browser_service.wait_for_selector_sync(selector, state='visible', timeout=timeout_ms):
+                    # 使用原生等待机制，改为更宽松的attached状态
+                    # 修复商品ID 1176594312等页面的抓取问题：元素存在但可能不可见
+                    # 🚀 关键优化：使用attached状态，更快的元素检测
+                    if browser_service.wait_for_selector_sync(selector, state='attached', timeout=timeout_ms):
                         # 获取最新的页面内容
                         try:
                             current_html = browser_service.evaluate_sync("() => document.documentElement.outerHTML")
@@ -452,7 +458,7 @@ def _wait_with_browser_native_retry(selectors, content_validator, max_wait_secon
 
             # 如果不是最后一次尝试，等待后重试
             if attempt < max_retries - 1:
-                time.sleep(1)  # 重试间隔1秒
+                time.sleep(0.5)  # 重试间隔0.5秒
 
         except Exception as e:
             import logging

@@ -32,7 +32,7 @@ class TestErpPluginScraper:
         ]
 
         # 使用 patch 创建 ErpPluginScraper 实例
-        with patch('common.scrapers.erp_plugin_scraper.get_global_browser_service', return_value=self.mock_browser_service):
+        with patch('rpa.browser.browser_service.SimplifiedBrowserService.get_global_instance', return_value=self.mock_browser_service):
             self.scraper = ErpPluginScraper(
                 selectors_config=self.mock_config,
                 browser_service=self.mock_browser_service
@@ -47,7 +47,7 @@ class TestErpPluginScraper:
     def test_scraper_initialization(self):
         """测试爬虫初始化"""
         # Arrange & Act
-        with patch('common.scrapers.erp_plugin_scraper.get_global_browser_service', return_value=self.mock_browser_service):
+        with patch('rpa.browser.browser_service.SimplifiedBrowserService.get_global_instance', return_value=self.mock_browser_service):
             scraper = ErpPluginScraper(browser_service=self.mock_browser_service)
 
         # Assert

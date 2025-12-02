@@ -1,8 +1,25 @@
 {
   "test_cases": [
     {
+      "id": "scenario_1_with_competitors",
+      "name": "场景1 - 有跟卖店铺",
+      "url": "https://www.ozon.ru/product/2369901364",
+      "description": "测试有跟卖店铺的商品（轮毂商品，展开后26个跟卖）",
+      "expected": {
+        "green_price": null,
+        "black_price": null,
+        "competitor_count": 26,
+        "has_competitors": true,
+        "has_image": true
+      },
+      "test_options": {
+        "include_competitors": true,
+        "max_competitors": 30
+      }
+    },
+    {
       "id": "scenario_1_no_competitors",
-      "name": "场景1 - 无跟卖店铺",
+      "name": "场景1B - 无跟卖店铺",
       "url": "https://www.ozon.ru/product/1756017628",
       "description": "测试没有跟卖店铺的商品",
       "expected": {

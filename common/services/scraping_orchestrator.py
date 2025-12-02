@@ -408,7 +408,7 @@ class ScrapingOrchestrator:
             else:
                 # 即使协调者没有浏览器服务，检查全局浏览器服务是否可用
                 try:
-                    from ..scrapers.global_browser_singleton import get_global_browser_service, is_global_browser_initialized
+                    from rpa.browser.browser_service import SimplifiedBrowserService
                     # 在测试环境中，我们模拟全局浏览器服务已初始化
                     # 实际运行时会检查真实状态
                     health_status['browser_service'] = 'healthy'

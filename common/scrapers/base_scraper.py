@@ -328,8 +328,8 @@ class BaseScraper(ABC):
 
         # 初始化浏览器服务
         if not self.browser_service:
-            from .global_browser_singleton import get_global_browser_service
-            self.browser_service = get_global_browser_service()
+            from rpa.browser.browser_service import SimplifiedBrowserService
+            self.browser_service = SimplifiedBrowserService.get_global_instance()
             return self.navigate_to(target_url)
 
         # 检查当前URL是否与目标URL相同
@@ -591,10 +591,10 @@ class BaseScraper(ABC):
         """
         try:
             # 检查是否可以导入全局单例模块
-            from .global_browser_singleton import get_global_browser_service
+            from rpa.browser.browser_service import SimplifiedBrowserService
 
             # 获取全局单例实例
-            global_instance = get_global_browser_service()
+            global_instance = SimplifiedBrowserService.get_global_instance()
 
             # 比较实例是否相同
             is_same_instance = self.browser_service is global_instance

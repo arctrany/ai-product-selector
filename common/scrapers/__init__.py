@@ -6,7 +6,7 @@
 
 from ..models import ScrapingResult
 from .base_scraper import BaseScraper
-from .global_browser_singleton import get_global_browser_service
+from rpa.browser.browser_service import SimplifiedBrowserService
 from .seerfar_scraper import SeerfarScraper
 from .ozon_scraper import OzonScraper
 from .erp_plugin_scraper import ErpPluginScraper
@@ -14,7 +14,7 @@ from .erp_plugin_scraper import ErpPluginScraper
 __all__ = [
     'ScrapingResult',
     'BaseScraper',
-    'get_global_browser_service',
+    'SimplifiedBrowserService',
     'SeerfarScraper',
     'OzonScraper',
     'ErpPluginScraper'

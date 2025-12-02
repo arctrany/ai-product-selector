@@ -429,6 +429,47 @@ class ScrapingUtils:
             self.logger.warning(f"提取店铺ID失败: {e}")
             return None
 
+    def extract_product_id_from_url(self, href: str) -> Optional[str]:
+        """
+        从URL中提取商品ID（通用方法）
+
+        支持多种Ozon商品URL格式的ID提取，包括：
+        - https://www.ozon.ru/product/123456789/
+        - https://www.ozon.ru/product/product-name-123456789/
+        - /product/123456789/
+        - /product/product-name-123456789/
+
+        Args:
+            href (str): 商品URL字符串
+
+        Returns:
+            Optional[str]: 提取的商品ID，提取失败返回None
+        """
+        if not href or not isinstance(href, str):
+            return None
+
+        try:
+            # 支持的URL模式（按优先级排序）
+            # 注意：不使用$结尾匹配，以便在有多个/product/路径时提取第一个
+            patterns = [
+                r'/product/[^/]+-(\d+)',        # /product/haval-kolesnyy-disk-2964205200/
+                r'/product/(\d+)',              # /product/123456789/
+            ]
+
+            for pattern in patterns:
+                match = re.search(pattern, href)
+                if match:
+                    product_id = match.group(1)
+                    self.logger.debug(f"✅ 提取商品ID: {product_id} (模式: {pattern})")
+                    return product_id
+
+            self.logger.debug(f"⚠️ 无法从URL提取商品ID: {href[:100]}...")
+            return None
+
+        except Exception as e:
+            self.logger.warning(f"提取商品ID失败: {e}")
+            return None
+
     # =============================================================================
     # Ozon 图片处理通用方法
     # =============================================================================

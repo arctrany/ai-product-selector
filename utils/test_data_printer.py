@@ -36,10 +36,35 @@ class PrintConfig:
     color_output: bool = True
     indent_size: int = 2
     truncate_length: int = 100
+    highlight_important: bool = True
+    section_separator: str = "=" * 80
 
 class TestDataPrinter:
     """测试数据打印器"""
     
+    # 定义关键数据字段
+    KEY_FIELDS = {
+        # 基础信息
+        'success', 'error_message', 'execution_time', 'status', 'timestamp',
+
+        # ERP数据字段
+        'category', 'sku', 'brand_name', 'monthly_sales_volume',
+        'monthly_sales_amount', 'daily_sales_volume', 'daily_sales_amount',
+        'product_card_views', 'search_catalog_views', 'shelf_days',
+
+        # 尺寸和重量
+        'length', 'width', 'height', 'weight',
+
+        # 价格和佣金
+        'green_price', 'black_price', 'rfbs_commission_rates',
+
+        # 趋势和比率
+        'monthly_turnover_trend', 'ad_cost_ratio', 'promotion_discount',
+        'promotion_conversion_rate', 'product_card_add_rate',
+        'search_catalog_add_rate', 'display_conversion_rate',
+        'product_click_rate', 'return_cancel_rate'
+    }
+
     def __init__(self, config: Optional[PrintConfig] = None, logger: Optional[logging.Logger] = None):
         """
         初始化打印器
@@ -283,26 +308,90 @@ class TestDataPrinter:
         """提取关键字段"""
         key_fields = {}
         
-        # 定义关键字段
-        important_keys = [
-            'success', 'error_message', 'execution_time', 'status',
-            'category', 'sku', 'brand_name', 'monthly_sales_volume',
-            'monthly_sales_amount', 'daily_sales_volume', 'daily_sales_amount'
-        ]
-        
         # 从数据中提取关键字段
         def extract_from_dict(d, prefix=""):
             for key, value in d.items():
-                full_key = f"{prefix}.{key}" if prefix else key
-                if key in important_keys:
+                # 检查是否为关键字段
+                if key in self.KEY_FIELDS:
                     key_fields[key] = value
                 elif isinstance(value, dict):
-                    extract_from_dict(value, full_key)
-        
+                    extract_from_dict(value, f"{prefix}.{key}" if prefix else key)
+                elif isinstance(value, list) and value and isinstance(value[0], dict):
+                    # 处理字典列表中的关键字段
+                    for i, item in enumerate(value[:3]):  # 限制处理前3个元素
+                        if isinstance(item, dict):
+                            extract_from_dict(item, f"{prefix}.{key}[{i}]" if prefix else f"{key}[{i}]")
+
         if isinstance(data, dict):
             extract_from_dict(data)
-            
+
         return key_fields
+
+    def _separate_raw_and_formatted_data(self, data: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        """分离原始数据和格式化数据"""
+        raw_data = {}
+        formatted_data = {}
+
+        if not isinstance(data, dict):
+            return data, {}
+
+        # 检查是否有明确的格式化数据区域
+        if 'data' in data and isinstance(data['data'], dict):
+            raw_inner_data = data['data']
+            if 'formatted' in raw_inner_data and isinstance(raw_inner_data['formatted'], dict):
+                # 分离原始数据和格式化数据
+                raw_data = {k: v for k, v in raw_inner_data.items() if k != 'formatted'}
+                formatted_data = raw_inner_data.get('formatted', {})
+            else:
+                # 没有明确的格式化区域，将所有数据视为原始数据
+                raw_data = raw_inner_data
+                # 尝试从字段名识别格式化数据
+                for key, value in raw_inner_data.items():
+                    if key.startswith('formatted_') or '_formatted' in key:
+                        formatted_data[key] = value
+        else:
+            # 没有data包装层，直接处理
+            raw_data = data
+            # 尝试识别格式化数据
+            for key, value in data.items():
+                if key.startswith('formatted_') or '_formatted' in key:
+                    formatted_data[key] = value
+
+        return raw_data, formatted_data
+
+    def _highlight_important_fields(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """突出显示重要字段"""
+        highlighted = {}
+
+        def highlight_recursive(d, prefix=""):
+            for key, value in d.items():
+                full_key = f"{prefix}.{key}" if prefix else key
+
+                # 检查是否为关键字段
+                if key in self.KEY_FIELDS:
+                    # 为关键字段添加标记
+                    if isinstance(value, str):
+                        highlighted[key] = f"**{value}**"  # 用**标记关键字符串
+                    elif isinstance(value, (int, float)):
+                        highlighted[key] = f"★{value}"  # 用★标记关键数值
+                    else:
+                        highlighted[key] = value
+                elif isinstance(value, dict):
+                    highlighted[key] = highlight_recursive(value, full_key)
+                elif isinstance(value, list):
+                    if value and isinstance(value[0], dict):
+                        highlighted[key] = [highlight_recursive(item, f"{full_key}[{i}]")
+                                          for i, item in enumerate(value)]
+                    else:
+                        highlighted[key] = value
+                else:
+                    highlighted[key] = value
+
+            return highlighted
+
+        if isinstance(data, dict):
+            return highlight_recursive(data)
+        return data
     
     def _generate_summary(self, data: Dict[str, Any]) -> str:
         """生成数据概要"""

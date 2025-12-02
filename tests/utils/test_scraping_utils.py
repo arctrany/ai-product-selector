@@ -24,8 +24,6 @@ from common.utils.scraping_utils import (
     clean_text,
     validate_price,
     ScrapingUtils,
-    retry_select_with_soup,
-    wait_and_extract_with_retry,
     clean_price_string
 )
 
@@ -632,6 +630,77 @@ class TestPerformanceAndStress:
         assert result is not None
         # 即使是大文档也应该相对快速
         assert end_time - start_time < 1.0
+
+
+class TestExtractProductId:
+    """测试商品ID提取功能"""
+    
+    def setup_method(self):
+        """设置测试环境"""
+        self.scraping_utils = ScrapingUtils()
+    
+    def test_extract_product_id_standard_format(self):
+        """测试标准格式URL: /product/123456789/"""
+        url = "https://www.ozon.ru/product/123456789/"
+        result = self.scraping_utils.extract_product_id_from_url(url)
+        assert result == "123456789"
+    
+    def test_extract_product_id_with_product_name(self):
+        """测试带商品名称的URL: /product/product-name-123456789/"""
+        url = "https://www.ozon.ru/product/haval-kolesnyy-disk-2964205200/"
+        result = self.scraping_utils.extract_product_id_from_url(url)
+        assert result == "2964205200"
+    
+    def test_extract_product_id_relative_path(self):
+        """测试相对路径URL: /product/123456789/"""
+        url = "/product/987654321/"
+        result = self.scraping_utils.extract_product_id_from_url(url)
+        assert result == "987654321"
+    
+    def test_extract_product_id_no_trailing_slash(self):
+        """测试无尾部斜杠的URL"""
+        url = "https://www.ozon.ru/product/123456789"
+        result = self.scraping_utils.extract_product_id_from_url(url)
+        assert result == "123456789"
+    
+    def test_extract_product_id_with_long_name(self):
+        """测试带长商品名称的URL"""
+        url = "/product/very-long-product-name-with-many-words-555666777/"
+        result = self.scraping_utils.extract_product_id_from_url(url)
+        assert result == "555666777"
+    
+    def test_extract_product_id_invalid_no_product_path(self):
+        """测试无效URL：不包含/product/路径"""
+        url = "https://www.ozon.ru/seller/123456/"
+        result = self.scraping_utils.extract_product_id_from_url(url)
+        assert result is None
+    
+    def test_extract_product_id_invalid_no_id(self):
+        """测试无效URL：包含/product/但无数字ID"""
+        url = "https://www.ozon.ru/product/"
+        result = self.scraping_utils.extract_product_id_from_url(url)
+        assert result is None
+    
+    def test_extract_product_id_empty_string(self):
+        """测试空字符串"""
+        result = self.scraping_utils.extract_product_id_from_url("")
+        assert result is None
+    
+    def test_extract_product_id_none(self):
+        """测试None输入"""
+        result = self.scraping_utils.extract_product_id_from_url(None)
+        assert result is None
+    
+    def test_extract_product_id_invalid_type(self):
+        """测试无效类型输入"""
+        result = self.scraping_utils.extract_product_id_from_url(12345)
+        assert result is None
+    
+    def test_extract_product_id_multiple_products_in_url(self):
+        """测试URL中有多个product路径（取第一个）"""
+        url = "https://www.ozon.ru/product/111222333/related/product/444555666/"
+        result = self.scraping_utils.extract_product_id_from_url(url)
+        assert result == "111222333"
 
 
 if __name__ == "__main__":

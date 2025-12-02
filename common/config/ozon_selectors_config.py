@@ -102,9 +102,10 @@ class OzonSelectorsConfig(BaseScrapingConfig):
     
     # ========== 跟卖区域选择器配置（固定页面区域） ==========
     competitor_area_selectors: List[str] = field(default_factory=lambda: [
-        "div.pdp_bi8",                    # 跟卖区域最外层容器 - 最高优先级
-        "[data-widget='webBestSeller']",  # 跟卖区域组件容器 - 高优先级
+        "div.pdp_b4j",                    # 跟卖区域最外层容器 - 最高优先级（2024新版）
+        "[data-widget='webBestSeller']",  # 跟卖区域组件容器 - 高优先级（稳定）
         ".pdp_a2e",                       # 跟卖区域具体容器类名
+        "div.pdp_h5a",                    # 按钮容器类名（2024新版）
         "[class*='pdp_t']"                # 通用跟卖区域类名
     ])
 
@@ -128,43 +129,55 @@ class OzonSelectorsConfig(BaseScrapingConfig):
         return base_selectors + text_selectors
 
     # ========== 跟卖浮层选择器（点击弹出的详细列表） ==========
+    # 作用域：整个弹窗容器，用于等待弹窗加载完成
+    # DOM: <div data-widget="modalLayout"> -> <div data-widget="webSellerList"> -> <div id="seller-list" class="pdp_bk9">
     competitor_popup_selectors: List[str] = field(default_factory=lambda: [
-        "#seller-list",                   # 浮层容器ID - 最高优先级
-        "div.pdp_b2k",                    # 浮层容器类名 - 高优先级
-        "h3.pdp_kb2",                     # 浮层标题选择器
-        "div.pdp_k2b",                    # 卖家列表容器
-        "div.pdp_bk3",                    # 单个卖家项目容器
-        "[data-widget='webSellerList']",  # Web卖家列表组件
-        "[class*='competitor-list']"      # 通用竞争者列表类名
+        "#seller-list",                   # 2024新版：弹窗容器ID（最精确）
+        "div.pdp_bk9",                    # 2024新版：弹窗容器类名
+        "[data-widget='webSellerList']",  # 2024新版：Web卖家列表组件
+        "[data-widget='modalLayout']",    # 2024新版：模态框容器
+        "div.pdp_k2b",                    # 旧版：卖家列表容器
+        "[class*='competitor-list']"      # 通用竞争者列表类名（后备）
     ])
     
     # ========== 跟卖元素选择器 ==========
+    # 作用域：在弹窗容器(#seller-list)内查找单个店铺项
+    # DOM: <div id="seller-list"> -> <div class="pdp_kb9"> -> <div class="pdp_k9b">单个店铺</div>
     competitor_element_selectors: List[str] = field(default_factory=lambda: [
-        "div.pdp_kb2",
-        ":scope > div.pdp_b2k > div.pdp_kb2",
-        "div[class*='seller-item']",
-        "div[class*='competitor-item']",
-        "[data-testid*='seller']",
-        "[class*='pdp_t']"
+        "div.pdp_k9b",                    # 2024新版：单个店铺项容器（最精确）
+        "div.pdp_kb9 > div.pdp_k9b",      # 2024新版：完整路径
+        "div.pdp_kb2",                    # 旧版：单个店铺项
+        ":scope > div.pdp_b2k > div.pdp_kb2",  # 旧版：完整路径
+        "div[class*='seller-item']",     # 通用：seller-item类
+        "div[class*='competitor-item']",  # 通用：competitor-item类
+        "[data-testid*='seller']",       # 测试ID（后备）
     ])
     
     # ========== 店铺名称选择器 ==========
     store_name_selectors: List[str] = field(default_factory=lambda: [
-        "a[class*='link']",
-        "a[href*='/seller/']",
-        "span[class*='name']",
-        "[class*='seller-name']",
-        "[data-testid*='seller-name']"
+        "a.pdp_a5e",                          # 2024新版：最精确的店铺名称选择器
+        "a[title][class*='pdp_a5e']",         # 带title属性的店铺链接
+        "a[href*='/seller/'][class*='pdp']",  # 店铺链接（pdp类名）
+        "a[href*='/seller/']",                # 通用店铺链接
+        "a[class*='link']",                   # 通用链接类
+        "span[class*='name']",                # 店铺名称span
+        "[class*='seller-name']",             # 通用seller-name类
+        "[data-testid*='seller-name']"        # 测试ID
     ])
     
     # ========== 店铺价格选择器 ==========
+    # 注意：这些选择器用于在弹窗内的单个店铺元素(pdp_k9b)中查找该店铺的价格
+    # DOM结构：<div class="pdp_k9b"> -> <div class="pdp_b2k pdp_b3k"> -> <div class="pdp_b7k"> -> <div class="pdp_kb8">价格</div>
     store_price_selectors: List[str] = field(default_factory=lambda: [
-        "span.q6b3_0_4-a1",  # 用户HTML中价格的具体位置
-        "div.pdp_b1k span",
-        "div.pdp_kb1 span",
-        "span[class*='price']",
-        "[class*='price-value']",
-        "[data-testid*='price']"
+        "div.pdp_kb8",                        # 2024新版：直接定位价格div（最优先）
+        "div.pdp_b3k div.pdp_kb8",            # 价格区块内的价格div
+        "div.pdp_b7k div.pdp_kb8",            # 价格容器内的价格div
+        "div.pdp_b2k.pdp_b3k div.pdp_kb8",    # 完整路径
+        "span.q6b3_0_4-a1",                   # 旧版价格选择器（向后兼容）
+        "div.pdp_b1k span",                   # 旧版价格容器
+        "div.pdp_kb1 span",                   # 旧版价格容器
+        "span[class*='price']",               # 通用价格span（最后备选）
+        "[class*='price-value']",             # 通用价格值类
     ])
     
     # ========== 店铺链接选择器 ==========
@@ -194,11 +207,37 @@ class OzonSelectorsConfig(BaseScrapingConfig):
     # ========== 跟卖数量阈值 ==========
     competitor_count_threshold: int = 5
     
-    # ========== 点击跟卖选择器模板 ==========
+    # ========== 跟卖区域点击选择器（用于弹出竞品弹窗） ==========
+    competitor_area_click_selectors: List[str] = field(default_factory=lambda: [
+        # 2024新版选择器（最高优先级 - 更精确）
+        "[data-widget='webBestSeller'] button",                    # 数据组件内按钮 - 最稳定、最精确
+        "div.pdp_b4j [data-widget='webBestSeller'] button",       # 完整路径选择器
+        "div.pdp_h5a.a25_3_10-a button.a25_3_10-a4",              # 精确匹配按钮容器和按钮类
+        "[data-widget='webBestSeller'] div.pdp_t1",               # 跟卖信息展示区（可点击）
+        # XPath选择器（更灵活）
+        "//div[@data-widget='webBestSeller']//button",            # 组件XPath - 优先
+        "//div[contains(@class, 'pdp_b4j')]//div[@data-widget='webBestSeller']//button",  # 完整XPath
+        # 后备选择器（兼容旧版）
+        "div.pdp_b4j button",                                     # 新版外层容器内的按钮
+        "div.pdp_h5a button",                                     # 新版按钮容器内的按钮
+        ".pdp_bi8 button",                                        # 旧版按钮（向后兼容）
+        "[class*='pdp_t'] button",                                # 通用跟卖区域按钮
+    ])
+
+    # ========== 点击跟卖选择器模板（用于点击跟卖列表中的具体商家） ==========
     competitor_click_selectors: List[str] = field(default_factory=lambda: [
         "//div[@id='seller-list']/div/div[{}]",
         ":nth-child({}) a[href*='/seller/']",
         "div.pdp_kb2:nth-child({})"
+    ])
+
+    # ========== 打开弹窗按钮选择器 ==========
+    open_popup_button_selector: List[str] = field(default_factory=lambda: [
+        "div.pdp_b4j",                                 # 2024新版主要选择器
+        "div.pdp_h5a",                                 # 2024新版按钮容器
+        "[data-widget='webBestSeller']",               # 数据组件选择器（稳定）
+        ".pdp_bi8",                                    # 旧版选择器（向后兼容）
+        "[class*='pdp_t'] button",                     # 通用跟卖区域按钮
     ])
 
     def get_selector(self, category: str, key: str) -> Optional[str]:
@@ -222,7 +261,9 @@ class OzonSelectorsConfig(BaseScrapingConfig):
             'store_link': dict(enumerate(self.store_link_selectors)),
             'competitor_count': dict(enumerate(self.competitor_count_selectors)),
             'competitor_container': dict(enumerate(self.competitor_area_selectors)),
-            'competitor_click': dict(enumerate(self.competitor_click_selectors))
+            'competitor_click': dict(enumerate(self.competitor_click_selectors)),
+            'competitor_area_click': dict(enumerate(self.competitor_area_click_selectors)),
+            'open_popup_button': dict(enumerate(self.open_popup_button_selector))
         }
 
         category_selectors = selectors_dict.get(category)
@@ -252,7 +293,9 @@ class OzonSelectorsConfig(BaseScrapingConfig):
             'store_link': dict(enumerate(self.store_link_selectors)),
             'competitor_count': dict(enumerate(self.competitor_count_selectors)),
             'competitor_container': dict(enumerate(self.competitor_area_selectors)),
-            'competitor_click': dict(enumerate(self.competitor_click_selectors))
+            'competitor_click': dict(enumerate(self.competitor_click_selectors)),
+            'competitor_area_click': dict(enumerate(self.competitor_area_click_selectors)),
+            'open_popup_button': dict(enumerate(self.open_popup_button_selector))
         }
 
         category_selectors = selectors_dict.get(category)
@@ -286,6 +329,8 @@ class OzonSelectorsConfig(BaseScrapingConfig):
             return False
         if not self.competitor_click_selectors:
             return False
+        if not self.competitor_area_click_selectors:
+            return False
 
         # 检查价格选择器格式
         for price_selector in self.price_selectors:
@@ -309,7 +354,9 @@ class OzonSelectorsConfig(BaseScrapingConfig):
             self.store_link_selectors +
             self.competitor_count_selectors +
             self.competitor_area_selectors +
-            self.competitor_click_selectors
+            self.competitor_click_selectors +
+            self.competitor_area_click_selectors +
+            self.open_popup_button_selector
         )
 
         for selector in all_string_selectors:
@@ -385,3 +432,4 @@ def is_exclude_text(text: str) -> bool:
     """检查文本是否应该被排除（多语言支持）"""
     language_config = get_language_config()
     return language_config.is_exclude_text(text)
+

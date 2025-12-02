@@ -13,15 +13,68 @@ from typing import Dict, Any, Optional, List, Callable
 from bs4 import BeautifulSoup
 
 from .base_scraper import BaseScraper
-from .global_browser_singleton import get_global_browser_service
+from rpa.browser.browser_service import SimplifiedBrowserService
 from common.models.scraping_result import ScrapingResult
 from common.utils.wait_utils import WaitUtils, wait_for_content_smart
 from common.utils.scraping_utils import ScrapingUtils
+from .erp_data_validator import get_erp_data_validator
+from .erp_validator_config import INVALID_VALUES
 from common.config.erp_selectors_config import ERPSelectorsConfig, get_erp_selectors_config
 from ..services.scraping_orchestrator import ScrapingMode
 
 
 # 异常类导入已移除，使用通用异常处理
+
+def _generate_data_types_info(formatted_data: Dict[str, Any]) -> Dict[str, str]:
+    """生成数据类型信息"""
+    type_info = {}
+    for key, value in formatted_data.items():
+        if value is None:
+            type_info[key] = 'null'
+        elif isinstance(value, dict):
+            type_info[key] = 'object'
+        elif isinstance(value, (int, float)):
+            type_info[key] = 'number'
+        elif isinstance(value, str):
+            type_info[key] = 'string'
+        elif isinstance(value, bool):
+            type_info[key] = 'boolean'
+        else:
+            type_info[key] = type(value).__name__
+
+    return type_info
+
+
+def _convert_to_timestamp(date_str: str) -> Optional[int]:
+    """
+    转换日期字符串为时间戳，对于无效值返回None
+
+    Args:
+        date_str: 日期字符串
+
+    Returns:
+        Optional[int]: 时间戳，无效则返回None
+    """
+    if not date_str or date_str.strip() in INVALID_VALUES:
+        return None
+
+    try:
+        from datetime import datetime
+        dt = datetime.strptime(date_str, '%Y-%m-%d')
+        return int(dt.timestamp())
+    except Exception:
+        return None
+
+
+def _format_date_data(raw_data: Dict[str, Any], formatted: Dict[str, Any]) -> None:
+    """格式化日期数据"""
+    if 'listing_date_parsed' in raw_data and raw_data['listing_date_parsed']:
+        formatted['listing_date'] = {
+            'date': raw_data['listing_date_parsed'],
+            'days_on_shelf': raw_data.get('shelf_days'),
+            'timestamp': _convert_to_timestamp(raw_data['listing_date_parsed'])
+        }
+
 
 class ErpPluginScraper(BaseScraper):
     """
@@ -49,7 +102,7 @@ class ErpPluginScraper(BaseScraper):
             self.browser_service = browser_service
             self._owns_browser_service = False  # 不拥有浏览器服务，不负责关闭
         else:
-            self.browser_service = get_global_browser_service()
+            self.browser_service = SimplifiedBrowserService.get_global_instance()
             self._owns_browser_service = False  # 使用全局单例，不负责关闭
 
         # 🔧 重构：初始化统一工具类
@@ -87,6 +140,57 @@ class ErpPluginScraper(BaseScraper):
             '跟卖最低价': 'competitor_min_price',
             '跟卖最高价': 'competitor_max_price'
         }
+
+        # 必需字段配置 - 统一管理scraper和validator都会用到的字段定义
+        self.required_fields_config = {
+            # 必需字段标签
+            'required_field_labels': {'SKU', '重量', '尺寸', 'rFBS佣金'},
+
+            # 尺寸相关的标签变体
+            'dimension_labels': {'尺寸', '长', '宽', '高', '长宽高'},
+
+            # 无效值标识符
+            'invalid_values': {'-', '--', '无数据', 'N/A', '', '无', '暂无', 'null', 'undefined'},
+
+            # 必需字段的数据格式验证规则
+            'validation_patterns': {
+                'sku': r'^\d+$',  # SKU应为纯数字
+                'weight': r'^\d+(\.\d+)?(g|kg|克|公斤)?',  # 重量应为数字格式，可带单位
+                'dimensions': r'\d+(\.\d+)?',  # 尺寸包含数字
+                'rfbs_commission': r'\d+(\.\d+)?%?',  # rFBS佣金包含数字，可能有百分号
+            },
+
+            # 检查只有必需字段标签的模式
+            'label_only_patterns': [
+                r'SKU：\s*重\s*量：',  # "SKU： 重量："
+                r'重\s*量：\s*尺寸：',  # "重量： 尺寸："
+                r'SKU：\s*长\s*[：:]\s*宽\s*[：:]',  # "SKU： 长： 宽："
+                r'rFBS佣金：\s*重\s*量：',  # "rFBS佣金： 重量："
+            ],
+
+            # 统计有效数据字段的模式
+            'required_field_patterns': {
+                'sku': r'SKU：\s*(\d+)',  # SKU：1756017628
+                'weight': r'重\s*量：\s*([0-9.]+(?:g|kg|克|公斤)?)',  # 重量：40g
+                'dimensions': [  # 尺寸相关的多种模式
+                    r'尺寸：\s*([^：\n]+)',  # 尺寸：550 x 500 x 100mm
+                    r'长\s*[：:]\s*([0-9.]+)',  # 长：550
+                    r'宽\s*[：:]\s*([0-9.]+)',  # 宽：500
+                    r'高\s*[：:]\s*([0-9.]+)',  # 高：100
+                    r'([0-9.]+\s*[x×]\s*[0-9.]+\s*[x×]\s*[0-9.]+)',  # 550 x 500 x 100
+                ],
+                'rfbs_commission': r'rFBS佣金：\s*([0-9.,\s%]+)',  # rFBS佣金：8%
+            }
+        }
+
+    def get_required_fields_config(self):
+        """
+        获取必需字段配置，供validator使用
+
+        Returns:
+            Dict: 包含所有必需字段定义的配置字典
+        """
+        return self.required_fields_config
 
     # 标准scrape接口实现
     def scrape(self,
@@ -152,33 +256,14 @@ class ErpPluginScraper(BaseScraper):
             self.logger.info(f"🔍 尝试匹配ERP容器选择器: {self.selectors_config.erp_container_selectors}")
 
             # 使用 wait_for_content_smart 获取 ERP 插件区域的 soup 和 content
-            # 增加等待时间到30秒，并添加内容验证器确保获取到有效内容
-            def content_validator(elements):
-                """验证ERP内容是否有效"""
-                if not elements:
-                    return False
-
-                # 检查元素是否包含足够的文本内容
-                for element in elements:
-                    if hasattr(element, 'get_text'):
-                        text = element.get_text(strip=True)
-                        # 如果元素包含足够的文本内容，则认为有效
-                        if len(text) > 50:  # 至少50个字符
-                            return True
-
-                    # 检查元素的子元素
-                    if hasattr(element, 'find_all'):
-                        children = element.find_all('span')
-                        # 如果有多个span子元素，可能包含ERP数据
-                        if len(children) > 3:
-                            return True
-
-                return False
+            # 增加等待时间到30秒，并使用智能ERP数据验证器确保获取到完整有效内容
+            erp_validator = get_erp_data_validator(self.logger, self)
+            content_validator = erp_validator.create_content_validator(min_valid_fields=2)
 
             result = wait_for_content_smart(soup=soup,
                                             browser_service=self.browser_service,
                                             selectors=self.selectors_config.erp_container_selectors,
-                                            max_wait_seconds=30,  # 增加等待时间到30秒
+                                            max_wait_seconds=5,  # 性能优化：进一步减少到5秒
                                             content_validator=content_validator)
 
             # 检查结果并获取 soup 和 content
@@ -297,7 +382,10 @@ class ErpPluginScraper(BaseScraper):
                 commission_rates = self._parse_rfbs_commission(erp_data['rfbs_commission'])
                 erp_data['rfbs_commission_rates'] = commission_rates
 
-            return erp_data
+            # 🆕 新增：数据格式化处理
+            formatted_data = self._format_erp_data(erp_data)
+
+            return formatted_data
 
         except Exception as e:
             self.logger.error(f"解析ERP数据失败: {e}")
@@ -441,9 +529,8 @@ class ErpPluginScraper(BaseScraper):
         if not value:
             return False
 
-        # 过滤无效值
-        invalid_values = ['-', '--', '无数据', 'N/A', '', '无', '暂无', 'null', 'undefined']
-        return value.strip() not in invalid_values
+        # 使用配置文件中定义的无效值
+        return value.strip() not in INVALID_VALUES
 
     def _parse_dimensions(self, dimensions_str: str) -> Dict[str, Optional[float]]:
         """
@@ -646,3 +733,118 @@ class ErpPluginScraper(BaseScraper):
         except Exception as e:
             self.logger.error(f"数据验证失败: {e}")
             return False
+
+    def _format_erp_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        格式化ERP数据，将原始字符串数据转换为标准化的结构化数据
+
+        Args:
+            raw_data: 原始ERP数据字典
+
+        Returns:
+            Dict[str, Any]: 格式化后的ERP数据，包含原始数据和格式化数据
+        """
+        try:
+            # 创建格式化后的数据副本，保留原始数据
+            formatted_data = raw_data.copy()
+
+            # 添加格式化数据区域
+            formatted_data['formatted'] = {}
+
+            # 1. 格式化销量数据
+            self._format_sales_data(raw_data, formatted_data['formatted'])
+
+            # 2. 格式化货币数据
+            self._format_currency_data(raw_data, formatted_data['formatted'])
+
+            # 3. 格式化百分比数据
+            self._format_percentage_data(raw_data, formatted_data['formatted'])
+
+            # 4. 格式化数值数据
+            self._format_numeric_data(raw_data, formatted_data['formatted'])
+
+            # 5. 格式化时间数据
+            _format_date_data(raw_data, formatted_data['formatted'])
+
+            # 6. 添加数据类型信息
+            formatted_data['data_types'] = _generate_data_types_info(formatted_data['formatted'])
+
+            return formatted_data
+
+        except Exception as e:
+            self.logger.error(f"格式化ERP数据失败: {e}")
+            # 如果格式化失败，返回原始数据
+            return raw_data
+
+    def _format_sales_data(self, raw_data: Dict[str, Any], formatted: Dict[str, Any]) -> None:
+        """格式化销量相关数据"""
+        # 月销量
+        if 'monthly_sales_volume' in raw_data:
+            formatted['monthly_sales_volume'] = self.scraping_utils.parse_number(raw_data['monthly_sales_volume'])
+
+        # 日销量
+        if 'daily_sales_volume' in raw_data:
+            formatted['daily_sales_volume'] = self.scraping_utils.parse_number(raw_data['daily_sales_volume'])
+
+    def _format_currency_data(self, raw_data: Dict[str, Any], formatted: Dict[str, Any]) -> None:
+        """格式化货币相关数据"""
+        # 月销售额
+        if 'monthly_sales_amount' in raw_data:
+            parsed_currency = self.scraping_utils.parse_currency(raw_data['monthly_sales_amount'])
+            if parsed_currency:
+                formatted['monthly_sales_amount'] = parsed_currency
+
+        # 日销售额
+        if 'daily_sales_amount' in raw_data:
+            parsed_currency = self.scraping_utils.parse_currency(raw_data['daily_sales_amount'])
+            if parsed_currency:
+                formatted['daily_sales_amount'] = parsed_currency
+
+    def _format_percentage_data(self, raw_data: Dict[str, Any], formatted: Dict[str, Any]) -> None:
+        """格式化百分比数据"""
+        percentage_fields = [
+            'monthly_turnover_trend', 'ad_cost_ratio', 'promotion_discount',
+            'promotion_conversion_rate', 'product_card_add_rate',
+            'search_catalog_add_rate', 'display_conversion_rate',
+            'product_click_rate', 'return_cancel_rate'
+        ]
+
+        for field in percentage_fields:
+            if field in raw_data:
+                parsed_percentage = self.scraping_utils.parse_percentage(raw_data[field])
+                if parsed_percentage is not None:
+                    formatted[field] = parsed_percentage
+
+    def _format_numeric_data(self, raw_data: Dict[str, Any], formatted: Dict[str, Any]) -> None:
+        """格式化数值数据"""
+        numeric_fields = [
+            'promotion_days', 'paid_promotion_days', 'product_card_views',
+            'search_catalog_views', 'shelf_days'
+        ]
+
+        for field in numeric_fields:
+            if field in raw_data:
+                parsed_number = self.scraping_utils.parse_number(raw_data[field])
+                if parsed_number is not None:
+                    formatted[field] = parsed_number
+
+        # 处理重量数据（如果还未格式化）
+        if 'weight' in raw_data and isinstance(raw_data['weight'], str):
+            formatted['weight'] = self._parse_weight(raw_data['weight'])
+        elif 'weight' in raw_data:
+            formatted['weight'] = raw_data['weight']
+
+        # 处理尺寸数据
+        if 'length' in raw_data:
+            formatted['dimensions'] = {
+                'length': raw_data.get('length'),
+                'width': raw_data.get('width'),
+                'height': raw_data.get('height'),
+                'unit': 'mm'
+            }
+
+
+
+
+
+

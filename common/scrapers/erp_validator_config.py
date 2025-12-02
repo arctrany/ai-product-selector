@@ -48,6 +48,14 @@ REQUIRED_FIELD_PATTERNS = {
     'rfbs_commission': r'rFBS佣金：\s*([0-9.,\s%]+)',  # rFBS佣金：8%
 }
 
+# 分析ERP数据时使用的字段模式
+ANALYSIS_FIELD_PATTERNS = {
+    'sku': r'SKU：\s*(\d+)',
+    'weight': r'重\s*量：\s*([0-9.]+(?:g|kg|克|公斤)?)',
+    'dimensions': r'(?:尺寸|长|宽|高)：\s*([^：\n]+)',
+    'rfbs_commission': r'rFBS佣金：\s*([0-9.,\s%]+)',
+}
+
 # 验证数据格式的模式
 REASONABLE_PATTERNS = [
     r'\d+',  # 包含数字

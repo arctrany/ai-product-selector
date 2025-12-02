@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from bs4 import BeautifulSoup
 
 from .base_scraper import BaseScraper
-from .global_browser_singleton import get_global_browser_service
+from rpa.browser.browser_service import SimplifiedBrowserService
 
 from ..models import ScrapingResult
 from ..config import GoodStoreSelectorConfig
@@ -28,6 +28,19 @@ def get_erp_plugin_scraper():
     return ErpPluginScraper
 from ..utils.wait_utils import WaitUtils, wait_for_content_smart
 from ..utils.scraping_utils import ScrapingUtils
+
+
+def _upd_competitor_cnt(data: Dict[str, Any], context: Optional[Dict[str, Any]] = None):
+    if not context:
+        return
+    competitor_cnt = 0
+    if data.get('competitor_data'):
+      competitor_cnt = data['competitor_data'].get('competitor_cnt', 0)
+    elif data.get('erp_data'):
+       competitor_cnt = data['erp_data'].get('competitor_cnt', 0)
+    context.update({'competitor_cnt': competitor_cnt})
+
+
 
 
 class OzonScraper(BaseScraper):
@@ -47,7 +60,7 @@ class OzonScraper(BaseScraper):
         self.currency_config = get_currency_config()
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.base_url = self.config.browser.ozon_base_url
-        self.browser_service = browser_service or get_global_browser_service()
+        self.browser_service = browser_service or SimplifiedBrowserService.get_global_instance()
         # 🔧 重构：集成统一工具类
         self.wait_utils = WaitUtils(self.browser_service, self.logger)
         self.scraping_utils = ScrapingUtils(self.logger)
@@ -101,8 +114,7 @@ class OzonScraper(BaseScraper):
                     'competitor_data': self._extract_competitor_price(soup),
                     }
 
-            context.update({'competitor_cnt':
-                                data.get('competitor_data', {}).get('competitor_cnt', 0)})
+            _upd_competitor_cnt(data,context)
 
             # 清理空值
             return {k: v for k, v in data.items() if v is not None}
@@ -110,7 +122,7 @@ class OzonScraper(BaseScraper):
             self.logger.error(f"提取基础价格数据失败: {e}")
             return {}
 
-
+    # 根据data里的信息设置  competitor_cnt， 可以从erp_data里获取 也可以 从competitor_data获取， 谁存在就用谁
 
     def _extract_competitor_price(self, soup) -> Optional[Dict[str, Any]]:
 

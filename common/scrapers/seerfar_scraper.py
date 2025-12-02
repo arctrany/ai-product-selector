@@ -9,7 +9,7 @@ import time
 from typing import Dict, Any, List, Optional, Callable
 
 from .base_scraper import BaseScraper
-from .global_browser_singleton import get_global_browser_service
+from rpa.browser.browser_service import SimplifiedBrowserService
 from common.models.scraping_result import ScrapingResult
 from common.utils.wait_utils import WaitUtils
 from common.utils.scraping_utils import ScrapingUtils
@@ -42,7 +42,7 @@ class SeerfarScraper(BaseScraper):
         self.store_detail_path = self.config.browser.seerfar_store_detail_path
 
         # 使用全局浏览器服务
-        self.browser_service = get_global_browser_service()
+        self.browser_service = SimplifiedBrowserService.get_global_instance()
         
         # 🔧 重构：初始化统一工具类
         self.wait_utils = WaitUtils(self.browser_service, self.logger)
