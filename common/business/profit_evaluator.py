@@ -36,6 +36,24 @@ class ProfitEvaluator:
         # 延迟导入，避免循环导入
         # self.excel_processor = ExcelProfitProcessor(profit_calculator_path, config)
 
+    def prepare_for_profit_calculation(self, product: ProductInfo) -> ProductInfo:
+        """
+        为利润计算准备数据，包括计算 list_price 等衍生字段
+        
+        Args:
+            product: 商品信息对象
+            
+        Returns:
+            ProductInfo: 准备好的商品信息对象
+        """
+        # 计算定价 (绿标价格 * 0.95)
+        if product.green_price:
+            product.list_price = product.green_price * 0.95
+        elif product.black_price:
+            product.list_price = product.black_price * 0.95
+        
+        return product
+
     def evaluate_product_profit(self, product_info: ProductInfo,
                                 source_price: Optional[float] = None) -> Dict[str, Any]:
         """

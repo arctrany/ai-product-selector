@@ -120,7 +120,7 @@ jobs:
         # 创建分发目录
         mkdir -p "$DIST_DIR"
         
-        # 复制可执行文件
+        # 复制可执行文件里
         if [ "${{ matrix.platform }}" = "macos" ]; then
           cp -R "dist/${{ matrix.executable }}" "$DIST_DIR/"
         elif [ "${{ matrix.platform }}" = "windows" ]; then

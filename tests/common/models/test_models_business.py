@@ -107,6 +107,10 @@ class TestProductInfo:
         assert product.image_url is None
         assert product.brand_name is None
         assert product.sku is None
+        
+        # 测试新增字段的默认值
+        assert product.list_price is None
+        assert product.is_competitor_selected is False
     
     def test_product_info_creation_with_data(self):
         """测试包含数据的商品信息创建"""
@@ -115,7 +119,9 @@ class TestProductInfo:
             product_url="https://example.com/product/123",
             image_url="https://example.com/image/123.jpg",
             brand_name="测试品牌",
-            sku="SKU-ABC-123"
+            sku="SKU-ABC-123",
+            list_price=95.0,
+            is_competitor_selected=True
         )
         
         assert product.product_id == "PROD123"
@@ -123,6 +129,10 @@ class TestProductInfo:
         assert product.image_url == "https://example.com/image/123.jpg"
         assert product.brand_name == "测试品牌"
         assert product.sku == "SKU-ABC-123"
+        
+        # 测试新增字段
+        assert product.list_price == 95.0
+        assert product.is_competitor_selected is True
     
     def test_product_info_partial_data(self):
         """测试部分数据的商品信息"""
@@ -167,6 +177,76 @@ class TestProductInfo:
         assert isinstance(product.image_url, str)
         assert isinstance(product.brand_name, str)
         assert isinstance(product.sku, str)
+    
+    def test_product_info_new_fields(self):
+        """测试 ProductInfo 新增字段"""
+        # 测试 list_price 字段
+        product_with_list_price = ProductInfo(
+            product_id="LIST_PRICE_TEST",
+            green_price=100.0,
+            list_price=95.0
+        )
+        
+        assert product_with_list_price.list_price == 95.0
+        assert product_with_list_price.green_price == 100.0
+        
+        # 测试 is_competitor_selected 字段
+        competitor_product = ProductInfo(
+            product_id="COMPETITOR_TEST",
+            is_competitor_selected=True
+        )
+        
+        assert competitor_product.is_competitor_selected is True
+        
+        primary_product = ProductInfo(
+            product_id="PRIMARY_TEST",
+            is_competitor_selected=False
+        )
+        
+        assert primary_product.is_competitor_selected is False
+    
+    def test_product_info_pricing_fields_integration(self):
+        """测试商品定价字段的集成"""
+        product = ProductInfo(
+            product_id="PRICING_TEST",
+            green_price=80.0,
+            black_price=100.0,
+            list_price=76.0,  # 绿标价 * 0.95
+            competitor_price=85.0
+        )
+        
+        assert product.green_price == 80.0
+        assert product.black_price == 100.0
+        assert product.list_price == 76.0
+        assert product.competitor_price == 85.0
+        
+        # 验证价格逻辑关系
+        assert product.list_price < product.green_price
+        assert product.green_price < product.black_price
+    
+    def test_product_info_competitor_selection_logic(self):
+        """测试跟卖选择逻辑相关字段"""
+        # 测试原商品（未选择跟卖）
+        primary_product = ProductInfo(
+            product_id="PRIMARY_123",
+            green_price=100.0,
+            is_competitor_selected=False
+        )
+        
+        assert primary_product.is_competitor_selected is False
+        
+        # 测试跟卖商品（已选择跟卖）
+        competitor_product = ProductInfo(
+            product_id="COMPETITOR_456",
+            green_price=80.0,
+            is_competitor_selected=True
+        )
+        
+        assert competitor_product.is_competitor_selected is True
+        
+        # 验证默认值
+        default_product = ProductInfo(product_id="DEFAULT")
+        assert default_product.is_competitor_selected is False
 
 
 class TestModelInteractions:
@@ -303,12 +383,73 @@ class TestModelEdgeCases:
         # 确保可选字段的默认值是None
         assert store.sold_30days is None
         assert store.sold_count_30days is None
-        assert store.daily_avg_sold is None
+    
+    def test_product_info_new_fields(self):
+        """测试 ProductInfo 新增字段"""
+        # 测试 list_price 字段
+        product_with_list_price = ProductInfo(
+            product_id="LIST_PRICE_TEST",
+            green_price=100.0,
+            list_price=95.0
+        )
         
-        # 测试ProductInfo默认值
-        product = ProductInfo()
-        assert product.product_id is None
-        assert product.product_url is None
-        assert product.image_url is None
-        assert product.brand_name is None
-        assert product.sku is None
+        assert product_with_list_price.list_price == 95.0
+        assert product_with_list_price.green_price == 100.0
+        
+        # 测试 is_competitor_selected 字段
+        competitor_product = ProductInfo(
+            product_id="COMPETITOR_TEST",
+            is_competitor_selected=True
+        )
+        
+        assert competitor_product.is_competitor_selected is True
+        
+        primary_product = ProductInfo(
+            product_id="PRIMARY_TEST",
+            is_competitor_selected=False
+        )
+        
+        assert primary_product.is_competitor_selected is False
+    
+    def test_product_info_pricing_fields_integration(self):
+        """测试商品定价字段的集成"""
+        product = ProductInfo(
+            product_id="PRICING_TEST",
+            green_price=80.0,
+            black_price=100.0,
+            list_price=76.0,  # 绿标价 * 0.95
+            competitor_price=85.0
+        )
+        
+        assert product.green_price == 80.0
+        assert product.black_price == 100.0
+        assert product.list_price == 76.0
+        assert product.competitor_price == 85.0
+        
+        # 验证价格逻辑关系
+        assert product.list_price < product.green_price
+        assert product.green_price < product.black_price
+    
+    def test_product_info_competitor_selection_logic(self):
+        """测试跟卖选择逻辑相关字段"""
+        # 测试原商品（未选择跟卖）
+        primary_product = ProductInfo(
+            product_id="PRIMARY_123",
+            green_price=100.0,
+            is_competitor_selected=False
+        )
+        
+        assert primary_product.is_competitor_selected is False
+        
+        # 测试跟卖商品（已选择跟卖）
+        competitor_product = ProductInfo(
+            product_id="COMPETITOR_456",
+            green_price=80.0,
+            is_competitor_selected=True
+        )
+        
+        assert competitor_product.is_competitor_selected is True
+        
+        # 验证默认值
+        default_product = ProductInfo(product_id="DEFAULT")
+        assert default_product.is_competitor_selected is False

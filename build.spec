@@ -1,7 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-AI选品自动化系统 PyInstaller 构建规格文件
-支持跨平台打包为单文件可执行程序
+AI选品自动化系统 PyInstaller 构建规格文件 - 启动速度优化版本
+优化策略：
+1. 使用 onedir 模式提升启动速度
+2. 精简 hiddenimports，只保留运行时必需的模块
+3. 扩展 excludes，排除更多开发依赖
+4. 优化资源文件，只包含运行时必需的配置
 """
 
 import sys
@@ -11,99 +15,118 @@ from pathlib import Path
 # 项目根目录
 project_root = Path.cwd()
 
-# 数据文件和资源文件配置
-datas = []
+# 数据文件和资源文件配置 - 只包含运行时必需的文件
+datas = [
+    # 核心配置文件
+    ('config.json', '.'),
+    ('example_config.json', '.'),
+    ('common/config.py', 'common/'),
+    ('common/config/ozon_selectors_default.json', 'common/config/'),
 
-# 只包含运行时必需的配置文件
-config_files = [
-    'config.json',
-    'example_config.json',
-    'common/config/ozon_selectors_default.json'
+    # 移除非必需的文档和规范文件以减小体积
+    # ('docs', 'docs'),  # 开发时文档，运行时不需要
+    # ('openspec', 'openspec'),  # 开发规范，运行时不需要
 ]
 
-for config_file in config_files:
-    config_path = project_root / config_file
-    if config_path.exists():
-        if config_file.startswith('common/'):
-            datas.append((config_file, os.path.dirname(config_file)))
-        else:
-            datas.append((config_file, '.'))
-
-# CI环境可能需要的版本信息文件
-version_file = project_root / 'version.py'
-if version_file.exists():
-    datas.append(('version.py', '.'))
-
-# 隐藏导入 - 确保所有必需模块被包含
+# 精简的隐藏导入 - 只保留运行时真正需要的模块
 hiddenimports = [
-    # 核心模块
-    'cli',
+    # 核心应用模块
     'cli.main',
     'cli.models',
     'cli.task_controller',
-    'cli.preset_manager',
     'cli.log_manager',
-    'common',
     'common.config',
-    'common.business',
-    'common.scrapers',
-    'rpa',
-    'rpa.browser',
-    'utils',
-    
-    # Playwright 相关
-    'playwright',
+    'common.logging_config',
+    'common.task_control',
+
+    # 业务逻辑模块
+    'common.business.pricing_calculator',
+    'common.business.profit_evaluator',
+    'common.business.source_matcher',
+    'common.business.store_evaluator',
+
+    # 爬虫模块
+    'common.scrapers.ozon_scraper',
+    'common.scrapers.seerfar_scraper',
+    'common.scrapers.competitor_scraper',
+    'common.scrapers.xuanping_browser_service',
+
+    # RPA浏览器模块
+    'rpa.browser.browser_service',
+
+    # 核心依赖 - 只保留必需的
     'playwright.async_api',
-    'playwright._impl',
-    
-    # Excel 处理
     'openpyxl',
-    'openpyxl.workbook',
-    'openpyxl.worksheet',
-    
-    # 图像处理
-    'PIL',
-    'PIL.Image',
-    'cv2',
-    'skimage',
-    'imagehash',
-    'numpy',
-    
-    # HTTP 和网络
     'requests',
-    'urllib3',
-    'certifi',
-    
-    # 异步编程
+    'PIL.Image',
+
+    # 系统模块
     'asyncio',
-    'concurrent.futures',
-    
-    # JSON 和数据处理
     'json',
-    'csv',
-    'sqlite3',
-    
-    # 系统和路径
     'pathlib',
     'tempfile',
-    'shutil',
+
+    # 移除大型可选依赖
+    # 'cv2',  # OpenCV - 如果图像处理不是核心功能可以移除
+    # 'skimage',  # scikit-image - 大型库，按需加载
+    # 'imagehash',  # 图像哈希 - 按需加载
+    # 'numpy',  # NumPy - 如果不直接使用可以移除
 ]
 
-# 排除的模块 - 减少打包大小
+# 扩展的排除模块 - 减少打包大小和启动时间
 excludes = [
+    # GUI 框架
     'tkinter',
+    'PyQt5', 'PyQt6',
+    'PySide2', 'PySide6',
+    'wx',
+
+    # 科学计算库（如果不需要）
     'matplotlib',
+    'scipy',
+    'sympy',
+    'pandas',
+    'seaborn',
+    'plotly',
+
+    # 开发工具
     'IPython',
     'jupyter',
     'notebook',
-    'pandas',  # 项目中未使用
-    'scipy',   # 如果未使用
-    'sympy',
     'pytest',
     'unittest',
+    'doctest',
+    'pdb',
+    'cProfile',
+    'profile',
+
+    # 大型可选依赖
+    'tensorflow',
+    'torch',
+    'transformers',
+    'sklearn',
+    'lightgbm',
+    'xgboost',
+
+    # 网络服务器
+    'flask',
+    'django',
+    'fastapi',
+    'tornado',
+
+    # 数据库
+    'sqlalchemy',
+    'pymongo',
+    'redis',
+
+    # 其他大型库
+    'babel',
+    'jinja2',
+    'markupsafe',
+    'click',
 ]
 
-# 二进制文件排除 - 避免不必要的依赖
+# 二进制文件排除
 binaries = []
 
 # 分析配置
@@ -120,42 +143,48 @@ a = Analysis(
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=None,
-    noarchive=False,
+    noarchive=False,  # 保持为 False 以获得更好的性能
 )
 
 # PYZ 配置 - Python 字节码归档
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-# EXE 配置 - 可执行文件
+# EXE 配置 - 使用 onedir 模式提升启动速度
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    [],
-    name='ai-product-selector',  # 可执行文件名
+    [],  # 空列表表示使用 onedir 模式
+    exclude_binaries=True,  # onedir 模式需要设置为 True
+    name='ai-product-selector',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,  # 启用 UPX 压缩（如果可用）
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=True,  # 控制台应用
+    upx=True,  # 启用 UPX 压缩
+    console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,  # 可以添加图标文件路径
-    version_file=None,  # 可以添加版本信息文件
+)
+
+# COLLECT 配置 - onedir 模式必需
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='ai-product-selector'
 )
 
 # 平台特定配置
 if sys.platform == 'darwin':  # macOS
-    # macOS 应用包配置
+    # macOS 应用包配置 - 可选
     app = BUNDLE(
-        exe,
+        coll,  # 注意这里使用 coll 而不是 exe
         name='AI Product Selector.app',
         icon=None,
         bundle_identifier='com.example.ai-product-selector',

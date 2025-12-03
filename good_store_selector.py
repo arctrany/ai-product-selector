@@ -16,13 +16,60 @@ from common.models.enums import GoodStoreFlag, StoreStatus
 from common.models.scraping_result import ScrapingResult
 from common.config.base_config import GoodStoreSelectorConfig, get_config
 from common.excel_processor import ExcelStoreProcessor
-from common.services.scraping_orchestrator import ScrapingOrchestrator, ScrapingMode, get_global_scraping_orchestrator
+from common.services.scraping_orchestrator import ScrapingMode, get_global_scraping_orchestrator
 from common.business.filter_manager import FilterManager
 from common.business import ProfitEvaluator, StoreEvaluator
 from task_manager.mixins import TaskControlMixin
 # 🔧 用户反馈：移除不必要的图片URL转换功能
 # from utils.url_converter import convert_image_url_to_product_url
 from utils.result_factory import ErrorResultFactory
+
+
+def _evaluate_profit_calculation_completeness(product: ProductInfo) -> float:
+    """
+    评估利润计算关键字段完整性
+
+    基于 ProfitCalculatorInput 必需字段：
+    - green_price, black_price, source_price, commission_rate
+    - weight, length, width, height
+    """
+    required_fields = [
+        'green_price', 'black_price', 'source_price', 'commission_rate',
+        'weight', 'length', 'width', 'height'
+    ]
+
+    valid_count = 0
+    for field_name in required_fields:
+        value = getattr(product, field_name, None)
+        if value is not None and value > 0:
+            valid_count += 1
+
+    return valid_count / len(required_fields)
+
+
+def _create_empty_result(start_time: float) -> BatchProcessingResult:
+    """创建空结果"""
+    return BatchProcessingResult(
+        total_stores=0,
+        processed_stores=0,
+        good_stores=0,
+        failed_stores=0,
+        processing_time=time.time() - start_time,
+        start_time=datetime.now(),
+        end_time=datetime.now(),
+        store_results=[]
+    )
+
+
+def _format_result_summary(result: BatchProcessingResult) -> str:
+    """格式化结果摘要"""
+    return (
+        f"总店铺{result.total_stores}个, "
+        f"已处理{result.processed_stores}个, "
+        f"好店{result.good_stores}个, "
+        f"失败{result.failed_stores}个, "
+        f"耗时{result.processing_time:.1f}秒"
+    )
 
 
 class GoodStoreSelector(TaskControlMixin):
@@ -92,7 +139,7 @@ class GoodStoreSelector(TaskControlMixin):
             pending_stores = self._load_pending_stores()
             if not pending_stores:
                 self.logger.warning("没有待处理的店铺")
-                return self._create_empty_result(start_time)
+                return _create_empty_result(start_time)
             
             self.processing_stats['total_stores'] = len(pending_stores)
             self.logger.info(f"找到{len(pending_stores)}个待处理店铺")
@@ -169,7 +216,7 @@ class GoodStoreSelector(TaskControlMixin):
                 store_results=store_results
             )
             
-            self.logger.info(f"好店筛选流程完成: {self._format_result_summary(result)}")
+            self.logger.info(f"好店筛选流程完成: {_format_result_summary(result)}")
             return result
             
         except Exception as e:
@@ -281,6 +328,42 @@ class GoodStoreSelector(TaskControlMixin):
             sales_data = result.data.get('sales_data', {})
 
         return result, sales_data
+
+    def merge_and_compute(self, scraping_result: ScrapingResult) -> ProductInfo:
+        """
+        商品数据合并和计算准备
+        
+        Args:
+            scraping_result: 协调器返回的原始数据
+            
+        Returns:
+            ProductInfo: 合并后的候选商品
+        """
+        primary_product = scraping_result.data.get('primary_product')
+        competitor_product = scraping_result.data.get('competitor_product')
+        
+        if not primary_product:
+            raise ValueError("缺少原商品数据")
+        
+        # 如果没有跟卖商品，直接返回原商品
+        if not competitor_product:
+            return self.profit_evaluator.prepare_for_profit_calculation(primary_product)
+        
+        # 评估关键字段完整性
+        primary_completeness = _evaluate_profit_calculation_completeness(primary_product)
+        competitor_completeness = _evaluate_profit_calculation_completeness(competitor_product)
+        
+        # 合并决策：跟卖商品关键字段完整则选择跟卖，否则选择原商品
+        if competitor_completeness >= 1.0:  # 100% 完整
+            candidate_product = competitor_product
+            candidate_product.is_competitor_selected = True
+            self.logger.info(f"选择跟卖商品：关键字段完整度 {competitor_completeness:.1%}")
+        else:
+            candidate_product = primary_product
+            candidate_product.is_competitor_selected = False
+            self.logger.info(f"选择原商品：跟卖关键字段不完整 {competitor_completeness:.1%}")
+        
+        return self.profit_evaluator.prepare_for_profit_calculation(candidate_product)
 
     def _process_single_store(self, store_data: ExcelStoreData) -> StoreAnalysisResult:
         """
@@ -398,11 +481,36 @@ class GoodStoreSelector(TaskControlMixin):
                     self.logger.info("任务被用户停止")
                     break
 
-                scraping_result = self.scraping_orchestrator.scrape_with_orchestration(ScrapingMode.FULL_CHAIN,url=product.product_url)
+                # 使用协调器进行完整商品分析
+                scraping_result = self.scraping_orchestrator.scrape_with_orchestration(
+                    ScrapingMode.FULL_CHAIN, 
+                    url=product.product_url
+                )
+                
                 if not scraping_result.success:
                     self.logger.error(f"商品{product.product_id}抓取失败: {scraping_result.error_message}")
                     continue
-                #TODO: 处理抓取信息，并计算利润
+                
+                # 使用新的合并逻辑处理数据
+                try:
+                    candidate_product = self.merge_and_compute(scraping_result)
+                    
+                    # 利润评估
+                    evaluation_result = self.profit_evaluator.evaluate_product_profit(candidate_product, candidate_product.source_price)
+                    
+                    # 添加额外信息
+                    evaluation_result.update({
+                        'is_competitor': getattr(candidate_product, 'is_competitor_selected', False),
+                        'competitor_count': len(scraping_result.data.get('competitors_list', [])),
+                    })
+                    
+                    product_evaluations.append(evaluation_result)
+                    
+                    self.logger.info(f"✅ 商品{product.product_id}处理完成，利润率: {evaluation_result.get('profit_rate', 0):.2f}%")
+                    
+                except Exception as e:
+                    self.logger.error(f"商品{product.product_id}合并处理失败: {e}")
+                    continue
 
 
 
@@ -464,29 +572,6 @@ class GoodStoreSelector(TaskControlMixin):
         except Exception as e:
             self.logger.error(f"模拟Excel更新失败: {e}")
 
-    def _create_empty_result(self, start_time: float) -> BatchProcessingResult:
-        """创建空结果"""
-        return BatchProcessingResult(
-            total_stores=0,
-            processed_stores=0,
-            good_stores=0,
-            failed_stores=0,
-            processing_time=time.time() - start_time,
-            start_time=datetime.now(),
-            end_time=datetime.now(),
-            store_results=[]
-        )
-    
-    def _format_result_summary(self, result: BatchProcessingResult) -> str:
-        """格式化结果摘要"""
-        return (
-            f"总店铺{result.total_stores}个, "
-            f"已处理{result.processed_stores}个, "
-            f"好店{result.good_stores}个, "
-            f"失败{result.failed_stores}个, "
-            f"耗时{result.processing_time:.1f}秒"
-        )
-    
     def _cleanup_components(self):
         """清理组件"""
         try:

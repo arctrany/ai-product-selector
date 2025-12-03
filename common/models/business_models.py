@@ -46,6 +46,7 @@ class ProductInfo:
     # OZON价格信息
     green_price: Optional[float] = None  # 绿标价格（促销价）
     black_price: Optional[float] = None  # 黑标价格（原价）
+    list_price: Optional[float] = None  # 定价（绿标价格*0.95）
     competitor_price: Optional[float] = None  # 跟卖价格
 
     # ERP插件数据
@@ -61,6 +62,9 @@ class ProductInfo:
 
     # 上架时间信息
     shelf_days: Optional[int] = None  # 已上架时间（天）
+    
+    # 合并决策标识
+    is_competitor_selected: bool = False  # 是否选择了跟卖商品
 
     def __post_init__(self):
         """数据验证"""

@@ -25,6 +25,7 @@ class ScrapingResult:
     统一抓取结果数据类
     
     适用于所有Scraper的标准返回格式
+    标准化数据字段，移除冗余信息，优化传输效率
     """
     success: bool
     data: Dict[str, Any]
@@ -33,6 +34,16 @@ class ScrapingResult:
     status: ScrapingStatus = ScrapingStatus.SUCCESS
     metadata: Dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.now)
+    
+    # 标准化数据字段定义
+    STANDARD_FIELDS = {
+        'product_info': ['product_id', 'product_url', 'image_url', 'brand_name', 'sku'],
+        'price_data': ['green_price', 'black_price', 'competitor_price'],
+        'erp_data': ['source_price', 'commission_rate', 'weight', 'length', 'width', 'height', 'shelf_days'],
+        'competitor_data': ['competitors_list', 'first_competitor_product_id', 'has_competitors'],
+        'store_data': ['store_id', 'sold_30days', 'sold_count_30days', 'daily_avg_sold'],
+        'processing_meta': ['source_matched', 'is_competitor_selected', 'list_price']
+    }
     
     def __post_init__(self):
         """自动设置状态"""
@@ -46,17 +57,58 @@ class ScrapingResult:
         else:
             self.status = ScrapingStatus.FAILED
     
-    def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
-        return {
+    def to_dict(self, include_debug_info: bool = False) -> Dict[str, Any]:
+        """转换为字典，支持调试信息控制"""
+        result = {
             'success': self.success,
-            'data': self.data,
-            'error_message': self.error_message,
-            'execution_time': self.execution_time,
+            'data': self._clean_data() if not include_debug_info else self.data,
             'status': self.status.value,
-            'metadata': self.metadata,
-            'timestamp': self.timestamp.isoformat()
         }
+        
+        # 只在失败时包含错误信息
+        if not self.success and self.error_message:
+            result['error_message'] = self.error_message
+            
+        # 只在需要时包含调试信息
+        if include_debug_info:
+            result.update({
+                'execution_time': self.execution_time,
+                'metadata': self.metadata,
+                'timestamp': self.timestamp.isoformat()
+            })
+            
+        return result
+    
+    def _clean_data(self) -> Dict[str, Any]:
+        """清理数据，移除调试信息和冗余字段"""
+        if not self.data:
+            return {}
+            
+        cleaned = {}
+        
+        # 收集所有标准字段名
+        all_standard_fields = set()
+        for fields in self.STANDARD_FIELDS.values():
+            all_standard_fields.update(fields)
+        
+        # 保留重要的顶级字段
+        important_top_level = ['primary_product', 'competitor_product', 'competitors_list', 'products']
+        
+        # 遍历原始数据，保留标准字段和重要字段
+        for key, value in self.data.items():
+            if key in all_standard_fields or key in important_top_level:
+                cleaned[key] = value
+            elif key.startswith('debug_') or key.startswith('internal_') or key.startswith('raw_'):
+                # 跳过调试和内部字段
+                continue
+            elif key in ['processing_steps', 'temp', 'cache']:
+                # 跳过处理步骤和缓存字段
+                continue
+            else:
+                # 保留其他业务相关字段
+                cleaned[key] = value
+                
+        return cleaned
     
     @classmethod
     def create_success(cls, data: Dict[str, Any], execution_time: Optional[float] = None,
@@ -71,6 +123,22 @@ class ScrapingResult:
         )
     
     @classmethod
+    def create_standardized_product_result(cls, product_info: Dict[str, Any], 
+                                         price_data: Dict[str, Any],
+                                         erp_data: Optional[Dict[str, Any]] = None,
+                                         execution_time: Optional[float] = None) -> 'ScrapingResult':
+        """创建标准化商品结果"""
+        standardized_data = {
+            **product_info,
+            **price_data
+        }
+        
+        if erp_data:
+            standardized_data.update(erp_data)
+            
+        return cls.create_success(standardized_data, execution_time)
+    
+    @classmethod
     def create_failure(cls, error_message: str, execution_time: Optional[float] = None,
                       data: Optional[Dict[str, Any]] = None,
                       metadata: Optional[Dict[str, Any]] = None) -> 'ScrapingResult':
@@ -82,6 +150,25 @@ class ScrapingResult:
             execution_time=execution_time,
             metadata=metadata or {},
             status=ScrapingStatus.FAILED
+        )
+    
+    def get_size_estimate(self) -> int:
+        """估算数据大小（字节）"""
+        import json
+        try:
+            return len(json.dumps(self.to_dict(), ensure_ascii=False))
+        except Exception:
+            return 0
+    
+    def optimize_for_transfer(self) -> 'ScrapingResult':
+        """优化数据传输，移除非必要字段"""
+        optimized_data = self._clean_data()
+        
+        return ScrapingResult(
+            success=self.success,
+            data=optimized_data,
+            error_message=self.error_message if not self.success else None,
+            status=self.status
         )
 
 

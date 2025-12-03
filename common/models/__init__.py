@@ -42,15 +42,13 @@ from .exceptions import (
     ConfigurationError
 )
 
-# 工具函数 - 从新位置导入以保持向后兼容性
-from ..utils.model_utils import (
+# 工具函数 - 统一从scraping_utils导入以保持向后兼容性
+from ..utils.scraping_utils import (
     validate_store_id,
     validate_price,
     validate_weight,
     format_currency,
-    calculate_profit_rate
-)
-from ..utils.scraping_utils import (
+    calculate_profit_rate,
     clean_price_string
 )
 

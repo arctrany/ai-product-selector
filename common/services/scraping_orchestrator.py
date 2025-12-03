@@ -219,9 +219,7 @@ class ScrapingOrchestrator:
             execution_time = time.time() - start_time
             
             self.logger.error(f"❌ 协调抓取失败 [{operation_id}]: {e}, 耗时 {execution_time:.2f}s")
-            return ScrapingResult(
-                success=False,
-                data={},
+            return ScrapingResult.create_failure(
                 error_message=str(e),
                 execution_time=execution_time
             )
@@ -301,40 +299,111 @@ class ScrapingOrchestrator:
 
 
     def _orchestrate_product_full_analysis(self, url: str, **kwargs) -> ScrapingResult:
-        """协调两次商品抓取，第一次是原商品抓取，第二次是competitor数据抓取（若有），最后并合并结果"""
+        """
+        简化的商品分析协调 - 只负责数据组装
+        1. 获取原商品数据
+        2. 获取跟卖商品数据（如果存在）
+        3. 组装数据，不进行选择决策
+        """
+        start_time = time.time()
+        
         try:
-            self.logger.info("🔧 执行全量分析抓取...")
-
-            combined_data = {}
-            context = {}
-            errors = []
-
-            # 1. 商品信息抓取
-            try:
-                result = self.ozon_scraper.scrape(url, context, **kwargs)
-                # context.update("competitor_cnt", result.data.get("competitor_cnt",0))
-                self.competitor_scraper.scrape(url, context, **kwargs)
-
-            except Exception as e:
-                errors.append(f"商品信息抓取异常: {e}")
-
-
-            #2. 如果product_result包括了竞争者信息，则竞争者的商品基本信息（注 competitor 不需要再次抓取竞争者信息了）
-
-
-
-
-            # return ScrapingResult(
-            #     success=has_data,
-            #     data=combined_data,
-            #     error_message=error_message,
-            #     execution_time=0
-            # )
-
+            self.logger.info("🔧 开始执行商品数据组装...")
+            
+            # Step 1: 获取原商品数据
+            primary_result = self.ozon_scraper.scrape(url, include_competitor=False, **kwargs)
+            if not primary_result.success:
+                self.logger.error("❌ 原商品数据获取失败")
+                return ScrapingResult.create_failure(
+                    error_message=f"原商品数据获取失败: {primary_result.error_message}",
+                    execution_time=time.time() - start_time
+                )
+            
+            primary_product = self._convert_to_product_info(primary_result.data, is_primary=True)
+            
+            # Step 2: 获取跟卖商品数据（如果存在）
+            competitor_product = None
+            competitors_list = []
+            
+            competitor_result = self.ozon_scraper.scrape(url, include_competitor=True, **kwargs)
+            if competitor_result.success:
+                first_competitor_id = competitor_result.data.get('first_competitor_product_id')
+                competitors_list = competitor_result.data.get('competitors', [])
+                
+                if first_competitor_id:
+                    competitor_url = self._build_competitor_url(first_competitor_id)
+                    comp_result = self.ozon_scraper.scrape(competitor_url, skip_competitors=True, **kwargs)
+                    if comp_result.success:
+                        competitor_product = self._convert_to_product_info(comp_result.data, is_primary=False)
+            
+            # Step 3: 组装数据，使用标准化格式
+            return ScrapingResult.create_success(
+                data={
+                    "primary_product": primary_product,
+                    "competitor_product": competitor_product,
+                    "competitors_list": competitors_list
+                },
+                execution_time=time.time() - start_time
+            )
+            
         except Exception as e:
-            self.logger.error(f"全量分析协调失败: {e}")
-            raise
+            self.logger.error(f"商品数据组装异常: {e}")
+            return ScrapingResult.create_failure(
+                error_message=f"数据组装异常: {str(e)}",
+                execution_time=time.time() - start_time
+            )
+    
+    def _convert_to_product_info(self, raw_data: Dict[str, Any], is_primary: bool):
+        """
+        将原始数据转换为标准 ProductInfo 对象
+        
+        Args:
+            raw_data: 原始抓取数据
+            is_primary: 是否为原商品
+            
+        Returns:
+            ProductInfo: 标准化的商品信息对象
+        """
+        from ..models.business_models import ProductInfo
+        
+        return ProductInfo(
+            product_id=raw_data.get('product_id'),
+            product_url=raw_data.get('product_url'),
+            image_url=raw_data.get('product_image'),
+            
+            # 价格信息
+            green_price=raw_data.get('green_price'),
+            black_price=raw_data.get('black_price'),
+            
+            # ERP数据
+            source_price=raw_data.get('erp_data', {}).get('purchase_price') if raw_data.get('erp_data') else raw_data.get('source_price'),
+            commission_rate=raw_data.get('erp_data', {}).get('commission_rate') if raw_data.get('erp_data') else raw_data.get('commission_rate'),
+            weight=raw_data.get('erp_data', {}).get('weight') if raw_data.get('erp_data') else raw_data.get('weight'),
+            length=raw_data.get('erp_data', {}).get('length') if raw_data.get('erp_data') else raw_data.get('length'),
+            width=raw_data.get('erp_data', {}).get('width') if raw_data.get('erp_data') else raw_data.get('width'),
+            height=raw_data.get('erp_data', {}).get('height') if raw_data.get('erp_data') else raw_data.get('height'),
+            shelf_days=raw_data.get('erp_data', {}).get('shelf_days') if raw_data.get('erp_data') else raw_data.get('shelf_days'),
+            
+            # 标识字段
+            source_matched=bool(raw_data.get('erp_data', {}).get('purchase_price') if raw_data.get('erp_data') else raw_data.get('source_price'))
+        )
+    
+    def _build_competitor_url(self, competitor_product_id: str) -> str:
+        """
+        构建跟卖商品URL
+        
+        Args:
+            competitor_product_id: 跟卖商品ID
+            
+        Returns:
+            str: 跟卖商品URL
+        """
+        base_url = "https://www.ozon.ru/product/"
+        return f"{base_url}{competitor_product_id}/"
 
+    
+
+    
     
     def get_scraper_by_type(self, scraper_type: str):
         """

@@ -15,8 +15,6 @@ target/
 .settings/
 .project
 .classpath
-.iflow
-IFLOW.md
 Input
 .qorder
 dist/*
@@ -172,5 +170,10 @@ Icon?
 Thumbs.db
 ehthumbs.db
 Desktop.ini
-
+CLAUDE.md
+IFLOW.md
+.iflow
+.cursor
+.claude
+.aone_copilot
 logs
