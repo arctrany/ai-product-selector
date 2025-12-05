@@ -51,10 +51,10 @@ git push origin v1.0.0
 
 | 文件名 | 平台 | 说明 |
 |--------|------|------|
-| `ai-product-selector-win-x64.zip` | Windows x64 | Windows可执行程序包 |
-| `ai-product-selector-macos-x64.tar.gz` | macOS Intel | macOS Intel应用程序包 |
-| `ai-product-selector-macos-arm64.tar.gz` | macOS Apple Silicon | macOS ARM64应用程序包 |
-| `ai-product-selector-linux-x64.tar.gz` | Linux x64 | Linux可执行程序包 |
+| `xps-win-x64.zip` | Windows x64 | Windows可执行程序包 |
+| `xps-macos-x64.tar.gz` | macOS Intel | macOS Intel应用程序包 |
+| `xps-macos-arm64.tar.gz` | macOS Apple Silicon | macOS ARM64应用程序包 |
+| `xps-linux-x64.tar.gz` | Linux x64 | Linux可执行程序包 |
 | `*.sha256` | 所有平台 | SHA256校验和文件 |
 
 ## 🔧 配置文件说明

@@ -158,7 +158,7 @@ exe = EXE(
     a.scripts,
     [],  # 空列表表示使用 onedir 模式
     exclude_binaries=True,  # onedir 模式需要设置为 True
-    name='ai-product-selector',
+    name='xps',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -180,7 +180,7 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='ai-product-selector'
+    name='xps'
 )
 
 # 平台特定配置
@@ -188,11 +188,11 @@ if sys.platform == 'darwin':  # macOS
     # macOS 应用包配置 - 可选
     app = BUNDLE(
         coll,  # 注意这里使用 coll 而不是 exe
-        name='AI Product Selector.app',
+        name='xps.app',
         icon=None,
-        bundle_identifier='com.example.ai-product-selector',
+        bundle_identifier='com.example.xps',
         info_plist={
-            'CFBundleDisplayName': 'AI Product Selector',
+            'CFBundleDisplayName': 'XPS',
             'CFBundleVersion': '1.0.0',
             'CFBundleShortVersionString': '1.0.0',
             'NSHighResolutionCapable': True,

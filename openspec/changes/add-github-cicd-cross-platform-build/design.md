@@ -69,10 +69,10 @@ git push origin v1.0.0  # 触发自动构建和发布
 
 ### Decision 4: 构建产物标准化
 **选择**: 统一的命名和打包格式，支持4个平台目标
-- Windows x64: `ai-product-selector-win-x64.zip`
-- macOS Intel: `ai-product-selector-macos-x64.tar.gz`
-- macOS ARM64: `ai-product-selector-macos-arm64.tar.gz`
-- Linux x64: `ai-product-selector-linux-x64.tar.gz`
+- Windows x64: `xps-win-x64.zip`
+- macOS Intel: `xps-macos-x64.tar.gz`
+- macOS ARM64: `xps-macos-arm64.tar.gz`
+- Linux x64: `xps-linux-x64.tar.gz`
 
 **包含内容**:
 - 可执行文件
