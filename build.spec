@@ -16,17 +16,20 @@ from pathlib import Path
 project_root = Path.cwd()
 
 # 数据文件和资源文件配置 - 只包含运行时必需的文件
-datas = [
-    # 核心配置文件
+# 使用条件检查确保文件存在
+datas = []
+
+# 核心配置文件 - 仅在存在时添加
+optional_data_files = [
     ('config.json', '.'),
     ('example_config.json', '.'),
-    ('common/config.py', 'common/'),
     ('common/config/ozon_selectors_default.json', 'common/config/'),
-
-    # 移除非必需的文档和规范文件以减小体积
-    # ('docs', 'docs'),  # 开发时文档，运行时不需要
-    # ('openspec', 'openspec'),  # 开发规范，运行时不需要
+    ('common/config/engine_config.yaml', 'common/config/'),
 ]
+
+for src, dst in optional_data_files:
+    if (project_root / src).exists():
+        datas.append((src, dst))
 
 # 精简的隐藏导入 - 只保留运行时真正需要的模块
 hiddenimports = [
