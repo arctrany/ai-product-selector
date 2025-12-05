@@ -133,14 +133,30 @@ jobs:
         # 创建分发目录
         mkdir -p "$DIST_DIR"
         
-        # 复制可执行文件里
+        # 列出构建产物用于调试
+        echo "=== Build output ==="
+        ls -la dist/
+
+        # 复制可执行文件/目录
         if [ "${{ matrix.platform }}" = "macos" ]; then
+          # macOS: 复制 .app 包
           cp -R "dist/${{ matrix.executable }}" "$DIST_DIR/"
         elif [ "${{ matrix.platform }}" = "windows" ]; then
-          cp "dist/${{ matrix.executable }}" "$DIST_DIR/"
+          # Windows: onedir 模式生成目录，复制目录内容
+          if [ -d "dist/ai-product-selector" ]; then
+            cp -R dist/ai-product-selector/* "$DIST_DIR/"
+          elif [ -f "dist/${{ matrix.executable }}" ]; then
+            cp "dist/${{ matrix.executable }}" "$DIST_DIR/"
+          fi
         else
-          cp "dist/${{ matrix.executable }}" "$DIST_DIR/"
-          chmod +x "$DIST_DIR/${{ matrix.executable }}"
+          # Linux: onedir 模式生成目录，复制目录内容
+          if [ -d "dist/ai-product-selector" ]; then
+            cp -R dist/ai-product-selector/* "$DIST_DIR/"
+            chmod +x "$DIST_DIR/ai-product-selector"
+          elif [ -f "dist/${{ matrix.executable }}" ]; then
+            cp "dist/${{ matrix.executable }}" "$DIST_DIR/"
+            chmod +x "$DIST_DIR/${{ matrix.executable }}"
+          fi
         fi
         
         # 复制配置文件
