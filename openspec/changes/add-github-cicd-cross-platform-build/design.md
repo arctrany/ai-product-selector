@@ -137,7 +137,7 @@ git push origin v1.0.0  # 触发自动构建和发布
 
 ### Rollback Plan
 - 如果CI/CD流程出现问题，可立即回退到本地构建脚本
-- 现有的 `packaging/` 目录脚本保持完整功能
+- 现有的 `build_scripts/` 目录脚本保持完整功能
 - 提供详细的本地构建指导文档
 
 ## Open Questions

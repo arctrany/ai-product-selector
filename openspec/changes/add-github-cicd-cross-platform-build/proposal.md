@@ -38,6 +38,6 @@
 - **维护者**: 统一的构建环境减少"在我机器上能运行"的问题
 
 ### 技术债务
-- 现有的本地构建脚本 (`packaging/build-*.sh`, `packaging/build.py`) 将保持兼容
+- 现有的本地构建脚本 (`build_scripts/build-*.sh`, `build_scripts/build.py`) 将保持兼容
 - 逐步迁移到以GitHub Actions为主的构建流程
 - 提供清晰的迁移路径和文档指导

@@ -117,7 +117,7 @@ git push origin v1.0.0
 2. **本地测试构建**
    ```bash
    # 使用本地构建脚本测试
-   python packaging/build.py
+   python build_scripts/build.py
    ```
 
 3. **验证PyInstaller配置**
