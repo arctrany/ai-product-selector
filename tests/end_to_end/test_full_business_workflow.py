@@ -8,13 +8,10 @@ Excel → CLI → GoodStoreSelector → Orchestrator → Scraper
 import unittest
 import tempfile
 import os
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from cli.main import main as cli_main
-from good_store_selector import GoodStoreSelector
 from common.services.scraping_orchestrator import ScrapingOrchestrator
-from common.scrapers.ozon_scraper import OzonScraper
 from common.excel_processor import ExcelStoreProcessor
 from common.models.scraping_result import ScrapingResult
 

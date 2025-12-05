@@ -19,7 +19,7 @@
 ### Goals
 - 实现完全自动化的跨平台构建流程
 - 支持基于Git标签的自动Release发布
-- 提供4个平台的并行构建 (Windows x64, macOS Intel/ARM64, Linux x64)
+- 提供4个平台目标的并行构建 (Windows x64, macOS Intel, macOS ARM64, Linux x64)
 - 生成标准化的构建产物和Release Notes
 - 集成代码质量检查和构建验证
 - 提供完整的使用文档和故障排除指南
@@ -33,7 +33,7 @@
 ## Decisions
 
 ### Decision 1: 使用GitHub Actions矩阵构建策略
-**选择**: 使用 `strategy.matrix` 实现4个平台的并行构建
+**选择**: 使用 `strategy.matrix` 实现4个平台目标的并行构建 (Windows x64, macOS Intel, macOS ARM64, Linux x64)
 **原因**: 
 - 提供最佳的构建性能 (并行执行)
 - GitHub Actions原生支持，稳定可靠
@@ -68,17 +68,19 @@ git push origin v1.0.0  # 触发自动构建和发布
 ```
 
 ### Decision 4: 构建产物标准化
-**选择**: 统一的命名和打包格式
-- Windows: `ai-product-selector-win-x64.zip`
+**选择**: 统一的命名和打包格式，支持4个平台目标
+- Windows x64: `ai-product-selector-win-x64.zip`
 - macOS Intel: `ai-product-selector-macos-x64.tar.gz`
 - macOS ARM64: `ai-product-selector-macos-arm64.tar.gz`
-- Linux: `ai-product-selector-linux-x64.tar.gz`
+- Linux x64: `ai-product-selector-linux-x64.tar.gz`
 
 **包含内容**:
 - 可执行文件
 - 配置文件 (`config.json`, `example_config.json`)
 - 使用说明 (`README.txt`)
 - SHA256校验和文件
+
+**GitHub Release**: 推送 `v*` 标签后自动创建 Release，上传所有平台的构建产物
 
 ### Decision 5: 版本信息动态生成
 **选择**: 在CI环境中动态生成 `version.py` 文件
@@ -112,7 +114,7 @@ git push origin v1.0.0  # 触发自动构建和发布
 - 在构建验证中测试浏览器功能
 
 ### Trade-off: 构建时间 vs 并行度
-- **选择**: 4个平台并行构建
+- **选择**: 4个平台目标并行构建 (Windows, macOS Intel, macOS ARM64, Linux)
 - **权衡**: 增加资源使用但显著减少总构建时间
 - **结果**: 总构建时间约15-20分钟，可接受
 

@@ -6,12 +6,11 @@
 import unittest
 import time
 from unittest.mock import Mock, patch
-import pytest
 
 from common.models.business_models import ProductInfo
 from common.models.scraping_result import ScrapingResult
-from common.services.scraping_orchestrator import ScrapingOrchestrator, ScrapingMode
-from good_store_selector import GoodStoreSelector, _evaluate_profit_calculation_completeness
+from common.services.scraping_orchestrator import ScrapingOrchestrator
+from common.services.good_store_selector import GoodStoreSelector, _evaluate_profit_calculation_completeness
 
 
 class TestPerformanceBenchmarks(unittest.TestCase):
@@ -75,7 +74,6 @@ class TestPerformanceBenchmarks(unittest.TestCase):
             
             selector = GoodStoreSelector(
                 excel_file_path="/tmp/test.xlsx",
-                profit_calculator_path="/tmp/calc.xlsx"
             )
             
             # 初始化组件
@@ -137,7 +135,6 @@ class TestPerformanceBenchmarks(unittest.TestCase):
             
             selector = GoodStoreSelector(
                 excel_file_path="/tmp/test.xlsx",
-                profit_calculator_path="/tmp/calc.xlsx"
             )
             
             # 创建不同完整度的商品
@@ -210,8 +207,7 @@ class TestPerformanceBenchmarks(unittest.TestCase):
     def test_memory_usage_optimization(self):
         """测试内存使用优化"""
         import gc
-        import sys
-        
+
         # 测试前清理内存
         gc.collect()
         initial_objects = len(gc.get_objects())
@@ -263,7 +259,6 @@ class TestPerformanceBenchmarks(unittest.TestCase):
             
             selector = GoodStoreSelector(
                 excel_file_path="/tmp/test.xlsx",
-                profit_calculator_path="/tmp/calc.xlsx"
             )
             
             # 手动初始化组件

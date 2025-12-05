@@ -37,6 +37,7 @@ class GoodStoreSelectorConfig:
     debug_mode: bool = False
     dryrun: bool = False  # 试运行模式，执行抓取但不写入文件，不调用1688接口
     selection_mode: str = 'select-shops'  # 选择模式：'select-goods' 或 'select-shops'（默认）
+    product_excel_path: Optional[str] = None  # 商品输出Excel路径（select-goods模式使用）
 
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'GoodStoreSelectorConfig':
@@ -111,7 +112,7 @@ class GoodStoreSelectorConfig:
                     setattr(config.performance, key, value)
         
         # 更新全局配置
-        for key in ['debug_mode', 'dryrun', 'selection_mode']:
+        for key in ['debug_mode', 'dryrun', 'selection_mode', 'product_excel_path']:
             if key in config_dict:
                 setattr(config, key, config_dict[key])
         

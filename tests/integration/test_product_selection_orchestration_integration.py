@@ -4,12 +4,11 @@
 测试完整的选品流程协调功能，包括端到端测试
 """
 import unittest
-from unittest.mock import Mock, patch, MagicMock
-import pytest
+from unittest.mock import Mock, patch
 
 from common.services.scraping_orchestrator import ScrapingOrchestrator, ScrapingMode
 from common.scrapers.ozon_scraper import OzonScraper
-from good_store_selector import GoodStoreSelector
+from common.services.good_store_selector import GoodStoreSelector
 from common.config.base_config import GoodStoreSelectorConfig
 from common.models.scraping_result import ScrapingResult
 from common.models.business_models import ProductInfo
@@ -167,7 +166,6 @@ class TestProductSelectionOrchestrationIntegration(unittest.TestCase):
             
             selector = GoodStoreSelector(
                 excel_file_path="/tmp/test.xlsx",
-                profit_calculator_path="/tmp/calc.xlsx",
                 config=self.config
             )
             
@@ -251,7 +249,6 @@ class TestProductSelectionOrchestrationIntegration(unittest.TestCase):
             
             selector = GoodStoreSelector(
                 excel_file_path="/tmp/test.xlsx",
-                profit_calculator_path="/tmp/calc.xlsx",
                 config=self.config
             )
             
@@ -341,7 +338,6 @@ class TestProductSelectionOrchestrationIntegration(unittest.TestCase):
             
             selector = GoodStoreSelector(
                 excel_file_path="/tmp/test.xlsx",
-                profit_calculator_path="/tmp/calc.xlsx",
                 config=self.config
             )
             

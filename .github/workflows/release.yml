@@ -33,6 +33,11 @@ jobs:
             arch: arm64
             executable: AI Product Selector.app
             package_ext: tar.gz
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+            executable: ai-product-selector
+            package_ext: tar.gz
 
     steps:
     - name: Checkout code
@@ -235,6 +240,7 @@ jobs:
         | Windows | x64 | [ai-product-selector-win-x64.zip](https://github.com/${{ github.repository }}/releases/download/${VERSION}/ai-product-selector-win-x64.zip) |
         | macOS | Intel | [ai-product-selector-macos-x64.tar.gz](https://github.com/${{ github.repository }}/releases/download/${VERSION}/ai-product-selector-macos-x64.tar.gz) |
         | macOS | Apple Silicon | [ai-product-selector-macos-arm64.tar.gz](https://github.com/${{ github.repository }}/releases/download/${VERSION}/ai-product-selector-macos-arm64.tar.gz) |
+        | Linux | x64 | [ai-product-selector-linux-x64.tar.gz](https://github.com/${{ github.repository }}/releases/download/${VERSION}/ai-product-selector-linux-x64.tar.gz) |
         
         ### 📋 版本信息
         - **版本号**: ${VERSION}
@@ -246,7 +252,7 @@ jobs:
         - **Python 版本**: 3.9+
         - **打包工具**: PyInstaller
         - **浏览器引擎**: Playwright Chromium
-        - **支持平台**: Windows 10+, macOS 10.15+
+        - **支持平台**: Windows 10+, macOS 10.15+, Linux (Ubuntu 20.04+)
         
         ### 📖 使用方法
         1. 下载对应平台的压缩包

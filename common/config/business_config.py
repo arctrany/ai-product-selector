@@ -58,10 +58,26 @@ class ExcelConfig:
     default_excel_path: str = "uploads/store_list.xlsx"
     profit_calculator_path: str = "uploads/profit_calculator.xlsx"
     
-    # Excel列配置
+    # Excel列配置 - 店铺
     store_id_column: str = "A"  # 店铺ID列
     good_store_column: str = "B"  # 是否为好店列
     status_column: str = "C"  # 状态列
+    
+    # Excel列配置 - 商品
+    product_store_id_column: str = "A"  # 店铺ID列
+    product_id_column: str = "B"  # 商品ID列
+    product_name_column: str = "C"  # 商品名称列
+    product_image_column: str = "D"  # 商品图片列
+    product_green_price_column: str = "E"  # 绿标价格列
+    product_black_price_column: str = "F"  # 黑标价格列
+    product_commission_column: str = "G"  # 佣金率列
+    product_weight_column: str = "H"  # 重量列
+    product_length_column: str = "I"  # 长度列
+    product_width_column: str = "J"  # 宽度列
+    product_height_column: str = "K"  # 高度列
+    product_source_price_column: str = "L"  # 货源价格列
+    product_profit_rate_column: str = "M"  # 利润率列
+    product_profit_amount_column: str = "N"  # 预计利润列
     
     # 数据验证
     max_rows_to_process: int = 10000  # 最大处理行数

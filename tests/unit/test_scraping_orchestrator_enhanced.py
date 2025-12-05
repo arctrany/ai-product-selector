@@ -23,7 +23,7 @@ class TestScrapingOrchestratorEnhanced(unittest.TestCase):
         competitor_id = "123456789"
         expected_url = "https://www.ozon.ru/product/123456789/"
         
-        result = self.orchestrator._build_competitor_url(competitor_id)
+        result = _build_competitor_url(competitor_id)
         
         self.assertEqual(result, expected_url)
     
@@ -132,7 +132,7 @@ class TestScrapingOrchestratorEnhanced(unittest.TestCase):
             }
         }
         
-        product_info = self.orchestrator._convert_to_product_info(raw_data, is_primary=True)
+        product_info = _convert_to_product_info(raw_data, is_primary=True)
         
         # 验证基础字段
         self.assertEqual(product_info.product_id, '123')
@@ -157,7 +157,7 @@ class TestScrapingOrchestratorEnhanced(unittest.TestCase):
             'source_price': 45.0  # 直接字段而非 erp_data
         }
         
-        product_info = self.orchestrator._convert_to_product_info(raw_data, is_primary=False)
+        product_info = _convert_to_product_info(raw_data, is_primary=False)
         
         self.assertEqual(product_info.product_id, '456')
         self.assertEqual(product_info.green_price, 80.0)

@@ -1,0 +1,78 @@
+# Excel Engine Configuration
+# Default configuration file for the Excel calculation engine system
+
+engine:
+  # Default engine to use (auto, python, xlwings, formulas)
+  default: auto
+
+  # Fallback order when auto mode is selected
+  fallback_order:
+    - xlwings
+    - formulas
+    - python
+
+  # Enable engine instance caching
+  cache_enabled: true
+
+  # Batch operation size
+  batch_size: 50
+
+  # Connection timeout in seconds
+  connection_timeout: 30
+
+validation:
+  # Enable cross-engine validation mode
+  enabled: false
+
+  # Engines to compare in validation mode
+  engines:
+    - xlwings
+    - python
+
+  # Acceptable difference tolerance (0.01 = 1%)
+  tolerance: 0.01
+
+  # Log discrepancies between engines
+  log_discrepancies: true
+
+paths:
+  # Calculator identifier (maps to CALCULATOR_MAP in paths.py)
+  # Options: default, test, v4
+  calculator_identifier: default
+
+  # Path to compiled rules file
+  compiled_rules_path: common/excel_engine/compiled_rules.py
+
+security:
+  # Log path access attempts
+  log_path_access: true
+
+  # Restrict to known calculator identifiers only
+  restrict_identifiers: true
+
+# XlWings engine specific settings
+xlwings:
+  visible: false
+  display_alerts: false
+  screen_updating: false
+  add_book: false
+
+# Python engine specific settings
+python:
+  auto_reload: false
+  optimization_level: 1
+
+# Formulas engine specific settings
+formulas:
+  backend: openpyxl
+  cache_size: 1000
+
+# Logging settings
+logging:
+  level: INFO
+  log_calculations: false
+  log_performance: true
+
+# Performance settings
+performance:
+  max_retries: 3

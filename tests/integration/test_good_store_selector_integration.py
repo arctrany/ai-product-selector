@@ -4,13 +4,12 @@ GoodStoreSelector 集成测试
 测试 GoodStoreSelector 与其他组件的集成，包括新的合并逻辑
 """
 import unittest
-from unittest.mock import Mock, patch, MagicMock
-import pytest
+from unittest.mock import Mock, patch
 import tempfile
 import os
 
-from good_store_selector import GoodStoreSelector, _evaluate_profit_calculation_completeness
-from common.models.business_models import ProductInfo, StoreInfo
+from common.services.good_store_selector import GoodStoreSelector, _evaluate_profit_calculation_completeness
+from common.models.business_models import ProductInfo
 from common.models.excel_models import ExcelStoreData
 from common.models.scraping_result import ScrapingResult
 from common.models.enums import GoodStoreFlag, StoreStatus
@@ -124,7 +123,6 @@ class TestGoodStoreSelectorIntegration(unittest.TestCase):
             # 创建 GoodStoreSelector 实例
             selector = GoodStoreSelector(
                 excel_file_path=self.temp_excel.name,
-                profit_calculator_path=self.temp_calc.name,
                 config=self.config
             )
             
@@ -153,7 +151,6 @@ class TestGoodStoreSelectorIntegration(unittest.TestCase):
             # 创建选择器
             selector = GoodStoreSelector(
                 excel_file_path=self.temp_excel.name,
-                profit_calculator_path=self.temp_calc.name,
                 config=self.config
             )
             
@@ -240,7 +237,6 @@ class TestGoodStoreSelectorIntegration(unittest.TestCase):
             # 创建选择器
             selector = GoodStoreSelector(
                 excel_file_path=self.temp_excel.name,
-                profit_calculator_path=self.temp_calc.name,
                 config=self.config
             )
             
@@ -340,7 +336,6 @@ class TestGoodStoreSelectorIntegration(unittest.TestCase):
             # 创建选择器
             selector = GoodStoreSelector(
                 excel_file_path=self.temp_excel.name,
-                profit_calculator_path=self.temp_calc.name,
                 config=self.config
             )
             

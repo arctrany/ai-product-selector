@@ -80,7 +80,6 @@ class UIConfig:
     # 文件路径
     good_shop_file: str = ""
     item_collect_file: str = ""
-    margin_calculator: str = ""
     
     # 筛选参数
     margin: float = 0.1

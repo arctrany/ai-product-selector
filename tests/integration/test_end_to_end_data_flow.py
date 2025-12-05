@@ -4,14 +4,13 @@
 验证从数据输入到最终输出的完整数据流程
 """
 import unittest
-from unittest.mock import Mock, patch, MagicMock
-import pytest
+from unittest.mock import patch
 
-from common.models.business_models import ProductInfo, StoreInfo
+from common.models.business_models import ProductInfo
 from common.models.scraping_result import ScrapingResult
 from common.models.data_schemas import StandardProductData, StandardScrapingResultData
-from common.services.scraping_orchestrator import ScrapingOrchestrator, ScrapingMode
-from good_store_selector import GoodStoreSelector, _evaluate_profit_calculation_completeness
+from common.services.scraping_orchestrator import ScrapingOrchestrator
+from common.services.good_store_selector import GoodStoreSelector, _evaluate_profit_calculation_completeness
 
 
 class TestEndToEndDataFlow(unittest.TestCase):
@@ -139,12 +138,11 @@ class TestEndToEndDataFlow(unittest.TestCase):
             from common.business.profit_evaluator import ProfitEvaluator
             from common.config.base_config import GoodStoreSelectorConfig
             config = GoodStoreSelectorConfig()
-            real_profit_evaluator = ProfitEvaluator("/tmp/calc.xlsx", config)
+            real_profit_evaluator = ProfitEvaluator(config)
             mock_profit_class.return_value = real_profit_evaluator
             
             selector = GoodStoreSelector(
-                excel_file_path="/tmp/test.xlsx",
-                profit_calculator_path="/tmp/calc.xlsx"
+                excel_file_path="/tmp/test.xlsx"
             )
             
             # 初始化组件

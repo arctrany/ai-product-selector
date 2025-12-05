@@ -95,7 +95,6 @@ class TestConfigLoading:
         # 创建测试配置文件
         test_config = {
             "good_shop_file": "test_shops.xlsx",
-            "margin_calculator": "test_calculator.xlsx",
             "margin": 0.15,
             "output_path": ".",
             "min_store_sales_30days": 500000.0,
@@ -185,7 +184,6 @@ class TestCommandHandling:
         # Mock配置加载
         mock_ui_config = UIConfig(
             good_shop_file="test.xlsx",
-            margin_calculator="calc.xlsx",
             output_path="."
         )
         mock_load_user_data.return_value = mock_ui_config

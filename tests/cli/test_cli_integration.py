@@ -27,7 +27,6 @@ class TestCLIIntegration:
         # 创建测试配置文件，使用项目中实际存在的Excel文件路径
         test_config = {
             "good_shop_file": "docs/good_shops.xlsx",
-            "margin_calculator": "docs/profits_calculator.xlsx",
             "margin": 0.15,
             "output_path": ".",
             "min_store_sales_30days": 500000.0,
@@ -89,7 +88,6 @@ class TestCLIIntegration:
         # 创建测试配置文件，使用项目中实际存在的Excel文件路径
         test_config = {
             "good_shop_file": "docs/good_shops.xlsx",
-            "margin_calculator": "docs/profits_calculator.xlsx",
             "margin": 0.15,
             "output_path": "."
         }
@@ -112,7 +110,6 @@ class TestCLIIntegration:
             
             mock_ui_config = UIConfig(
                 good_shop_file="docs/good_shops.xlsx",
-                margin_calculator="docs/profits_calculator.xlsx",
                 output_path="."
             )
             mock_load_user_data.return_value = mock_ui_config

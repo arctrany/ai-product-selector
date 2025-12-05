@@ -28,7 +28,14 @@ from .scraping_models import (
 
 # Excel模型
 from .excel_models import (
-    ExcelStoreData
+    ExcelStoreData,
+    ExcelProductData
+)
+
+# 利润计算模型
+from .profit_calc_models import (
+    ProfitCalculatorInput,
+    ProfitCalculatorResult
 )
 
 # 异常类
@@ -39,7 +46,9 @@ from .exceptions import (
     CriticalBrowserError,
     ExcelProcessingError,
     PriceCalculationError,
-    ConfigurationError
+    ConfigurationError,
+    ExcelCalculatorError,
+    EngineError
 )
 
 # 工具函数 - 统一从scraping_utils导入以保持向后兼容性
@@ -55,7 +64,7 @@ from ..utils.scraping_utils import (
 # 延迟导入 ErrorResultFactory 以避免循环导入
 def get_error_result_factory():
     """延迟导入 ErrorResultFactory 以避免循环导入"""
-    from utils.result_factory import ErrorResultFactory
+    from ..business.result_factory import ErrorResultFactory
     return ErrorResultFactory
 
 __all__ = [
@@ -74,6 +83,10 @@ __all__ = [
     'ScrapingResult',
     # Excel模型
     'ExcelStoreData',
+    'ExcelProductData',
+    # 利润计算模型
+    'ProfitCalculatorInput',
+    'ProfitCalculatorResult',
     # 异常类
     'GoodStoreSelectorError',
     'DataValidationError',
@@ -82,6 +95,8 @@ __all__ = [
     'ExcelProcessingError',
     'PriceCalculationError',
     'ConfigurationError',
+    'ExcelCalculatorError',
+    'EngineError',
     # 工具函数
     'validate_store_id',
     'validate_price',

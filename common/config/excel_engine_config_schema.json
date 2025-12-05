@@ -1,0 +1,184 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Excel Engine Configuration Schema",
+  "description": "Configuration schema for Excel calculation engine system",
+  "type": "object",
+  "properties": {
+    "engine": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": "string",
+          "enum": ["auto", "python", "xlwings", "formulas", "validation"],
+          "default": "auto",
+          "description": "Default engine to use for calculations"
+        },
+        "fallback_order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["python", "xlwings", "formulas"]
+          },
+          "default": ["xlwings", "formulas", "python"],
+          "description": "Order of engines to try when auto mode is selected"
+        },
+        "cache_enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable engine instance caching"
+        },
+        "validation": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable cross-engine validation"
+            },
+            "tolerance": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.01,
+              "description": "Acceptable difference tolerance for validation (0.01 = 1%)"
+            },
+            "engines": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["python", "xlwings", "formulas"]
+              },
+              "default": ["python"],
+              "description": "Engines to use for validation comparison"
+            }
+          }
+        }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "properties": {
+        "calculator_directory": {
+          "type": "string",
+          "default": "docs",
+          "description": "Directory containing Excel calculator files"
+        },
+        "compiled_rules_directory": {
+          "type": "string",
+          "default": "common/excel_engine/compiled",
+          "description": "Directory for compiled calculation rules"
+        },
+        "default_calculator": {
+          "type": "string",
+          "default": "profits_calculator.xlsx",
+          "description": "Default Excel calculator filename"
+        }
+      }
+    },
+    "xlwings": {
+      "type": "object",
+      "properties": {
+        "visible": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show Excel window during calculations"
+        },
+        "display_alerts": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show Excel alerts and messages"
+        },
+        "screen_updating": {
+          "type": "boolean",
+          "default": false,
+          "description": "Update Excel screen during calculations"
+        },
+        "add_book": {
+          "type": "boolean",
+          "default": false,
+          "description": "Add new workbook on app creation"
+        }
+      }
+    },
+    "python": {
+      "type": "object",
+      "properties": {
+        "auto_reload": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically reload compiled rules on change"
+        },
+        "optimization_level": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2,
+          "default": 1,
+          "description": "Python code optimization level"
+        }
+      }
+    },
+    "formulas": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": ["openpyxl", "xlrd"],
+          "default": "openpyxl",
+          "description": "Backend library for formulas engine"
+        },
+        "cache_size": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1000,
+          "description": "Formula calculation cache size"
+        }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+          "default": "INFO",
+          "description": "Logging level for engine operations"
+        },
+        "log_calculations": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log detailed calculation steps"
+        },
+        "log_performance": {
+          "type": "boolean",
+          "default": true,
+          "description": "Log performance metrics"
+        }
+      }
+    },
+    "performance": {
+      "type": "object",
+      "properties": {
+        "batch_size": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 100,
+          "description": "Default batch size for bulk calculations"
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 30,
+          "description": "Calculation timeout in seconds (0 = no timeout)"
+        },
+        "max_retries": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 3,
+          "description": "Maximum retries for failed calculations"
+        }
+      }
+    }
+  },
+  "required": ["engine", "paths"],
+  "additionalProperties": false
+}

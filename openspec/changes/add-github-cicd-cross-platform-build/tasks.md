@@ -1,6 +1,6 @@
 ## 1. GitHub Actions工作流创建
 - [x] 1.1 创建跨平台构建工作流 (.github/workflows/release.yml)
-- [x] 1.2 配置构建矩阵支持4个平台 (Windows x64, macOS Intel/ARM64, Linux x64)
+- [x] 1.2 配置构建矩阵支持4个平台目标 (Windows x64, macOS Intel, macOS ARM64, Linux x64)
 - [x] 1.3 实现自动版本信息生成和注入
 - [x] 1.4 配置Playwright浏览器依赖安装
 - [x] 1.5 实现构建产物打包和压缩
@@ -31,15 +31,15 @@
 - [x] 5.3 文档化发布流程和最佳实践
 - [x] 5.4 提供工作流程图和架构说明
 
-## 6. 测试和验证
-- [ ] 6.1 创建测试标签验证完整构建流程
-- [ ] 6.2 验证各平台构建产物的功能完整性
-- [ ] 6.3 测试手动触发构建功能
-- [ ] 6.4 验证Release Notes和下载链接的正确性
+## 6. 测试和验证 (需要 GitHub 仓库操作)
+- [ ] 6.1 创建测试标签验证完整构建流程 (`git tag v0.0.1-test && git push origin v0.0.1-test`)
+- [ ] 6.2 验证各平台构建产物的功能完整性 (Windows, macOS Intel, macOS ARM64, Linux)
+- [ ] 6.3 测试手动触发构建功能 (GitHub Actions 页面 → Run workflow)
+- [ ] 6.4 验证Release Notes和下载链接的正确性 (包含4个平台下载链接)
 - [ ] 6.5 确认构建产物的SHA256校验和正确性
 
 ## 7. 部署和推广
-- [ ] 7.1 配置GitHub仓库的Actions权限
+- [ ] 7.1 配置GitHub仓库的Actions权限 (Settings → Actions → General)
 - [ ] 7.2 测试首个正式Release的完整流程
-- [ ] 7.3 更新项目README添加下载链接说明
-- [ ] 7.4 向团队成员介绍新的发布流程
+- [x] 7.3 发布流程文档已在 docs/CI_CD_SETUP.md 中完成
+- [x] 7.4 发布流程说明已包含在 docs/CI_CD_SETUP.md 中

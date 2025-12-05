@@ -19,7 +19,6 @@ from cli.preset_manager import PresetManager
 from cli.log_manager import LogManager
 from common.config.base_config import GoodStoreSelectorConfig
 from common.logging_config import setup_logging
-from good_store_selector import GoodStoreSelector
 
 # 创建全局任务控制器实例
 task_controller = TaskController()
@@ -107,7 +106,6 @@ def create_parser():
   {
     "good_shop_file": "/path/to/excel.xlsx",
     "item_collect_file": "/path/to/collect.xlsx", 
-    "margin_calculator": "/path/to/calculator.xlsx",
     "margin": 0.1,
     "item_created_days": 150,
     "item_shelf_days": 150,
@@ -245,7 +243,7 @@ def create_parser():
     return parser
 
 
-def load_user_data(data_path: str) -> UIConfig:
+def load_user_data(data_path: str, mode: str = 'select-shops') -> UIConfig:
     """加载用户输入数据"""
     try:
         if not os.path.exists(data_path):
@@ -266,13 +264,12 @@ def load_user_data(data_path: str) -> UIConfig:
         if deprecated_fields:
             print(f"⚠️  警告: 配置文件包含已废弃的字段: {', '.join(deprecated_fields)}")
             print(f"   这些字段将被忽略。请使用新的配置模板。")
-            print(f"   生成新模板: python3 -m cli.main create-template --mode select-shops")
+            print(f"   生成新模板: python3 -m cli.main create-template --mode {mode}")
 
         # 创建UIConfig对象
         ui_config = UIConfig(
             good_shop_file=data_dict.get('good_shop_file', ''),
             item_collect_file=data_dict.get('item_collect_file', ''),
-            margin_calculator=data_dict.get('margin_calculator', ''),
             margin=data_dict.get('margin', 0.1),
             item_shelf_days=data_dict.get('item_shelf_days', 150),
             follow_buy_cnt=data_dict.get('follow_buy_cnt', 37),
@@ -347,7 +344,7 @@ def handle_start_command(args):
         print("   • 店铺筛选：执行店铺过滤和裂变")
 
     # 加载用户数据
-    ui_config = load_user_data(args.data)
+    ui_config = load_user_data(args.data, mode=select_mode)
 
     # 加载系统配置
     system_config = load_system_config(args.config)
@@ -389,9 +386,16 @@ def handle_start_command(args):
         print(f"❌ 错误: Excel文件不存在: {ui_config.good_shop_file}")
         return 1
 
+    # 🎯 select-goods模式: 输出路径默认与输入Excel同目录
     if not ui_config.output_path:
-        print("❌ 错误: 用户数据中缺少output_path字段")
-        return 1
+        if select_mode == 'select-goods':
+            # 默认使用输入Excel同目录
+            ui_config.output_path = str(Path(ui_config.good_shop_file).parent)
+            print(f"📁 商品将输出到: {ui_config.output_path}")
+        else:
+            print("❌ 错误: 用户数据中缺少output_path字段")
+            return 1
+
 
     # 初始化状态管理器
     state_manager = UIStateManager()

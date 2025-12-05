@@ -5,11 +5,9 @@
 """
 
 import pytest
-import sys
 from unittest.mock import patch, MagicMock
-from pathlib import Path
 
-from good_store_selector import GoodStoreSelector
+from common.services.good_store_selector import GoodStoreSelector
 from common.models.excel_models import ExcelStoreData
 from common.models.enums import GoodStoreFlag, StoreStatus
 from common.config.base_config import GoodStoreSelectorConfig

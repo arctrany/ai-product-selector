@@ -6,14 +6,14 @@ Mock策略和测试隔离最佳实践测试
 
 import pytest
 import sys
-from unittest.mock import patch, MagicMock, mock_open, call, ANY
+from unittest.mock import patch, MagicMock
 from pathlib import Path
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from good_store_selector import GoodStoreSelector
+from common.services.good_store_selector import GoodStoreSelector
 from common.models.excel_models import ExcelStoreData
 from common.models.enums import GoodStoreFlag, StoreStatus
 from common.config.base_config import GoodStoreSelectorConfig

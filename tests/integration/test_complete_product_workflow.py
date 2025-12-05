@@ -13,11 +13,11 @@ import json
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from good_store_selector import GoodStoreSelector, _evaluate_profit_calculation_completeness
+from common.services.good_store_selector import GoodStoreSelector, _evaluate_profit_calculation_completeness
 from common.models.business_models import ProductInfo
 from common.models.scraping_result import ScrapingResult
 from common.config.base_config import GoodStoreSelectorConfig
-from common.services.scraping_orchestrator import ScrapingOrchestrator, ScrapingMode
+from common.services.scraping_orchestrator import ScrapingMode
 
 
 class TestCompleteProductWorkflow(unittest.TestCase):
@@ -133,7 +133,6 @@ class TestCompleteProductWorkflow(unittest.TestCase):
             # === 步骤3: 创建选择器并初始化 ===
             selector = GoodStoreSelector(
                 excel_file_path=self.temp_excel.name,
-                profit_calculator_path=self.temp_calc.name,
                 config=self.config
             )
             selector._initialize_components()
@@ -161,7 +160,7 @@ class TestCompleteProductWorkflow(unittest.TestCase):
             print(f"定价(list_price): {selected_product.list_price}₽")
             
             # 验证完整性评估逻辑
-            from good_store_selector import _evaluate_profit_calculation_completeness
+            from common.services.good_store_selector import _evaluate_profit_calculation_completeness
             primary_completeness = _evaluate_profit_calculation_completeness(primary_product)
             competitor_completeness = _evaluate_profit_calculation_completeness(competitor_product)
             
@@ -260,7 +259,6 @@ class TestCompleteProductWorkflow(unittest.TestCase):
             # 执行流程
             selector = GoodStoreSelector(
                 excel_file_path=self.temp_excel.name,
-                profit_calculator_path=self.temp_calc.name,
                 config=self.config
             )
             selector._initialize_components()
@@ -301,7 +299,6 @@ class TestCompleteProductWorkflow(unittest.TestCase):
             
             selector = GoodStoreSelector(
                 excel_file_path=self.temp_excel.name,
-                profit_calculator_path=self.temp_calc.name,
                 config=self.config
             )
             selector._initialize_components()
@@ -429,7 +426,6 @@ class TestCompleteProductWorkflow(unittest.TestCase):
             # 执行完整流程
             selector = GoodStoreSelector(
                 excel_file_path=self.temp_excel.name,
-                profit_calculator_path=self.temp_calc.name,
                 config=self.config
             )
             selector._initialize_components()

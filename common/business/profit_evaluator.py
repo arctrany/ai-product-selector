@@ -20,12 +20,11 @@ from .pricing_calculator import PricingCalculator
 class ProfitEvaluator:
     """利润评估器"""
 
-    def __init__(self, profit_calculator_path: str, config: Optional[GoodStoreSelectorConfig] = None):
+    def __init__(self, config: Optional[GoodStoreSelectorConfig] = None):
         """
         初始化利润评估器
         
         Args:
-            profit_calculator_path: Excel利润计算器文件路径
             config: 配置对象
         """
         self.config = config or get_config()
@@ -33,8 +32,16 @@ class ProfitEvaluator:
 
         # 初始化组件
         self.pricing_calculator = PricingCalculator(config)
-        # 延迟导入，避免循环导入
-        # self.excel_processor = ExcelProfitProcessor(profit_calculator_path, config)
+        
+        # 延迟初始化Excel计算器，避免循环导入
+        self._excel_calculator = None
+        
+    def _get_excel_calculator(self):
+        """延迟获取Excel计算器实例"""
+        if self._excel_calculator is None:
+            from .excel_calculator import ExcelProfitCalculator
+            self._excel_calculator = ExcelProfitCalculator()
+        return self._excel_calculator
 
     def prepare_for_profit_calculation(self, product: ProductInfo) -> ProductInfo:
         """
@@ -79,18 +86,28 @@ class ProfitEvaluator:
 
             # 3. 如果有货源价格，使用Excel计算器进行精确利润计算
             excel_result = None
-            # 如果有货源价格，使用Excel计算器进行精确利润计算
-            excel_result = None
-            # if source_price and self._has_required_data(product_info):
-            #     try:
-            #         excel_result = self.excel_processor.calculate_product_profit(
-            #             black_price=pricing_result.real_selling_price,  # 使用计算后的真实售价
-            #             green_price=pricing_result.product_pricing,     # 使用计算后的商品定价
-            #             commission_rate=product_info.commission_rate or self.config.price_calculation.commission_rate_default,
-            #             weight=product_info.weight or 500.0  # 默认重量500克
-            #         )
-            #     except Exception as e:
-            #         self.logger.warning(f"Excel利润计算失败: {e}")
+            if source_price and self._has_required_data(product_info):
+                try:
+                    from ..models import ProfitCalculatorInput
+                    
+                    # 准备计算输入
+                    calc_input = ProfitCalculatorInput(
+                        black_price=pricing_result.real_selling_price,  # 使用计算后的真实售价
+                        green_price=pricing_result.product_pricing,     # 使用计算后的商品定价
+                        list_price=pricing_result.product_pricing * 0.95,  # 定价
+                        purchase_price=source_price,  # 采购价
+                        commission_rate=product_info.commission_rate or self.config.price_calculation.commission_rate_default,
+                        weight=product_info.weight or 500.0,  # 默认重量500克
+                        length=product_info.length or 10.0,
+                        width=product_info.width or 10.0,
+                        height=product_info.height or 10.0
+                    )
+                    
+                    # 使用Excel计算器计算
+                    excel_result = self._get_excel_calculator().calculate_profit(calc_input)
+                    
+                except Exception as e:
+                    self.logger.warning(f"Excel利润计算失败: {e}")
 
             # 4. 综合评估结果
             evaluation_result = self._create_evaluation_result(

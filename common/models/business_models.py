@@ -39,6 +39,7 @@ class ProductInfo:
     """商品基础信息"""
     product_id: Optional[str] = None  # 商品ID（从URL提取）
     product_url: Optional[str] = None  # 商品页面URL（直接存储，无需转换）
+    store_id: Optional[str] = None  # 店铺ID（用于商品输出）
     image_url: Optional[str] = None
     brand_name: Optional[str] = None
     sku: Optional[str] = None
@@ -65,6 +66,9 @@ class ProductInfo:
     
     # 合并决策标识
     is_competitor_selected: bool = False  # 是否选择了跟卖商品
+    
+    # 店铺关联
+    store_id: Optional[str] = None  # 关联的店铺ID
 
     def __post_init__(self):
         """数据验证"""

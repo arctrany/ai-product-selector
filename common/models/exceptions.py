@@ -38,3 +38,13 @@ class PriceCalculationError(GoodStoreSelectorError):
 class ConfigurationError(GoodStoreSelectorError):
     """配置异常"""
     pass
+
+
+class ExcelCalculatorError(GoodStoreSelectorError):
+    """Excel计算器异常类"""
+    pass
+
+
+class EngineError(GoodStoreSelectorError):
+    """Engine-specific errors"""
+    pass

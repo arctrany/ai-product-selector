@@ -3,18 +3,92 @@
 选评自动化CLI应用可执行入口
 
 这是一个可执行脚本，用户可以直接运行而不需要使用python3命令
-使用方法: ./xuanping [命令] [选项]
+使用方法: ./xp [命令] [选项]
+
+功能特性:
+- 自动检测并安装缺失依赖
+- 跨平台支持 (Linux/macOS/Windows)
+- 支持环境变量 XP_SKIP_DEP_CHECK=1 跳过依赖检查
 """
 
 import sys
+import os
 from pathlib import Path
 
 # 添加项目根目录到Python路径
 script_dir = Path(__file__).parent.absolute()
 sys.path.insert(0, str(script_dir))
 
-# 导入并运行主程序
-from cli.main import main
+
+def check_dependencies():
+    """检测并安装依赖"""
+    # 检查是否跳过依赖检查
+    if os.environ.get('XP_SKIP_DEP_CHECK', '').lower() in ('1', 'true', 'yes'):
+        return True
+
+    try:
+        from cli.dependency_checker import check_and_install_dependencies
+        return check_and_install_dependencies(auto_install=True, verbose=True)
+    except ImportError:
+        # 如果依赖检测器本身无法导入，说明核心依赖可能缺失
+        print("⚠️ 正在检测基础依赖...")
+        return _fallback_dependency_check()
+
+
+def _fallback_dependency_check():
+    """后备依赖检测（当 dependency_checker 无法导入时）"""
+    import subprocess
+
+    # 检查 Python 版本
+    if sys.version_info < (3, 8):
+        print(f"❌ Python 版本过低: {sys.version_info[0]}.{sys.version_info[1]}")
+        print("   需要 Python 3.8+")
+        return False
+
+    # 尝试安装核心依赖
+    requirements_file = script_dir / 'requirements.txt'
+    if requirements_file.exists():
+        print("正在安装依赖...")
+        try:
+            # 检测是否在虚拟环境中
+            in_venv = (
+                hasattr(sys, 'real_prefix') or
+                (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix)
+            )
+
+            cmd = [sys.executable, '-m', 'pip', 'install', '-r', str(requirements_file)]
+            if not in_venv:
+                cmd.insert(4, '--user')
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"❌ 依赖安装失败:\n{result.stderr}")
+                return False
+            print("✓ 依赖安装成功")
+        except Exception as e:
+            print(f"❌ 依赖安装失败: {e}")
+            return False
+
+    return True
+
+
+def main():
+    """主入口函数"""
+    # 首次运行时检测依赖
+    if not check_dependencies():
+        print("\n请解决上述问题后重试")
+        print("提示: 设置 XP_SKIP_DEP_CHECK=1 可跳过依赖检查")
+        return 1
+
+    # 导入并运行主程序
+    try:
+        from cli.main import main as cli_main
+        return cli_main()
+    except ImportError as e:
+        print(f"❌ 无法导入CLI模块: {e}")
+        print("请确保项目依赖已正确安装")
+        return 1
+
 
 if __name__ == '__main__':
     sys.exit(main())

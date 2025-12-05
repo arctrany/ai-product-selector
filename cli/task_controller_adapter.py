@@ -7,12 +7,9 @@ TaskController适配器类
 
 from typing import Dict, Any, Optional
 from task_manager.controllers import TaskManager
-from task_manager.interfaces import ITaskEventListener, TaskInfo, TaskStatus
+from task_manager.interfaces import ITaskEventListener, TaskInfo
 from cli.models import UIConfig, AppState, ui_state_manager, LogLevel
-import os
-import json
-from datetime import datetime
-from enum import Enum
+
 
 class TaskControllerAdapter(ITaskEventListener):
     """TaskController适配器类"""
@@ -37,7 +34,7 @@ class TaskControllerAdapter(ITaskEventListener):
             
             # 创建任务函数
             def task_function():
-                from good_store_selector import GoodStoreSelector
+                from common.services.good_store_selector import GoodStoreSelector
                 from common.config.base_config import GoodStoreSelectorConfig
 
                 # 创建选择器实例
@@ -45,7 +42,6 @@ class TaskControllerAdapter(ITaskEventListener):
                 selector_config.dryrun = config.dryrun
                 selector = GoodStoreSelector(
                     excel_file_path=config.good_shop_file,
-                    profit_calculator_path=config.margin_calculator,
                     config=selector_config
                 )
                 

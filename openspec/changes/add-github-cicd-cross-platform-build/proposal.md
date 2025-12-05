@@ -14,7 +14,7 @@
 
 ### 新增能力
 - **GitHub Actions工作流**: 跨平台构建和Release发布自动化
-- **构建矩阵配置**: 支持Windows x64、macOS Intel/ARM64、Linux x64四个平台
+- **构建矩阵配置**: 支持4个平台目标 (Windows x64, macOS Intel, macOS ARM64, Linux x64)
 - **自动Release管理**: 基于Git标签自动创建GitHub Release
 - **构建产物管理**: 自动生成压缩包、校验和文件和Release Notes
 - **测试集成**: 构建前的代码质量检查和构建验证

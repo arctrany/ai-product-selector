@@ -54,7 +54,6 @@ class ScrapingMode(Enum):
     """抓取模式枚举"""
     PRODUCT_INFO = "product_info"  # 纯商品信息抓取
     STORE_ANALYSIS = "store_analysis"  # 店铺分析抓取
-    ERP_DATA = "erp_data"  # ERP数据抓取
     FULL_CHAIN = "full_chain"  # 全量分析
 
 
@@ -66,6 +65,56 @@ class OrchestrationConfig:
     timeout_seconds: int = 300
     enable_monitoring: bool = True
     enable_detailed_logging: bool = True
+
+
+def _build_competitor_url(competitor_product_id: str) -> str:
+    """
+    构建跟卖商品URL
+
+    Args:
+        competitor_product_id: 跟卖商品ID
+
+    Returns:
+        str: 跟卖商品URL
+    """
+    base_url = "https://www.ozon.ru/product/"
+    return f"{base_url}{competitor_product_id}/"
+
+
+def _convert_to_product_info(raw_data: Dict[str, Any], is_primary: bool):
+    """
+    将原始数据转换为标准 ProductInfo 对象
+
+    Args:
+        raw_data: 原始抓取数据
+        is_primary: 是否为原商品
+
+    Returns:
+        ProductInfo: 标准化的商品信息对象
+    """
+    from ..models.business_models import ProductInfo
+
+    return ProductInfo(
+        product_id=raw_data.get('product_id'),
+        product_url=raw_data.get('product_url'),
+        image_url=raw_data.get('product_image'),
+
+        # 价格信息
+        green_price=raw_data.get('green_price'),
+        black_price=raw_data.get('black_price'),
+
+        # ERP数据
+        source_price=raw_data.get('erp_data', {}).get('purchase_price') if raw_data.get('erp_data') else raw_data.get('source_price'),
+        commission_rate=raw_data.get('erp_data', {}).get('commission_rate') if raw_data.get('erp_data') else raw_data.get('commission_rate'),
+        weight=raw_data.get('erp_data', {}).get('weight') if raw_data.get('erp_data') else raw_data.get('weight'),
+        length=raw_data.get('erp_data', {}).get('length') if raw_data.get('erp_data') else raw_data.get('length'),
+        width=raw_data.get('erp_data', {}).get('width') if raw_data.get('erp_data') else raw_data.get('width'),
+        height=raw_data.get('erp_data', {}).get('height') if raw_data.get('erp_data') else raw_data.get('height'),
+        shelf_days=raw_data.get('erp_data', {}).get('shelf_days') if raw_data.get('erp_data') else raw_data.get('shelf_days'),
+
+        # 标识字段
+        source_matched=bool(raw_data.get('erp_data', {}).get('purchase_price') if raw_data.get('erp_data') else raw_data.get('source_price'))
+    )
 
 
 class ScrapingOrchestrator:
@@ -107,8 +156,7 @@ class ScrapingOrchestrator:
         # 🎯 初始化服务层
         if competitor_detection_service:
             self.competitor_detection_service = competitor_detection_service
-        else:
-            self._initialize_services()
+
         
         # 📊 初始化监控数据
         self.metrics = {
@@ -151,20 +199,7 @@ class ScrapingOrchestrator:
         except Exception as e:
             self.logger.error(f"❌ Scraper系统初始化失败: {e}")
             raise
-    
-    def _initialize_services(self):
-        """初始化服务层"""
-        try:
-            self.logger.info("🔧 初始化服务层...")
-            
-            # 协调器不直接管理业务服务
-            # CompetitorDetectionService由CompetitorScraper管理
-            
-            self.logger.info("✅ 服务层初始化完成")
-            
-        except Exception as e:
-            self.logger.error(f"❌ 服务层初始化失败: {e}")
-            raise
+
     
     def scrape_with_orchestration(self, 
                                   mode: ScrapingMode,
@@ -319,7 +354,7 @@ class ScrapingOrchestrator:
                     execution_time=time.time() - start_time
                 )
             
-            primary_product = self._convert_to_product_info(primary_result.data, is_primary=True)
+            primary_product = _convert_to_product_info(primary_result.data, is_primary=True)
             
             # Step 2: 获取跟卖商品数据（如果存在）
             competitor_product = None
@@ -331,10 +366,10 @@ class ScrapingOrchestrator:
                 competitors_list = competitor_result.data.get('competitors', [])
                 
                 if first_competitor_id:
-                    competitor_url = self._build_competitor_url(first_competitor_id)
+                    competitor_url = _build_competitor_url(first_competitor_id)
                     comp_result = self.ozon_scraper.scrape(competitor_url, skip_competitors=True, **kwargs)
                     if comp_result.success:
-                        competitor_product = self._convert_to_product_info(comp_result.data, is_primary=False)
+                        competitor_product = _convert_to_product_info(comp_result.data, is_primary=False)
             
             # Step 3: 组装数据，使用标准化格式
             return ScrapingResult.create_success(
@@ -352,59 +387,7 @@ class ScrapingOrchestrator:
                 error_message=f"数据组装异常: {str(e)}",
                 execution_time=time.time() - start_time
             )
-    
-    def _convert_to_product_info(self, raw_data: Dict[str, Any], is_primary: bool):
-        """
-        将原始数据转换为标准 ProductInfo 对象
-        
-        Args:
-            raw_data: 原始抓取数据
-            is_primary: 是否为原商品
-            
-        Returns:
-            ProductInfo: 标准化的商品信息对象
-        """
-        from ..models.business_models import ProductInfo
-        
-        return ProductInfo(
-            product_id=raw_data.get('product_id'),
-            product_url=raw_data.get('product_url'),
-            image_url=raw_data.get('product_image'),
-            
-            # 价格信息
-            green_price=raw_data.get('green_price'),
-            black_price=raw_data.get('black_price'),
-            
-            # ERP数据
-            source_price=raw_data.get('erp_data', {}).get('purchase_price') if raw_data.get('erp_data') else raw_data.get('source_price'),
-            commission_rate=raw_data.get('erp_data', {}).get('commission_rate') if raw_data.get('erp_data') else raw_data.get('commission_rate'),
-            weight=raw_data.get('erp_data', {}).get('weight') if raw_data.get('erp_data') else raw_data.get('weight'),
-            length=raw_data.get('erp_data', {}).get('length') if raw_data.get('erp_data') else raw_data.get('length'),
-            width=raw_data.get('erp_data', {}).get('width') if raw_data.get('erp_data') else raw_data.get('width'),
-            height=raw_data.get('erp_data', {}).get('height') if raw_data.get('erp_data') else raw_data.get('height'),
-            shelf_days=raw_data.get('erp_data', {}).get('shelf_days') if raw_data.get('erp_data') else raw_data.get('shelf_days'),
-            
-            # 标识字段
-            source_matched=bool(raw_data.get('erp_data', {}).get('purchase_price') if raw_data.get('erp_data') else raw_data.get('source_price'))
-        )
-    
-    def _build_competitor_url(self, competitor_product_id: str) -> str:
-        """
-        构建跟卖商品URL
-        
-        Args:
-            competitor_product_id: 跟卖商品ID
-            
-        Returns:
-            str: 跟卖商品URL
-        """
-        base_url = "https://www.ozon.ru/product/"
-        return f"{base_url}{competitor_product_id}/"
 
-    
-
-    
-    
     def get_scraper_by_type(self, scraper_type: str):
         """
         根据类型获取Scraper实例

@@ -4,10 +4,9 @@ GoodStoreSelector 业务逻辑单元测试
 测试新增的合并逻辑和数据处理方法
 """
 import unittest
-from unittest.mock import Mock, patch, MagicMock
-import pytest
+from unittest.mock import patch
 
-from good_store_selector import GoodStoreSelector, _evaluate_profit_calculation_completeness
+from common.services.good_store_selector import GoodStoreSelector, _evaluate_profit_calculation_completeness
 from common.models.business_models import ProductInfo
 from common.models.scraping_result import ScrapingResult
 from common.config.base_config import GoodStoreSelectorConfig
@@ -27,12 +26,11 @@ class TestGoodStoreSelectorBusinessLogic(unittest.TestCase):
             
             # 创建真实的 ProfitEvaluator 实例用于测试
             from common.business.profit_evaluator import ProfitEvaluator
-            real_profit_evaluator = ProfitEvaluator("/tmp/calc.xlsx", self.config)
+            real_profit_evaluator = ProfitEvaluator(self.config)
             mock_profit_evaluator.return_value = real_profit_evaluator
             
             self.selector = GoodStoreSelector(
                 excel_file_path="/tmp/test.xlsx",
-                profit_calculator_path="/tmp/calc.xlsx",
                 config=self.config
             )
             

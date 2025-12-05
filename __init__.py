@@ -6,7 +6,7 @@ AI选品自动化系统
 """
 
 # 导入主要模块
-from good_store_selector import GoodStoreSelector
+from common.services.good_store_selector import GoodStoreSelector
 from common.config.base_config import GoodStoreSelectorConfig
 
 # 导入CLI相关模块

@@ -114,11 +114,13 @@ class GoodStoreSelectorConfig:
 ```
 
 **TaskControllerAdapter优化方案**:
+
 ```python
 from cli.models import UIConfig
 from common.config.base_config import GoodStoreSelectorConfig
-from good_store_selector import GoodStoreSelector
+from common.services.good_store_selector import GoodStoreSelector
 from typing import Optional
+
 
 class TaskControllerAdapter:
     def start_task(self, config: UIConfig) -> bool:
@@ -126,15 +128,15 @@ class TaskControllerAdapter:
             # 只创建系统配置，传递必要的系统级参数
             selector_config = GoodStoreSelectorConfig()
             selector_config.dryrun = config.dryrun  # ✅ 系统级参数
-            
+
             # 不传递用户业务参数到系统配置
             # ❌ selector_config.selector_filter.max_products_to_check = config.max_products_per_store
-            
+
             # TaskManager配置传递（如果存在）
             task_config = None
             if hasattr(self.task_manager, 'config'):
                 task_config = self.task_manager.config
-            
+
             selector = GoodStoreSelector(
                 excel_file_path=config.good_shop_file,
                 profit_calculator_path=config.margin_calculator,

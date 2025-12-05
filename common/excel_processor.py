@@ -13,7 +13,8 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from .models import (
     ExcelStoreData, StoreStatus, GoodStoreFlag,
-    ExcelProcessingError, DataValidationError, PriceCalculationError
+    ExcelProcessingError, DataValidationError, PriceCalculationError,
+    ExcelProductData
 )
 from .config import GoodStoreSelectorConfig, get_config
 from common.business.excel_calculator import ExcelProfitCalculator, ProfitCalculatorResult
@@ -276,22 +277,21 @@ class ExcelStoreProcessor:
 
 
 class ExcelProfitProcessor:
-    """Excel利润计算处理器，集成现有的ExcelProfitCalculator"""
+    """Excel利润计算处理器，使用新的引擎架构"""
     
-    def __init__(self, profit_calculator_path: str, config: Optional[GoodStoreSelectorConfig] = None):
+    def __init__(self, config: Optional[GoodStoreSelectorConfig] = None):
         """
         初始化利润计算处理器
         
         Args:
-            profit_calculator_path: 利润计算器Excel文件路径
             config: 配置对象
         """
         self.config = config or get_config()
-        self.profit_calculator_path = Path(profit_calculator_path)
         self.logger = logging.getLogger(f"{__name__}.ExcelProfitProcessor")
         
-        # 初始化利润计算器
-        self.calculator = ExcelProfitCalculator(self.profit_calculator_path)
+        # 使用新的计算器架构
+        from .business.excel_calculator import ExcelProfitCalculator
+        self.calculator = ExcelProfitCalculator()
     
     def calculate_product_profit(self, black_price: float, green_price: float, 
                                commission_rate: float, weight: float) -> ProfitCalculatorResult:
@@ -308,12 +308,21 @@ class ExcelProfitProcessor:
             ProfitCalculatorResult: 计算结果
         """
         try:
-            result = self.calculator.calculate_profit(
+            # 创建计算输入
+            from .models import ProfitCalculatorInput
+            calc_input = ProfitCalculatorInput(
                 black_price=black_price,
                 green_price=green_price,
+                list_price=green_price * 0.95,  # 定价
+                purchase_price=0,  # 这里没有采购价，设为0
                 commission_rate=commission_rate,
-                weight=weight
+                weight=weight,
+                length=10.0,  # 默认尺寸
+                width=10.0,
+                height=10.0
             )
+            
+            result = self.calculator.calculate_profit(calc_input)
             
             self.logger.debug(f"利润计算完成: 利润={result.profit_amount:.2f}, 利润率={result.profit_rate:.2f}%")
             return result
@@ -453,3 +462,182 @@ def validate_excel_file(excel_file_path: str,
     finally:
         if processor:
             processor.close()
+
+
+class ExcelProductWriter:
+    """商品Excel写入器"""
+    
+    def __init__(self, excel_file_path: str, config: Optional[GoodStoreSelectorConfig] = None):
+        """
+        初始化商品Excel写入器
+        
+        Args:
+            excel_file_path: 商品Excel文件路径
+            config: 配置对象
+        """
+        self.config = config or get_config()
+        self.excel_file_path = Path(excel_file_path)
+        self.logger = logging.getLogger(f"{__name__}.ExcelProductWriter")
+        
+        self.workbook: Optional[Workbook] = None
+        self.worksheet: Optional[Worksheet] = None
+        self.current_row: int = 2  # 从第2行开始写入（第1行是表头）
+        
+        self._initialize_workbook()
+    
+    def _initialize_workbook(self):
+        """初始化工作簿"""
+        try:
+            if self.excel_file_path.exists():
+                # 文件已存在，打开并定位到最后一行
+                self.workbook = load_workbook(self.excel_file_path)
+                self.worksheet = self.workbook.active
+                self.current_row = self.worksheet.max_row + 1
+                self.logger.info(f"打开已存在的商品Excel文件: {self.excel_file_path}")
+            else:
+                # 创建新文件
+                self.workbook = Workbook()
+                self.worksheet = self.workbook.active
+                self._write_header()
+                self.logger.info(f"创建新的商品Excel文件: {self.excel_file_path}")
+                
+        except Exception as e:
+            raise ExcelProcessingError(f"初始化商品Excel文件失败: {e}")
+    
+    def _write_header(self):
+        """写入表头"""
+        if not self.worksheet:
+            return
+            
+        headers = {
+            self.config.excel.product_store_id_column: "店铺ID",
+            self.config.excel.product_id_column: "商品ID", 
+            self.config.excel.product_name_column: "商品名称",
+            self.config.excel.product_image_column: "商品图片",
+            self.config.excel.product_green_price_column: "绿标价格",
+            self.config.excel.product_black_price_column: "黑标价格",
+            self.config.excel.product_commission_column: "佣金率",
+            self.config.excel.product_weight_column: "重量(g)",
+            self.config.excel.product_length_column: "长(cm)",
+            self.config.excel.product_width_column: "宽(cm)",
+            self.config.excel.product_height_column: "高(cm)",
+            self.config.excel.product_source_price_column: "货源价格",
+            self.config.excel.product_profit_rate_column: "利润率",
+            self.config.excel.product_profit_amount_column: "预计利润"
+        }
+        
+        for col, header_text in headers.items():
+            self.worksheet[f"{col}1"] = header_text
+    
+    def write_product(self, product_data: ExcelProductData) -> bool:
+        """
+        写入单个商品数据
+        
+        Args:
+            product_data: 商品Excel数据
+            
+        Returns:
+            bool: 是否写入成功
+        """
+        if not self.worksheet:
+            self.logger.error("工作表未初始化")
+            return False
+            
+        try:
+            # 写入各列数据
+            row = self.current_row
+            self.worksheet[f"{self.config.excel.product_store_id_column}{row}"] = product_data.store_id
+            self.worksheet[f"{self.config.excel.product_id_column}{row}"] = product_data.product_id
+            self.worksheet[f"{self.config.excel.product_name_column}{row}"] = product_data.product_name or ""
+            self.worksheet[f"{self.config.excel.product_image_column}{row}"] = product_data.image_url or ""
+            self.worksheet[f"{self.config.excel.product_green_price_column}{row}"] = product_data.green_price or 0
+            self.worksheet[f"{self.config.excel.product_black_price_column}{row}"] = product_data.black_price or 0
+            self.worksheet[f"{self.config.excel.product_commission_column}{row}"] = product_data.commission_rate or 0
+            self.worksheet[f"{self.config.excel.product_weight_column}{row}"] = product_data.weight or 0
+            self.worksheet[f"{self.config.excel.product_length_column}{row}"] = product_data.length or 0
+            self.worksheet[f"{self.config.excel.product_width_column}{row}"] = product_data.width or 0
+            self.worksheet[f"{self.config.excel.product_height_column}{row}"] = product_data.height or 0
+            self.worksheet[f"{self.config.excel.product_source_price_column}{row}"] = product_data.source_price or 0
+            
+            # 利润率显示为百分比
+            if product_data.profit_rate is not None:
+                self.worksheet[f"{self.config.excel.product_profit_rate_column}{row}"] = f"{product_data.profit_rate:.1f}%"
+            else:
+                self.worksheet[f"{self.config.excel.product_profit_rate_column}{row}"] = ""
+                
+            # 预计利润保留2位小数
+            if product_data.profit_amount is not None:
+                self.worksheet[f"{self.config.excel.product_profit_amount_column}{row}"] = round(product_data.profit_amount, 2)
+            else:
+                self.worksheet[f"{self.config.excel.product_profit_amount_column}{row}"] = 0
+            
+            self.current_row += 1
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"写入商品数据失败 (商品ID: {product_data.product_id}): {e}")
+            return False
+    
+    def batch_write_products(self, products: List[ExcelProductData]) -> int:
+        """
+        批量写入商品数据
+        
+        Args:
+            products: 商品数据列表
+            
+        Returns:
+            int: 成功写入的商品数量
+        """
+        if not products:
+            return 0
+            
+        success_count = 0
+        batch_size = 10
+        
+        self.logger.info(f"开始批量写入{len(products)}个商品")
+        
+        for i in range(0, len(products), batch_size):
+            batch = products[i:i + batch_size]
+            batch_success = 0
+            
+            for product in batch:
+                if self.write_product(product):
+                    batch_success += 1
+                    success_count += 1
+            
+            # 每批次后保存
+            if batch_success > 0:
+                self.save_changes()
+                self.logger.info(f"已写入 {success_count}/{len(products)} 个商品")
+        
+        self.logger.info(f"批量写入完成，成功写入 {success_count} 个商品")
+        return success_count
+    
+    def save_changes(self):
+        """保存Excel文件"""
+        if not self.workbook:
+            return
+            
+        try:
+            if not self.config.dryrun:
+                # 确保目录存在
+                self.excel_file_path.parent.mkdir(parents=True, exist_ok=True)
+                self.workbook.save(self.excel_file_path)
+                self.logger.debug("商品Excel文件已保存")
+            else:
+                self.logger.info("🧪 试运行模式：模拟保存商品Excel文件")
+                
+        except Exception as e:
+            self.logger.error(f"保存商品Excel文件失败: {e}")
+    
+    def close(self):
+        """关闭Excel文件"""
+        if self.workbook:
+            try:
+                self.workbook.close()
+                self.logger.info("商品Excel文件已关闭")
+            except Exception as e:
+                self.logger.warning(f"关闭商品Excel文件时出现警告: {e}")
+            finally:
+                self.workbook = None
+                self.worksheet = None
