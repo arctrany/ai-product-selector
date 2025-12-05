@@ -170,10 +170,14 @@ Icon?
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# AI Assistant Config (local only)
 CLAUDE.md
 IFLOW.md
+AGENTS.md
 .iflow
 .cursor
 .claude
 .aone_copilot
+.aone_copolit
 logs
